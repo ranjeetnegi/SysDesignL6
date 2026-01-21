@@ -1,0 +1,906 @@
+# System Design Interview Preparation for Google Staff Engineer (L6)
+
+## Volume 3, Part 1: Consistency Models — How Staff Engineers Choose the Right Guarantees
+
+---
+
+# Introduction
+
+Consistency is one of the most misunderstood concepts in distributed systems. Engineers often treat it as a binary choice—"consistent or inconsistent"—when in reality, it's a spectrum with profound implications for user experience, system complexity, and operational cost.
+
+When a Staff Engineer is asked to design a distributed system, one of the first architectural questions is: *What consistency guarantees does this system need?* Get this wrong, and you'll either build something too slow and expensive, or something that confuses and frustrates users.
+
+This section demystifies consistency models. We'll start with intuition—what does each model *feel like* to users?—before diving into technical details. We'll explore why Google, Facebook, Twitter, and virtually every large-scale system accepts some form of inconsistency. We'll see how Staff Engineers reason about the trade-offs, and we'll apply this thinking to real systems: rate limiters, news feeds, and messaging.
+
+By the end, you'll have practical heuristics for choosing consistency models, and you'll be able to explain your choices in interviews with the confidence that comes from genuine understanding.
+
+---
+
+# Part 1: Consistency Models — Intuition First
+
+Before we define consistency models formally, let's understand them through user experience. What does each model *feel like*?
+
+## Strong Consistency: "What I Write, Everyone Sees Immediately"
+
+**The experience**: You post a comment. Your friend, sitting next to you, refreshes the page. They see your comment. Always. Instantly. No exceptions.
+
+**The mental model**: There's one true state of the data, and everyone sees it. It's as if there's a single database that everyone reads from and writes to, even though the system might be distributed across many servers.
+
+**Real-world analogy**: A shared Google Doc. When you type a character, everyone else in the document sees it within a second. There's no "my version" vs. "your version"—there's just *the* document.
+
+**Technical reality**: Strong consistency is expensive. It requires coordination between servers. Before a write is acknowledged, all replicas must agree. This takes time (latency) and requires all replicas to be reachable (availability risk).
+
+## Eventual Consistency: "What I Write, Everyone Sees... Eventually"
+
+**The experience**: You post a photo on social media. You see it immediately. Your friend, also on their phone, doesn't see it yet. A few seconds later, they do. The delay is usually unnoticeable, occasionally a few seconds, rarely a few minutes.
+
+**The mental model**: Writes propagate through the system over time. Different observers might see different states temporarily, but given enough time (and no new writes), everyone converges to the same state.
+
+**Real-world analogy**: Email. You send an email. The recipient doesn't see it instantly—it takes seconds to minutes to propagate through mail servers. But eventually, it arrives.
+
+**Technical reality**: Eventual consistency is cheaper and more available. Writes can be acknowledged immediately (to one replica), and propagation happens asynchronously. But users might see stale data.
+
+## Causal Consistency: "Cause Always Precedes Effect"
+
+**The experience**: Alice posts "I'm getting married!" Bob comments "Congratulations!" Anyone who sees Bob's comment will definitely see Alice's original post first. You'll never see a reply without its parent.
+
+**The mental model**: If action B was caused by action A, then anyone who sees B will also see A. Causally related events maintain their order. Unrelated events might appear in different orders to different observers.
+
+**Real-world analogy**: A threaded email conversation. You always see the original email before the reply. But two unrelated email threads might load in different orders.
+
+**Technical reality**: Causal consistency is a middle ground. It's cheaper than strong consistency (no global coordination) but provides more guarantees than eventual consistency (no confusing out-of-order effects).
+
+---
+
+## The Spectrum in Practice
+
+These three models aren't the only options—they're points on a spectrum:
+
+```
+Strongest ←────────────────────────────────────────→ Weakest
+
+Linearizability → Sequential → Causal → Read-your-writes → Eventual → None
+     │                                        │                   │
+     └── Single correct global order          │                   └── Anything goes
+                                              │
+                                              └── You see your own writes
+```
+
+**Linearizability (Strongest)**: All operations appear to happen atomically at a single point in time, and that order is consistent with real-time order. The gold standard, but expensive.
+
+**Sequential Consistency**: All operations appear in some order that's consistent across all observers, but that order doesn't need to match real-time.
+
+**Causal Consistency**: Operations that are causally related appear in order. Concurrent (unrelated) operations might appear in different orders to different observers.
+
+**Read-Your-Writes**: You always see your own writes, but others might not see them yet. A practical middle ground.
+
+**Eventual Consistency**: Given enough time, all replicas converge. No guarantees about what you see in the meantime.
+
+---
+
+## A Thought Experiment
+
+Imagine you're at a coffee shop. You post "At my favorite coffee shop!" to social media.
+
+| Consistency Model | What Happens |
+|-------------------|--------------|
+| **Strong** | You post. The app shows "Posted!" only after every data center worldwide has the post. Takes 500ms-2s. If any data center is unreachable, posting fails. |
+| **Causal** | You post. Your app shows the post instantly. Others see it within seconds. If someone comments, viewers always see your post before the comment. |
+| **Read-your-writes** | You post. Your app shows the post instantly. Others might not see it for a few seconds. If you refresh, you always see your post. |
+| **Eventual** | You post. Your app shows "Posted!" You refresh... and the post isn't there. You panic. Refresh again, there it is. (This is bad UX.) |
+
+Notice: The "worst" model (eventual) isn't abstractly bad—it's just wrong for this use case. For other use cases, it's perfectly fine.
+
+---
+
+# Part 2: What User Experience Each Consistency Model Creates
+
+Let's get specific about how consistency models affect users.
+
+## Strong Consistency UX
+
+**Positive effects**:
+- Users never see confusing states
+- "What you see is what everyone sees"
+- No refresh-to-update patterns
+- Simple mental model for users
+
+**Negative effects**:
+- Higher latency on writes (waiting for coordination)
+- Reduced availability (if replicas unreachable, operations fail)
+- More expensive infrastructure
+
+**Users notice when**:
+- Operations feel slow
+- Operations fail during network issues
+- "Try again later" errors increase
+
+**Best for**:
+- Financial transactions (bank transfers)
+- Inventory systems (last item in stock)
+- Access control (revoking permissions)
+- Anything where inconsistency = real harm
+
+## Eventual Consistency UX
+
+**Positive effects**:
+- Low latency on writes
+- High availability (can operate despite network partitions)
+- Lower infrastructure cost
+- Scales easily
+
+**Negative effects**:
+- Users might see stale data
+- "Where did my post go?" confusion
+- Different users see different states
+- Need UI patterns to hide inconsistency
+
+**Users notice when**:
+- They post something and don't see it
+- They and a friend see different counts (likes, comments)
+- Edits seem to "disappear" then reappear
+
+**Best for**:
+- Social media feeds
+- View counts and like counts
+- Analytics dashboards
+- Caching layers
+
+## Causal Consistency UX
+
+**Positive effects**:
+- Cause always precedes effect (no confusing inversions)
+- Lower latency than strong consistency
+- Higher availability than strong consistency
+- Intuitive for conversational flows
+
+**Negative effects**:
+- More complex to implement
+- Unrelated items might appear out of order
+- Still some "stale data" scenarios
+
+**Users notice when**:
+- (Rarely—causal consistency matches human intuition well)
+- Unrelated content appears in unexpected order
+
+**Best for**:
+- Messaging and chat systems
+- Comment threads
+- Collaborative editing
+- Order-dependent workflows
+
+## Read-Your-Writes Consistency UX
+
+**Positive effects**:
+- Your own actions are always visible to you
+- Eliminates the "where did my post go?" problem
+- Lower latency than strong consistency
+- Simple to implement with sticky sessions
+
+**Negative effects**:
+- Others might not see your writes yet
+- Switching devices might show stale state
+
+**Users notice when**:
+- They switch devices and don't see recent actions
+- Friends don't see their updates yet
+
+**Best for**:
+- User-generated content
+- Profile updates
+- Settings changes
+- Most consumer applications
+
+---
+
+# Part 3: Why Large-Scale Systems Accept Inconsistency
+
+## The CAP Theorem Reality
+
+The CAP theorem states that during a network partition, a distributed system must choose between:
+
+- **Consistency (C)**: Every read returns the most recent write
+- **Availability (A)**: Every request receives a response (not an error)
+
+You can't have both during a partition. And partitions happen—networks are unreliable.
+
+**What this means in practice**:
+
+If you choose **consistency**: During a partition, some users get errors. "Service temporarily unavailable."
+
+If you choose **availability**: During a partition, some users get stale data. They might not notice.
+
+For most consumer applications, occasional stale data is preferable to frequent errors. Users can tolerate seeing a like count that's 5 seconds behind. They cannot tolerate the app refusing to load.
+
+## The Latency Trade-off
+
+Even without partitions, strong consistency is slow.
+
+**Why?** Before acknowledging a write, a strongly consistent system must ensure all (or a quorum of) replicas have the write. This requires:
+
+1. Write to primary
+2. Replicate to secondaries
+3. Wait for acknowledgments
+4. Then respond to client
+
+**Latency math**:
+- Cross-datacenter network latency: 50-200ms
+- If you require acknowledgment from datacenters on multiple continents: 300-500ms minimum
+
+For a social media "like" button, waiting 500ms is unacceptable. Users expect instant feedback.
+
+**Eventual consistency** acknowledges immediately (write to one replica), replicates in background. Response time: 10-50ms.
+
+## The Availability Trade-off
+
+Strong consistency requires replicas to be reachable. If they're not:
+
+**Option A**: Wait (potentially forever) until they're reachable
+**Option B**: Return an error
+
+Neither is good for user experience.
+
+With eventual consistency, you write to available replicas and propagate when you can. Availability stays high even during partial outages.
+
+## The Cost Trade-off
+
+Strong consistency requires:
+- More network bandwidth (synchronous replication)
+- More powerful infrastructure (lower tolerance for delays)
+- More sophisticated consensus protocols (Paxos, Raft)
+- More operational expertise
+
+This translates directly to higher infrastructure costs.
+
+At Google/Facebook scale, the difference between strong and eventual consistency might be hundreds of millions of dollars per year.
+
+## What Big Companies Actually Do
+
+| Company | System | Consistency Model | Why |
+|---------|--------|-------------------|-----|
+| Google | Spanner (DB) | Strong (linearizable) | Worth the cost for critical data |
+| Google | YouTube view counts | Eventual | Counts don't need to be exact |
+| Facebook | News Feed | Eventual | Latency matters more than precision |
+| Facebook | Payments | Strong | Financial accuracy is mandatory |
+| Twitter | Tweet posting | Eventually consistent | Speed of posting matters |
+| Twitter | User blocking | Strong | Security requires immediate effect |
+| Amazon | Shopping cart | Eventually consistent | Availability > perfect state |
+| Amazon | Order placement | Strong | Can't lose or duplicate orders |
+
+**Pattern**: Use strong consistency where inconsistency causes real harm. Accept eventual consistency everywhere else.
+
+---
+
+# Part 4: How Staff Engineers Reason About Consistency
+
+## The Core Question
+
+The fundamental question is:
+
+**"What's the cost of showing stale or inconsistent data?"**
+
+If the cost is high (money lost, security breached, user harmed), lean toward stronger consistency.
+
+If the cost is low (slight user confusion, eventually self-correcting), accept weaker consistency.
+
+## Decision Heuristics
+
+### Heuristic 1: Follow the Money
+
+**If real money is involved, use strong consistency.**
+
+- Bank transfers: Strong
+- Payment processing: Strong
+- Inventory for purchase: Strong (at checkout moment)
+- Like counts: Eventual (no money involved)
+
+### Heuristic 2: Follow the Security
+
+**If security or access control is involved, use strong consistency.**
+
+- Revoking user access: Strong (must be immediate)
+- Permission changes: Strong
+- Blocking a user: Strong
+- Notification preferences: Read-your-writes (personal impact)
+
+### Heuristic 3: User Expectation Test
+
+**Would users be confused or upset if they saw stale data?**
+
+- "I just posted but can't see my post" → Confusing → At least read-your-writes
+- "Like count shows 42 vs 43" → Not confusing → Eventual is fine
+- "I see a reply but not the original post" → Confusing → Causal needed
+
+### Heuristic 4: The "Would They Notice?" Test
+
+**Would the user notice the inconsistency?**
+
+- View counts lagging by 5 seconds: Won't notice
+- Their own post disappearing: Will definitely notice
+- Comments appearing before posts: Will notice and be confused
+- Two friends seeing different feed order: Won't notice (each person sees one version)
+
+### Heuristic 5: Correctability Test
+
+**Can the user or system easily correct the issue?**
+
+- Stale view count: Self-corrects on next refresh
+- Duplicate message: User confused, needs UI to dedupe
+- Lost bank transfer: Cannot easily correct, catastrophic
+
+**If self-correcting, eventual consistency is likely acceptable.**
+
+### Heuristic 6: Read-Heavy vs. Write-Heavy
+
+**Read-heavy operations often tolerate eventual consistency better.**
+
+- Reads from cache: Eventual (cache might be stale)
+- Writes that must be durable: Need at least local confirmation
+- Read-modify-write operations: May need strong consistency to avoid lost updates
+
+---
+
+## Interview Articulation
+
+When explaining consistency choices in an interview, use this structure:
+
+1. **State the choice**: "For this data, I'm choosing eventual consistency."
+2. **State the rationale**: "Because inconsistency here doesn't cause harm—users won't notice if like counts are a few seconds behind."
+3. **Acknowledge the trade-off**: "This gives us better latency and availability at the cost of occasional staleness."
+4. **Describe the user experience**: "In practice, a user might see 42 likes while their friend sees 43. Neither is wrong; they're both recent values."
+5. **Contrast with alternatives**: "If we used strong consistency here, writes would be 500ms slower, which would feel sluggish when liking content."
+
+---
+
+# Part 5: Common Mistakes When Choosing Strong Consistency
+
+## Mistake 1: Defaulting to Strong "Because It's Safer"
+
+**The thinking**: "I don't want data issues, so I'll use strong consistency everywhere."
+
+**The problem**: You're paying latency, availability, and cost penalties for safety you don't need.
+
+**Example**: Using strongly consistent database for website analytics. Analytics are approximations anyway—nobody cares if pageview counts are off by 0.1%.
+
+**Staff-level thinking**: Strong consistency is a tool, not a default. Use it where the cost of inconsistency exceeds the cost of consistency.
+
+## Mistake 2: Not Understanding What "Strong" Actually Means
+
+**The thinking**: "I'll use a replicated database, so it's consistent."
+
+**The problem**: Replication ≠ consistency. Async replication is eventually consistent. Sync replication to all replicas is strongly consistent. Many databases default to async.
+
+**Example**: Assuming PostgreSQL with streaming replication is strongly consistent. By default, it's not—reads from replicas might be behind.
+
+**Staff-level thinking**: Know exactly what consistency your infrastructure provides. Configure it explicitly.
+
+## Mistake 3: Ignoring Read Paths
+
+**The thinking**: "Writes go to a single primary, so we're consistent."
+
+**The problem**: If reads go to replicas, and replicas lag, you're eventually consistent for reads even with single-writer.
+
+**Example**: Writing to primary PostgreSQL, reading from replica. User writes, then reads from replica, doesn't see their write.
+
+**Staff-level thinking**: Trace the full read and write paths. Consistency depends on both.
+
+## Mistake 4: Using Strong Consistency and Accepting High Latency
+
+**The thinking**: "Consistency is important, so we'll accept 2-second writes."
+
+**The problem**: Users will hate the experience. 2-second delays feel broken.
+
+**Better approach**: Reconsider whether strong consistency is actually needed. Or use techniques like optimistic UI (show the change immediately, reconcile later).
+
+**Staff-level thinking**: Never accept user-hostile latency without questioning the underlying requirement.
+
+## Mistake 5: Ignoring Partial Failure Scenarios
+
+**The thinking**: "Our strongly consistent system will never show stale data."
+
+**The problem**: During network partitions or high load, strongly consistent systems often return errors. Users might cache or retry, leading to stale client state.
+
+**Example**: Strongly consistent checkout fails during partition. User retries with stale cart data. Order is wrong.
+
+**Staff-level thinking**: Plan for failures. Strongly consistent systems fail "safely" (with errors), but you still need to handle those errors gracefully.
+
+## Mistake 6: Mixing Consistency Requirements in One Request
+
+**The thinking**: "This API returns user profile and like counts, so we need strong consistency for both."
+
+**The problem**: Profile might need strong; like counts don't. You're paying for strong consistency on data that doesn't need it.
+
+**Better approach**: Separate the data by consistency requirement. Fetch profile from primary; fetch counts from cache.
+
+**Staff-level thinking**: Design APIs around consistency boundaries, not arbitrary data groupings.
+
+---
+
+# Part 6: Applying Consistency Choices to Real Systems
+
+Let's apply this thinking to three systems: rate limiter, news feed, and messaging.
+
+## System 1: Rate Limiter
+
+### The System
+
+A rate limiter controls how many requests a client can make in a time window. At scale:
+- 1M+ requests/second
+- Distributed across many servers
+- Each request must check and increment a counter
+
+### Consistency Question
+
+When a request arrives, we check if the client is within limits. This requires:
+1. Read current counter
+2. Check against limit
+3. Increment counter
+
+**Should this be strongly consistent?**
+
+### Analysis
+
+**If strongly consistent**:
+- Every server agrees on exact count
+- Never allows a single request over limit
+- Requires distributed consensus on every request
+- Latency: 10-100ms per check (unacceptable—rate limiter must be <1ms)
+- Availability: If coordination fails, rate limiting fails
+
+**If eventually consistent**:
+- Servers have local counters, sync periodically
+- Might allow 5-10% over limit during sync windows
+- Latency: <1ms (local operation)
+- Availability: Works even during partitions
+
+### The Right Choice
+
+**Eventual consistency is the right choice.**
+
+**Reasoning**:
+1. Rate limiting is approximate by nature—the goal is preventing abuse, not exact enforcement
+2. Being 5% over limit occasionally is acceptable; 100ms latency is not
+3. Availability matters more—if rate limiter fails, we should fail open (allow requests) rather than block everything
+
+### What Breaks with Strong Consistency
+
+If we insisted on strong consistency:
+- Rate check adds 50-100ms to every request
+- During network partitions, rate limiter errors, affecting all requests
+- System becomes the bottleneck it was meant to prevent
+
+### Interview Articulation
+
+"For the rate limiter, I'm choosing eventual consistency. Rate limiting is inherently approximate—we're protecting against abuse, not implementing a billing system. I'm accepting that limits might be slightly exceeded during counter synchronization. The alternative—strong consistency—would add unacceptable latency to every request and create an availability risk. The trade-off of ~5% over-limit occasionally is worth the <1ms check latency."
+
+---
+
+## System 2: News Feed
+
+### The System
+
+A news feed shows personalized content:
+- User follows accounts, sees their posts
+- Posts are ranked by relevance and recency
+- Feed loads must be fast (<300ms)
+
+### Consistency Questions
+
+Several consistency questions arise:
+
+1. **When a user posts, when should followers see it?**
+2. **When a post is deleted, how quickly should it disappear?**
+3. **What about like/comment counts?**
+4. **What about user preferences (muting an account)?**
+
+### Analysis
+
+**Post visibility (eventual is fine)**:
+- Delay of 30-60 seconds is unnoticeable
+- Strong consistency would require synchronous fan-out to millions of followers
+- Users don't expect instant appearance in others' feeds
+
+**Post deletion (needs to be faster)**:
+- User expects deleted content to disappear "quickly"
+- Eventual with short window (5-10 seconds) is acceptable
+- Strong consistency is overkill—users tolerate brief visibility
+
+**Like/comment counts (eventual is fine)**:
+- Counts are approximate anyway (rounding, display)
+- Users don't compare counts in real-time
+- No harm from 5-second staleness
+
+**User preferences (needs read-your-writes)**:
+- If I mute an account, I expect it to take effect immediately
+- I should not see posts from that account after muting
+- But others don't see my preferences at all, so no global consistency needed
+
+### The Right Choice
+
+| Data | Consistency Model | Latency Target |
+|------|-------------------|----------------|
+| Post in followers' feeds | Eventual | < 60 seconds |
+| Post deletion | Eventual (fast) | < 10 seconds |
+| Like/comment counts | Eventual | < 5 seconds |
+| User preferences | Read-your-writes | Immediate |
+
+### What Breaks with Strong Consistency
+
+If we insisted on strong consistency for post visibility:
+- Publishing a post requires writing to millions of feeds synchronously
+- A user with 10M followers → 10M synchronous writes → minutes to publish
+- During any network issue, publishing fails completely
+
+**Specific failure scenario**:
+- Celebrity tweets "Breaking news!"
+- Strong consistency: System attempts synchronous fan-out to 50M followers
+- One data center is slow
+- Tweet is not acknowledged for 30+ seconds
+- Celebrity sees "Posting..." spinner
+- Celebrity rage-quits to competitor platform
+
+### Interview Articulation
+
+"The news feed has different consistency needs for different data. For post visibility in followers' feeds, I'm using eventual consistency with ~60 second target. The alternative—synchronous fan-out—would make posting take minutes for users with many followers.
+
+For user preferences like muting, I need read-your-writes consistency. If a user mutes an account, they must stop seeing posts from it immediately. But this is session-local—I just need to ensure the user's own session sees the update, not global consistency.
+
+For engagement counts, eventual consistency is fine. Users don't notice if like counts are a few seconds behind."
+
+---
+
+## System 3: Messaging System
+
+### The System
+
+A real-time messaging system:
+- 1:1 and group conversations
+- Messages should appear in order
+- Delivery should be reliable
+
+### Consistency Questions
+
+1. **What order should messages appear in?**
+2. **What if sender and receiver see different orders?**
+3. **What about read receipts?**
+4. **What about message delivery guarantees?**
+
+### Analysis
+
+**Message ordering (causal consistency needed)**:
+- If Alice says "Want to get dinner?" and Bob replies "Sure!", everyone must see these in order
+- Showing reply before question is confusing
+- Causal consistency ensures cause precedes effect
+
+**Cross-conversation ordering (eventual is fine)**:
+- Messages in different conversations don't need to be ordered relative to each other
+- Alice's chat with Bob and Alice's chat with Carol are independent
+
+**Read receipts (eventual is fine)**:
+- "Seen" status can lag by seconds
+- Users don't expect instantaneous read receipts
+- Strong consistency would complicate multi-device sync
+
+**Message delivery (at-least-once, not exactly-once)**:
+- Losing messages is unacceptable
+- Occasional duplicates are tolerable (UI can dedupe)
+- Exactly-once requires distributed transactions—too expensive
+
+### The Right Choice
+
+| Data | Consistency Model | Notes |
+|------|-------------------|-------|
+| Messages within conversation | Causal | Replies after originals |
+| Messages across conversations | Eventual | No ordering required |
+| Read receipts | Eventual | 1-5 second lag acceptable |
+| Delivery | At-least-once | Durability over exactly-once |
+
+### What Breaks with Wrong Choice
+
+**If we used eventual consistency for message ordering**:
+- Bob's "Sure!" might appear before Alice's "Want to get dinner?"
+- Conversation is confusing
+- Users lose trust in the system
+
+**If we used strong consistency for everything**:
+- Every message requires global coordination
+- Latency increases from 50ms to 500ms
+- Messaging feels sluggish
+- During partitions, messages fail to send
+
+**Specific failure scenario (eventual ordering)**:
+- Alice: "I'm breaking up with you."
+- Bob: "I love you too!" (sent before seeing Alice's message)
+- Alice sees Bob's "I love you too!" first, then her own message
+- Disaster. The UI shows an impossible conversation.
+
+### Interview Articulation
+
+"For the messaging system, I'm using causal consistency within conversations. Messages must appear in causal order—a reply after its parent, an acknowledgment after the original. Without this, conversations become nonsensical.
+
+Across conversations, I'm using eventual consistency. There's no need for global ordering between unrelated chats.
+
+For read receipts, I'm using eventual consistency. Users don't expect 'seen' status to be instantaneous, and the complexity of strong consistency isn't worth it for this data.
+
+For delivery, I'm guaranteeing at-least-once. I'd rather have occasional duplicates (which the UI can hide) than ever lose a message. Exactly-once would require distributed transactions that would hurt latency."
+
+---
+
+# Part 7: What Breaks When the Wrong Model Is Chosen
+
+Let's explore specific failure scenarios when systems choose the wrong consistency model.
+
+## Scenario 1: Strong Consistency for High-Throughput Writes
+
+**System**: Rate limiter with strong consistency
+
+**What happens**:
+1. Rate limiter uses Raft consensus for counter updates
+2. Each request requires quorum agreement: 50-100ms
+3. At 1M requests/second, each rate check takes 50ms
+4. Total added latency: 50ms × requests = unusable system
+5. During leader election (few seconds), all rate checks fail
+6. Either system blocks all requests or allows all (fail-open)
+
+**The lesson**: High-throughput, low-latency systems cannot use strong consistency on the hot path.
+
+## Scenario 2: Eventual Consistency for Financial Data
+
+**System**: Payment processor with eventual consistency
+
+**What happens**:
+1. User initiates transfer of $1000
+2. Write is accepted to local replica
+3. User checks balance on different replica—still shows $1000
+4. User initiates another transfer of $1000
+5. Both transfers complete
+6. User overdrafts by $1000
+
+**The lesson**: Financial data requires strong consistency (or careful application-level compensation).
+
+## Scenario 3: No Causal Consistency in Messaging
+
+**System**: Chat application with plain eventual consistency
+
+**What happens**:
+1. In a group chat, Alice asks "Who wants pizza?"
+2. Bob replies "Me!"
+3. Carol sees: "Me!" then "Who wants pizza?"
+4. Carol is confused—who is "me" and what do they want?
+5. Over time, users lose trust in the app
+6. Users switch to competitors
+
+**The lesson**: Conversations require causal ordering.
+
+## Scenario 4: Strong Consistency for Non-Critical Data
+
+**System**: Social media platform using strong consistency for like counts
+
+**What happens**:
+1. Every like requires distributed consensus
+2. Like button has 300ms delay
+3. Users perceive the app as slow
+4. During network issues, likes fail entirely
+5. Users complain about "buggy" like button
+6. Engagement metrics tank
+
+**The lesson**: Don't use strong consistency for data that doesn't need it.
+
+## Scenario 5: Eventual Consistency Without Read-Your-Writes
+
+**System**: User profile updates with pure eventual consistency
+
+**What happens**:
+1. User updates profile picture
+2. User refreshes profile page
+3. Old picture still shows
+4. User confused—"Did my update fail?"
+5. User uploads again
+6. Eventually sees doubled updates or gives up
+7. Support tickets about "broken" profile updates
+
+**The lesson**: User-initiated changes need at least read-your-writes consistency.
+
+---
+
+# Part 8: Decision Framework Summary
+
+## The Complete Heuristic
+
+When choosing a consistency model, work through this decision tree:
+
+```
+1. Does inconsistency cause financial harm?
+   YES → Strong consistency
+   NO → Continue
+
+2. Does inconsistency cause security/access control issues?
+   YES → Strong consistency (for security data)
+   NO → Continue
+
+3. Would users notice and be confused by inconsistency?
+   YES, significantly → Consider causal or read-your-writes
+   YES, slightly → Eventual with short windows
+   NO → Eventual consistency
+
+4. Is this data causally related (replies, reactions to content)?
+   YES → Causal consistency
+   NO → Continue
+
+5. Is this data the user's own actions?
+   YES → At least read-your-writes
+   NO → Eventual consistency
+
+6. Is latency critical (user waiting)?
+   YES → Lean toward eventual consistency
+   NO → Can afford stronger consistency
+```
+
+## Quick Reference Table
+
+| Use Case | Recommended Model | Key Reason |
+|----------|-------------------|------------|
+| Bank transfers | Strong | Money at stake |
+| Access control changes | Strong | Security at stake |
+| Message ordering in chat | Causal | Conversations must make sense |
+| User's own posts/updates | Read-your-writes | Avoid "where did it go?" |
+| Social engagement counts | Eventual | Not critical, high volume |
+| View counters | Eventual | Approximate is fine |
+| News feed content | Eventual | Staleness acceptable |
+| Rate limit counters | Eventual | Approximate enforcement ok |
+| User preferences | Read-your-writes | User expects immediate effect |
+| Comment threads | Causal | Replies after parents |
+| Inventory at browse | Eventual | Exact count not critical |
+| Inventory at checkout | Strong | Prevent overselling |
+
+---
+
+# Brainstorming Questions
+
+## Understanding Consistency
+
+1. You're designing a collaborative document editor (like Google Docs). What consistency model do you need for keystrokes? For cursor positions? For document history?
+
+2. A social network shows "3 of your friends liked this." Does this need strong consistency? What's the user impact of slight inaccuracy?
+
+3. You're building a ride-sharing app. What consistency is needed for driver location? For trip assignment? For payment processing?
+
+4. Consider a recommendation system ("Users who bought X also bought Y"). Does this need real-time consistency? Why or why not?
+
+5. You're designing a leaderboard for a mobile game. What consistency model is appropriate? Does it change for top-10 vs. full leaderboard?
+
+## Reasoning About Trade-offs
+
+6. A product manager asks for "real-time" like counts. How do you push back? What questions do you ask?
+
+7. You're building a system that's eventually consistent. How do you test it? How do you verify the "eventual" part works?
+
+8. When would you choose causal consistency over read-your-writes? When would you choose the opposite?
+
+9. You have a globally distributed system with data centers on 5 continents. What's the minimum latency for strongly consistent writes? How does this inform your consistency choice?
+
+10. Your eventually consistent system has a bug where data occasionally never converges. How would you detect this? How would you fix it?
+
+## System-Specific
+
+11. For a messaging system, what's more important: guaranteed delivery or guaranteed ordering? Can you have both?
+
+12. In a news feed, you show "Posted 5 minutes ago." The actual time was 5 minutes and 30 seconds. Is this a consistency issue? Does it matter?
+
+13. For a rate limiter, you allow 5% over-limit during distributed counter sync. A client exploits this by rapidly switching between servers. How do you handle it?
+
+14. Your eventually consistent system sometimes shows deleted content. How do you minimize this? What's the trade-off?
+
+15. You're migrating from strong to eventual consistency for a system. What do you need to change in the application layer? What might break?
+
+---
+
+# Homework Exercises
+
+## Exercise 1: Redesign Under Stricter Consistency
+
+Take the news feed system designed with eventual consistency.
+
+Redesign it with the constraint: **Posts must appear in followers' feeds within 1 second with strong consistency guarantees.**
+
+Address:
+- How does the architecture change?
+- What's the impact on latency?
+- What's the impact on availability during partitions?
+- What's the infrastructure cost difference?
+- Is this even feasible at 200M DAU?
+
+Write a 2-page design document with your analysis.
+
+## Exercise 2: Identify Consistency Requirements
+
+For each system, identify the consistency model needed for each type of data:
+
+**System A: E-commerce Platform**
+- Product catalog
+- Shopping cart
+- Inventory counts
+- Order placement
+- Order history
+- Reviews and ratings
+
+**System B: Online Multiplayer Game**
+- Player position in game world
+- Player inventory
+- Match results
+- Leaderboards
+- Chat messages
+- Friend list
+
+Create a table for each system with data type, consistency model, and justification.
+
+## Exercise 3: Failure Scenario Analysis
+
+For the messaging system with causal consistency:
+
+1. Describe 3 specific failure scenarios that could cause messages to appear out of order
+2. For each, explain how the system should detect and recover
+3. What monitoring/alerting would you implement?
+4. What's the user experience during each failure?
+
+## Exercise 4: Consistency Migration
+
+You're inheriting a system that uses strong consistency everywhere. The system is slow and expensive, and you've been asked to optimize.
+
+1. How do you identify which data can use weaker consistency?
+2. What questions do you ask stakeholders?
+3. How do you validate that weaker consistency is acceptable?
+4. How do you migrate without breaking existing functionality?
+5. What tests do you write?
+
+Create a migration plan outline.
+
+## Exercise 5: Interview Practice
+
+Practice explaining consistency trade-offs for 3 different systems:
+
+For each system, practice a 3-minute explanation that covers:
+- What consistency model you chose
+- Why (with specific reasoning)
+- What you're trading off
+- What user experience this creates
+
+Systems:
+1. A banking application
+2. A social media platform
+3. A real-time collaborative whiteboard
+
+Record yourself or practice with a partner. Focus on clarity and structure.
+
+---
+
+# Conclusion
+
+Consistency is not a binary choice—it's a spectrum of trade-offs. Staff Engineers understand this spectrum deeply and make intentional choices based on:
+
+- **User experience**: What does each model feel like to users?
+- **Business requirements**: Where does inconsistency cause real harm?
+- **Technical constraints**: What's the latency and availability cost of stronger consistency?
+- **Operational complexity**: How hard is each model to implement and debug?
+
+The key insights from this section:
+
+1. **Strong consistency is expensive.** Don't use it where you don't need it.
+
+2. **Eventual consistency is usually acceptable.** Most data tolerates brief staleness.
+
+3. **Causal consistency is underrated.** It prevents confusing user experiences without the full cost of strong consistency.
+
+4. **Read-your-writes is often the sweet spot.** Users see their own actions immediately; propagation to others can be eventual.
+
+5. **Match consistency to data, not to systems.** Different data in the same system can have different consistency requirements.
+
+6. **Always ask: "What breaks if this data is stale?"** The answer guides your choice.
+
+In interviews, demonstrate this nuanced understanding. Don't just choose a consistency model—explain *why* you chose it, what you're trading off, and what the user experience will be. That's Staff-level thinking.
+
+---
+
+*End of Volume 3, Part 1*
+
+*Next: Volume 3, Part 2 – "Availability and Reliability — Designing for Failure"*
