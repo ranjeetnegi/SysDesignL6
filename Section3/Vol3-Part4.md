@@ -554,9 +554,9 @@ FUNCTION process_request(idempotency_key, operation):
 │                  IDEMPOTENCY KEY STRATEGIES                         │
 │                                                                     │
 │   Strategy 1: Client-Generated UUID                                 │
-│   ┌─────────────────────────────────────────────────────────────┐   │
-│   │ Header: Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000│   │
-│   └─────────────────────────────────────────────────────────────┘   │
+│   ┌─────────────────────────────────────────────────────────────-┐  │
+│   │ Header: Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000│  │
+│   └─────────────────────────────────────────────────────────────-┘  │
 │   ✅ Simple to implement                                            │
 │   ✅ Client controls retry window                                   │
 │   ⚠️  Requires client compliance                                    │
@@ -2168,35 +2168,35 @@ FUNCTION handle_message(message):
 │   │    PUSH      │ │    EMAIL     │ │     SMS      │                │
 │   │   WORKER     │ │    WORKER    │ │    WORKER    │                │
 │   │              │ │              │ │              │                │
-│   │ ┌──────────┐ │ │ ┌──────────┐ │ │ ┌──────────┐ │              │
-│   │ │Circuit   │ │ │ │Circuit   │ │ │ │Circuit   │ │              │
-│   │ │Breaker   │ │ │ │Breaker   │ │ │ │Breaker   │ │              │
-│   │ └──────────┘ │ │ └──────────┘ │ │ └──────────┘ │              │
-│   │              │ │              │ │              │              │
-│   │ ┌──────────┐ │ │ ┌──────────┐ │ │ ┌──────────┐ │              │
-│   │ │Rate Limit│ │ │ │Rate Limit│ │ │ │Rate Limit│ │              │
-│   │ │(FCM:500k)│ │ │ │(SES:50/s)│ │ │ │(Twilio)  │ │              │
-│   │ └──────────┘ │ │ └──────────┘ │ │ └──────────┘ │              │
-│   │              │ │              │ │              │              │
-│   │ ┌──────────┐ │ │ ┌──────────┐ │ │ ┌──────────┐ │              │
-│   │ │Retry w/  │ │ │ │Retry w/  │ │ │ │Retry w/  │ │              │
-│   │ │Backoff   │ │ │ │Backoff   │ │ │ │Backoff   │ │              │
-│   │ └──────────┘ │ │ └──────────┘ │ │ └──────────┘ │              │
-│   └──────┬───────┘ └──────┬───────┘ └──────┬───────┘              │
-│          │                │                │                       │
-│          ▼                ▼                ▼                       │
-│   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐              │
-│   │ Firebase     │ │ Amazon SES   │ │   Twilio     │              │
-│   │ Cloud        │ │              │ │              │              │
-│   │ Messaging    │ │              │ │              │              │
-│   └──────────────┘ └──────────────┘ └──────────────┘              │
+│   │ ┌──────────┐ │ │ ┌──────────┐ │ │ ┌──────────┐ │                │
+│   │ │Circuit   │ │ │ │Circuit   │ │ │ │Circuit   │ │                │
+│   │ │Breaker   │ │ │ │Breaker   │ │ │ │Breaker   │ │                │
+│   │ └──────────┘ │ │ └──────────┘ │ │ └──────────┘ │                │
+│   │              │ │              │ │              │                │
+│   │ ┌──────────┐ │ │ ┌──────────┐ │ │ ┌──────────┐ │                │
+│   │ │Rate Limit│ │ │ │Rate Limit│ │ │ │Rate Limit│ │                │
+│   │ │(FCM:500k)│ │ │ │(SES:50/s)│ │ │ │(Twilio)  │ │                │
+│   │ └──────────┘ │ │ └──────────┘ │ │ └──────────┘ │                │
+│   │              │ │              │ │              │                │
+│   │ ┌──────────┐ │ │ ┌──────────┐ │ │ ┌──────────┐ │                │
+│   │ │Retry w/  │ │ │ │Retry w/  │ │ │ │Retry w/  │ │                │
+│   │ │Backoff   │ │ │ │Backoff   │ │ │ │Backoff   │ │                │
+│   │ └──────────┘ │ │ └──────────┘ │ │ └──────────┘ │                │
+│   └──────┬───────┘ └──────┬───────┘ └──────┬───────┘                │
+│          │                │                │                        │
+│          ▼                ▼                ▼                        │
+│   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                │
+│   │ Firebase     │ │ Amazon SES   │ │   Twilio     │                │
+│   │ Cloud        │ │              │ │              │                │
+│   │ Messaging    │ │              │ │              │                │
+│   └──────────────┘ └──────────────┘ └──────────────┘                │
 │                                                                     │
-│   GRACEFUL DEGRADATION:                                            │
-│   ═════════════════════                                            │
-│   • If Push fails → fallback to Email                              │
-│   • If Email fails → fallback to SMS                               │
-│   • If all fail → queue for retry + alert ops                      │
-│   • Marketing notifications shed first under load                  │
+│   GRACEFUL DEGRADATION:                                             │
+│   ═════════════════════                                             │
+│   • If Push fails → fallback to Email                               │
+│   • If Email fails → fallback to SMS                                │
+│   • If all fail → queue for retry + alert ops                       │
+│   • Marketing notifications shed first under load                   │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -2214,18 +2214,18 @@ This section captures the thinking patterns that separate strong senior engineer
 │   L5 THINKING (Common):                                                 │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   "Let's add 5 retries to make the system more reliable."              │
+│   "Let's add 5 retries to make the system more reliable."               │
 │                                                                         │
 │   Reasoning:                                                            │
-│   • More retries = more chances to succeed                             │
-│   • If something fails, just try again                                 │
-│   • Transient errors will eventually succeed                           │
+│   • More retries = more chances to succeed                              │
+│   • If something fails, just try again                                  │
+│   • Transient errors will eventually succeed                            │
 │                                                                         │
 │   What goes wrong:                                                      │
-│   • 5 retries across 4 tiers = 625x amplification                     │
-│   • Each retry consumes resources (threads, connections)               │
-│   • Retries during outage extend the outage                           │
-│   • "Making it more reliable" actually makes it less reliable          │
+│   • 5 retries across 4 tiers = 625x amplification                       │
+│   • Each retry consumes resources (threads, connections)                │
+│   • Retries during outage extend the outage                             │
+│   • "Making it more reliable" actually makes it less reliable           │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 
@@ -2233,20 +2233,20 @@ This section captures the thinking patterns that separate strong senior engineer
 │   L6 THINKING (Staff):                                                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   "Every retry is a request that already failed once.                  │
-│    We're sending KNOWN-PROBLEMATIC traffic to a struggling system.     │
-│    Retries should be a controlled, budgeted resource."                 │
+│   "Every retry is a request that already failed once.                   │
+│    We're sending KNOWN-PROBLEMATIC traffic to a struggling system.      │
+│    Retries should be a controlled, budgeted resource."                  │
 │                                                                         │
 │   Approach:                                                             │
-│   1. Start with 0 retries, prove they're needed                        │
-│   2. Add retry budget (max 10% of traffic)                             │
-│   3. Circuit breakers BEFORE retry logic                               │
-│   4. Measure: retry ratio, success rate by attempt                     │
-│   5. Alert when retry ratio exceeds 5%                                 │
+│   1. Start with 0 retries, prove they're needed                         │
+│   2. Add retry budget (max 10% of traffic)                              │
+│   3. Circuit breakers BEFORE retry logic                                │
+│   4. Measure: retry ratio, success rate by attempt                      │
+│   5. Alert when retry ratio exceeds 5%                                  │
 │                                                                         │
 │   Key insight:                                                          │
-│   "The right number of retries during an outage is ZERO.               │
-│    Circuit breaker should prevent retries from happening at all."      │
+│   "The right number of retries during an outage is ZERO.                │
+│    Circuit breaker should prevent retries from happening at all."       │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2258,18 +2258,18 @@ This section captures the thinking patterns that separate strong senior engineer
 │   L5 THINKING (Common):                                                 │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   "We'll add an Idempotency-Key header. Done."                         │
+│   "We'll add an Idempotency-Key header. Done."                          │
 │                                                                         │
 │   Implementation:                                                       │
-│   • Check if key exists in database                                    │
-│   • If yes, return cached response                                     │
-│   • If no, process and store response                                  │
+│   • Check if key exists in database                                     │
+│   • If yes, return cached response                                      │
+│   • If no, process and store response                                   │
 │                                                                         │
 │   What goes wrong:                                                      │
-│   • Two concurrent requests with same key = both process               │
-│   • Partial failures leave inconsistent state                          │
-│   • Key expires, client retries, operation happens again               │
-│   • Cached response is stale, client makes wrong decisions             │
+│   • Two concurrent requests with same key = both process                │
+│   • Partial failures leave inconsistent state                           │
+│   • Key expires, client retries, operation happens again                │
+│   • Cached response is stale, client makes wrong decisions              │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 
@@ -2277,29 +2277,29 @@ This section captures the thinking patterns that separate strong senior engineer
 │   L6 THINKING (Staff):                                                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   "Idempotency is a STATE MACHINE, not a cache lookup."                │
+│   "Idempotency is a STATE MACHINE, not a cache lookup."                 │
 │                                                                         │
 │   Implementation:                                                       │
 │                                                                         │
 │   STATE MACHINE:                                                        │
-│   ┌──────────┐     ┌─────────────┐     ┌───────────┐                  │
-│   │ NOT_SEEN │ ──► │ IN_PROGRESS │ ──► │ COMPLETED │                  │
-│   └──────────┘     └─────────────┘     └───────────┘                  │
-│        │                 │                   │                         │
-│        │                 │                   └─► Return cached response│
-│        │                 │                                             │
-│        │                 └─► Concurrent request? Return 409 or wait   │
-│        │                                                               │
-│        └─► Acquire lock atomically (SET NX)                           │
+│   ┌──────────┐     ┌─────────────┐     ┌───────────┐                    │
+│   │ NOT_SEEN │ ──► │ IN_PROGRESS │ ──► │ COMPLETED │                    │
+│   └──────────┘     └─────────────┘     └───────────┘                    │
+│        │                 │                   │                          │
+│        │                 │                   └─► Return cached response │
+│        │                 │                                              │
+│        │                 └─► Concurrent request? Return 409 or wait     │
+│        │                                                                │
+│        └─► Acquire lock atomically (SET NX)                             │
 │                                                                         │
 │   Key insight:                                                          │
-│   "The idempotency key is a LOCK, not just a lookup.                   │
-│    We need to handle: concurrent, partial, and expired states."        │
+│   "The idempotency key is a LOCK, not just a lookup.                    │
+│    We need to handle: concurrent, partial, and expired states."         │
 │                                                                         │
 │   Additional considerations:                                            │
-│   • TTL should match business retry window (not arbitrary 24h)        │
-│   • Store per-step completion, not just final result                   │
-│   • Include timestamp so clients know response is stale                │
+│   • TTL should match business retry window (not arbitrary 24h)          │
+│   • Store per-step completion, not just final result                    │
+│   • Include timestamp so clients know response is stale                 │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2311,13 +2311,13 @@ This section captures the thinking patterns that separate strong senior engineer
 │   L5 THINKING (Common):                                                 │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   "When overloaded, we'll drop 50% of requests randomly."              │
+│   "When overloaded, we'll drop 50% of requests randomly."               │
 │                                                                         │
 │   What goes wrong:                                                      │
-│   • Health checks get dropped → Load balancer thinks node is dead      │
-│   • Payment confirmations dropped → Lost revenue                       │
-│   • Admin operations dropped → Can't even diagnose the problem         │
-│   • Treating all traffic equally means NOTHING works well              │
+│   • Health checks get dropped → Load balancer thinks node is dead       │
+│   • Payment confirmations dropped → Lost revenue                        │
+│   • Admin operations dropped → Can't even diagnose the problem          │
+│   • Treating all traffic equally means NOTHING works well               │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 
@@ -2325,14 +2325,14 @@ This section captures the thinking patterns that separate strong senior engineer
 │   L6 THINKING (Staff):                                                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   "Load shedding without priority is just random chaos.                │
-│    We need to protect what matters and shed what doesn't."             │
+│   "Load shedding without priority is just random chaos.                 │
+│    We need to protect what matters and shed what doesn't."              │
 │                                                                         │
 │   Priority classification:                                              │
 │                                                                         │
 │   CRITICAL (never shed):                                                │
 │   • Health checks                                                       │
-│   • Admin/debug endpoints                                              │
+│   • Admin/debug endpoints                                               │
 │   • Authentication/token refresh                                        │
 │                                                                         │
 │   HIGH (shed only in emergency):                                        │
@@ -2342,14 +2342,14 @@ This section captures the thinking patterns that separate strong senior engineer
 │   NORMAL (shed under pressure):                                         │
 │   • Standard user requests                                              │
 │                                                                         │
-│   BEST_EFFORT (shed first):                                            │
+│   BEST_EFFORT (shed first):                                             │
 │   • Analytics events                                                    │
 │   • Non-critical notifications                                          │
 │   • Prefetch/speculative requests                                       │
 │                                                                         │
 │   Key insight:                                                          │
-│   "I'd rather serve 1000 payment requests perfectly than               │
-│    10,000 mixed requests poorly. Priority makes shedding strategic."   │
+│   "I'd rather serve 1000 payment requests perfectly than                │
+│    10,000 mixed requests poorly. Priority makes shedding strategic."    │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2361,12 +2361,12 @@ This section captures the thinking patterns that separate strong senior engineer
 │   L5 THINKING (Common):                                                 │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   "Circuit breaker is open, so we return an error."                    │
+│   "Circuit breaker is open, so we return an error."                     │
 │                                                                         │
 │   What goes wrong:                                                      │
-│   • User sees error for non-critical feature                           │
-│   • No fallback means cascade moves upstream to client                 │
-│   • "Failing fast" just means "failing"                                │
+│   • User sees error for non-critical feature                            │
+│   • No fallback means cascade moves upstream to client                  │
+│   • "Failing fast" just means "failing"                                 │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 
@@ -2374,8 +2374,8 @@ This section captures the thinking patterns that separate strong senior engineer
 │   L6 THINKING (Staff):                                                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   "A circuit breaker without a fallback is only half the solution.     │
-│    The question is: what do we DO when it's open?"                     │
+│   "A circuit breaker without a fallback is only half the solution.      │
+│    The question is: what do we DO when it's open?"                      │
 │                                                                         │
 │   Fallback strategies by dependency type:                               │
 │                                                                         │
@@ -2393,12 +2393,12 @@ This section captures the thinking patterns that separate strong senior engineer
 │   → Mark as "offline mode"                                              │
 │                                                                         │
 │   Critical Auth Service (down):                                         │
-│   → NO FALLBACK - fail loudly                                          │
+│   → NO FALLBACK - fail loudly                                           │
 │   → Some things SHOULD fail                                             │
 │                                                                         │
 │   Key insight:                                                          │
-│   "Not every dependency needs a fallback. But for each one, I should  │
-│    have explicitly decided: fail or fallback? And documented why."     │
+│   "Not every dependency needs a fallback. But for each one, I should    │
+│    have explicitly decided: fail or fallback? And documented why."      │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2410,16 +2410,16 @@ This section captures the thinking patterns that separate strong senior engineer
 │   L5 THINKING (Common):                                                 │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   "Let's use 30 seconds, that should be enough."                       │
+│   "Let's use 30 seconds, that should be enough."                        │
 │                                                                         │
-│   Client (30s) ──► Gateway (30s) ──► Service (30s) ──► DB (30s)        │
+│   Client (30s) ──► Gateway (30s) ──► Service (30s) ──► DB (30s)         │
 │                                                                         │
 │   What goes wrong:                                                      │
 │   • Client times out at 30s                                             │
-│   • Gateway continues for 30 more seconds (wasted)                     │
-│   • Service continues for 30 more seconds (wasted)                     │
-│   • DB query might finish at 35s (successful but ignored)              │
-│   • Total wasted compute: 90+ seconds                                  │
+│   • Gateway continues for 30 more seconds (wasted)                      │
+│   • Service continues for 30 more seconds (wasted)                      │
+│   • DB query might finish at 35s (successful but ignored)               │ 
+│   • Total wasted compute: 90+ seconds                                   │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 
@@ -2427,25 +2427,25 @@ This section captures the thinking patterns that separate strong senior engineer
 │   L6 THINKING (Staff):                                                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   "Timeouts should decrease as you go deeper in the stack.            │
-│    And they should be propagated, not independent."                    │
+│   "Timeouts should decrease as you go deeper in the stack.              │
+│    And they should be propagated, not independent."                     │
 │                                                                         │
 │   Deadline propagation:                                                 │
 │                                                                         │
-│   Client ──► Gateway ──► Service ──► DB                                │
-│    10s       9.5s        9s         8.5s                               │
+│   Client ──► Gateway ──► Service ──► DB                                 │
+│    10s       9.5s        9s         8.5s                                │
 │    │          │           │          │                                  │
-│    └── X-Deadline header propagated, minus processing buffer           │
+│    └── X-Deadline header propagated, minus processing buffer            │
 │                                                                         │
 │   At each hop:                                                          │
 │   1. Read deadline from header                                          │
-│   2. If expired: return 504 immediately                                │
-│   3. If < min_time_needed: return 504 immediately                      │
-│   4. Pass (deadline - buffer) to downstream                            │
+│   2. If expired: return 504 immediately                                 │
+│   3. If < min_time_needed: return 504 immediately                       │
+│   4. Pass (deadline - buffer) to downstream                             │
 │                                                                         │
 │   Key insight:                                                          │
-│   "If the client has already given up, why should we keep working?    │
-│    Deadline propagation prevents wasted work throughout the system."   │
+│   "If the client has already given up, why should we keep working?      │
+│    Deadline propagation prevents wasted work throughout the system."    │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2514,19 +2514,19 @@ FUNCTION hedged_request(payload):
 │            │                                                        │
 │   Wait 50ms...                                                      │
 │            │                                                        │
-│   Hedge    └──────► 30ms (fast) ✓ WINNER                           │
+│   Hedge    └──────► 30ms (fast) ✓ WINNER                            │
 │                                                                     │
-│   Result: 50ms + 30ms = 80ms (60% faster!)                         │
+│   Result: 50ms + 30ms = 80ms (60% faster!)                          │
 │                                                                     │
 │   WHEN TO USE:                                                      │
-│   • High P99/P50 ratio (>10x)                                      │
+│   • High P99/P50 ratio (>10x)                                       │
 │   • Cheap/idempotent operations                                     │
 │   • Critical user-facing latency                                    │
 │                                                                     │
 │   WHEN TO AVOID:                                                    │
-│   • Writes or non-idempotent operations                            │
-│   • Already at capacity                                            │
-│   • Expensive operations (ML inference)                            │
+│   • Writes or non-idempotent operations                             │
+│   • Already at capacity                                             │
+│   • Expensive operations (ML inference)                             │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -2597,7 +2597,7 @@ FUNCTION get_or_fetch(key):
 │   WITHOUT BULKHEADS:                                                │
 │   ─────────────────                                                 │
 │   ┌─────────────────────────────────────────┐                       │
-│   │           Shared Thread Pool (100)       │                       │
+│   │           Shared Thread Pool (100)      │                       │
 │   │  ████████████████████████████████████   │                       │
 │   │  All 100 blocked on failing Service C   │                       │
 │   └─────────────────────────────────────────┘                       │
@@ -2605,12 +2605,12 @@ FUNCTION get_or_fetch(key):
 │                                                                     │
 │   WITH BULKHEADS:                                                   │
 │   ───────────────                                                   │
-│   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐               │
-│   │ Service A    │ │ Service B    │ │ Service C    │               │
-│   │ Pool (30)    │ │ Pool (30)    │ │ Pool (30)    │               │
-│   │ ░░░░░░░░░░░░ │ │ ░░░░░░░░░░░░ │ │ ████████████ │               │
-│   │ (Healthy)    │ │ (Healthy)    │ │ (Failing)    │               │
-│   └──────────────┘ └──────────────┘ └──────────────┘               │
+│   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                │
+│   │ Service A    │ │ Service B    │ │ Service C    │                │
+│   │ Pool (30)    │ │ Pool (30)    │ │ Pool (30)    │                │
+│   │ ░░░░░░░░░░░░ │ │ ░░░░░░░░░░░░ │ │ ████████████ │                │
+│   │ (Healthy)    │ │ (Healthy)    │ │ (Failing)    │                │
+│   └──────────────┘ └──────────────┘ └──────────────┘                │
 │   Result: Only Service C calls blocked!                             │
 │                                                                     │
 │   ░ = Available threads   █ = Blocked threads                       │
@@ -2629,7 +2629,7 @@ FUNCTION get_or_fetch(key):
 │                                                                     │
 │   WITHOUT PROPAGATION (Wasted Work):                                │
 │   ─────────────────────────────────                                 │
-│   Client (5s) ──► Gateway (30s) ──► Service (30s) ──► DB (30s)     │
+│   Client (5s) ──► Gateway (30s) ──► Service (30s) ──► DB (30s)      │
 │       │                                                             │
 │       │ times out after 5s                                          │
 │       │                                                             │
@@ -2642,7 +2642,7 @@ FUNCTION get_or_fetch(key):
 │   Client ──► Gateway ──► Service ──► DB                             │
 │    5s        4.9s        4.8s       4.7s                            │
 │     │          │           │          │                             │
-│     └── X-Deadline header propagated, minus processing time ───────│
+│     └── X-Deadline header propagated, minus processing time ─────── │
 │                                                                     │
 │   Each hop:                                                         │
 │   1. Reads deadline from header                                     │
@@ -2691,22 +2691,22 @@ These are exact phrases and patterns that signal Staff-level thinking to intervi
 │                    WHAT A STAFF ENGINEER SAYS                           │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│ ✅ "Before adding retries, I want to understand: what does a retry     │
-│    actually cost? Each one consumes a thread, a connection, and        │
-│    sends load to an already-struggling system."                        │
+│ ✅ "Before adding retries, I want to understand: what does a retry      │
+│    actually cost? Each one consumes a thread, a connection, and         │
+│    sends load to an already-struggling system."                         │
 │                                                                         │
-│ ✅ "I'd use a retry budget here—max 10% of traffic can be retries.    │
-│    This bounds the amplification during an outage."                    │
+│ ✅ "I'd use a retry budget here—max 10% of traffic can be retries.      │
+│    This bounds the amplification during an outage."                     │
 │                                                                         │
-│ ✅ "The circuit breaker should open BEFORE we exhaust retries.        │
-│    Otherwise, retries are just slower failures."                       │
+│ ✅ "The circuit breaker should open BEFORE we exhaust retries.          │
+│    Otherwise, retries are just slower failures."                        │
 │                                                                         │
-│ ✅ "I'm thinking about retry amplification across the whole call       │
-│    graph. If each layer does 3 retries, that's 3^n amplification."    │
+│ ✅ "I'm thinking about retry amplification across the whole call        │
+│    graph. If each layer does 3 retries, that's 3^n amplification."      │
 │                                                                         │
-│ ❌ AVOID: "Let's add retries to make it more reliable."               │
-│ ❌ AVOID: "3 retries should be enough."                                │
-│ ❌ AVOID: "We'll retry on any error."                                  │
+│ ❌ AVOID: "Let's add retries to make it more reliable."                 │
+│ ❌ AVOID: "3 retries should be enough."                                 │
+│ ❌ AVOID: "We'll retry on any error."                                   │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2718,24 +2718,24 @@ These are exact phrases and patterns that signal Staff-level thinking to intervi
 │                    WHAT A STAFF ENGINEER SAYS                           │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│ ✅ "Idempotency keys need to be client-generated, not server-          │
-│    generated. The client needs to control the retry window."           │
+│ ✅ "Idempotency keys need to be client-generated, not server-           │
+│    generated. The client needs to control the retry window."            │
 │                                                                         │
-│ ✅ "I'm thinking about the failure mode where the request succeeds     │
-│    but the response is lost. Without idempotency, the client will      │
-│    retry and we'll double-execute."                                    │
+│ ✅ "I'm thinking about the failure mode where the request succeeds      │
+│    but the response is lost. Without idempotency, the client will       │
+│    retry and we'll double-execute."                                     │
 │                                                                         │
-│ ✅ "The tricky part is concurrent requests with the same key. We       │
-│    need atomic check-and-set, or we'll have a race condition."         │
+│ ✅ "The tricky part is concurrent requests with the same key. We        │
+│    need atomic check-and-set, or we'll have a race condition."          │
 │                                                                         │
-│ ✅ "For this multi-step operation, I'd track completion of each step   │
-│    independently. That way a retry can resume from where it failed."   │
+│ ✅ "For this multi-step operation, I'd track completion of each step    │
+│    independently. That way a retry can resume from where it failed."    │
 │                                                                         │
-│ ✅ "Idempotency doesn't guarantee ordering. If that matters, we        │
-│    need sequence numbers or a saga coordinator."                       │
+│ ✅ "Idempotency doesn't guarantee ordering. If that matters, we         │
+│    need sequence numbers or a saga coordinator."                        │
 │                                                                         │
-│ ❌ AVOID: "We'll use a UUID for idempotency."                          │
-│ ❌ AVOID: "Just check if we've seen this request before."              │
+│ ❌ AVOID: "We'll use a UUID for idempotency."                           │
+│ ❌ AVOID: "Just check if we've seen this request before."               │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2747,22 +2747,22 @@ These are exact phrases and patterns that signal Staff-level thinking to intervi
 │                    WHAT A STAFF ENGINEER SAYS                           │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│ ✅ "Rate limiting is the emergency brake. Backpressure is cruise       │
-│    control. I want cruise control working before I need the brake."    │
+│ ✅ "Rate limiting is the emergency brake. Backpressure is cruise        │
+│    control. I want cruise control working before I need the brake."     │
 │                                                                         │
-│ ✅ "I'd monitor queue depth and start applying backpressure at 50%     │
-│    capacity. By the time we're at 90%, we're already rejecting."       │
+│ ✅ "I'd monitor queue depth and start applying backpressure at 50%      │
+│    capacity. By the time we're at 90%, we're already rejecting."        │
 │                                                                         │
-│ ✅ "For this external webhook endpoint, I can't control how fast       │
-│    they push. So I'd accept quickly into a queue, then pull at our    │
-│    own pace. Decouple acceptance from processing."                     │
+│ ✅ "For this external webhook endpoint, I can't control how fast        │
+│    they push. So I'd accept quickly into a queue, then pull at our      │
+│    own pace. Decouple acceptance from processing."                      │
 │                                                                         │
-│ ✅ "HTTP 429 is an admission that backpressure failed. The producer    │
-│    already sent the request. Ideally, we signal 'slow down' before    │
-│    they even send it."                                                 │
+│ ✅ "HTTP 429 is an admission that backpressure failed. The producer     │
+│    already sent the request. Ideally, we signal 'slow down' before      │
+│    they even send it."                                                  │
 │                                                                         │
-│ ❌ AVOID: "We'll add a rate limiter."                                  │
-│ ❌ AVOID: "Just return 429 when overloaded."                           │
+│ ❌ AVOID: "We'll add a rate limiter."                                   │
+│ ❌ AVOID: "Just return 429 when overloaded."                            │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2774,20 +2774,20 @@ These are exact phrases and patterns that signal Staff-level thinking to intervi
 │                    WHAT A STAFF ENGINEER SAYS                           │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│ ✅ "I'd classify requests by priority. Health checks are critical—     │
-│    never shed those. Analytics are best-effort—shed those first."      │
+│ ✅ "I'd classify requests by priority. Health checks are critical—      │
+│    never shed those. Analytics are best-effort—shed those first."       │
 │                                                                         │
-│ ✅ "The question isn't 'should we drop requests?' It's 'which          │
-│    requests protect the business if we drop everything else?'"         │
+│ ✅ "The question isn't 'should we drop requests?' It's 'which           │
+│    requests protect the business if we drop everything else?'"          │
 │                                                                         │
-│ ✅ "I'd rather serve 80% of requests successfully than 100%            │
-│    of requests poorly. A fast 503 is better than a slow timeout."      │
+│ ✅ "I'd rather serve 80% of requests successfully than 100%             │
+│    of requests poorly. A fast 503 is better than a slow timeout."       │
 │                                                                         │
-│ ✅ "Before the request even starts processing, I'd check if it         │
-│    has already exceeded its deadline. Why do work no one's waiting    │
+│ ✅ "Before the request even starts processing, I'd check if it          │
+│    has already exceeded its deadline. Why do work no one's waiting      │
 │    for?"                                                                │
 │                                                                         │
-│ ❌ AVOID: "We'll drop requests randomly when overloaded."              │
+│ ❌ AVOID: "We'll drop requests randomly when overloaded."               │
 │ ❌ AVOID: "Just queue everything."                                      │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -2800,21 +2800,21 @@ These are exact phrases and patterns that signal Staff-level thinking to intervi
 │                    WHAT A STAFF ENGINEER SAYS                           │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│ ✅ "When the circuit breaker opens, what's the fallback behavior?      │
-│    For recommendations, I'd show popular items. For payments,          │
-│    I'd queue for async processing."                                    │
+│ ✅ "When the circuit breaker opens, what's the fallback behavior?       │
+│    For recommendations, I'd show popular items. For payments,           │
+│    I'd queue for async processing."                                     │
 │                                                                         │
-│ ✅ "I'd configure the circuit breaker to trip on latency, not just     │
-│    errors. A 10-second response is worse than a fast failure."         │
+│ ✅ "I'd configure the circuit breaker to trip on latency, not just      │
+│    errors. A 10-second response is worse than a fast failure."          │
 │                                                                         │
-│ ✅ "The half-open state is critical—it's how we test if the            │
-│    downstream has recovered without flooding it."                      │
+│ ✅ "The half-open state is critical—it's how we test if the             │
+│    downstream has recovered without flooding it."                       │
 │                                                                         │
-│ ✅ "Each dependency gets its own circuit breaker. If payment is        │
-│    down, that shouldn't affect inventory."                             │
+│ ✅ "Each dependency gets its own circuit breaker. If payment is         │
+│    down, that shouldn't affect inventory."                              │
 │                                                                         │
-│ ❌ AVOID: "We'll fail fast when the service is down."                  │
-│ ❌ AVOID: "5 failures and we open the circuit."                        │
+│ ❌ AVOID: "We'll fail fast when the service is down."                   │
+│ ❌ AVOID: "5 failures and we open the circuit."                         │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2826,24 +2826,24 @@ These are exact phrases and patterns that signal Staff-level thinking to intervi
 │                    WHAT A STAFF ENGINEER SAYS                           │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│ ✅ "The most dangerous moment is when the trigger ENDS. The database   │
-│    recovers from the GC pause, but now there's a queue of 10,000      │
-│    retries waiting to hit it. That's the metastable state."           │
+│ ✅ "The most dangerous moment is when the trigger ENDS. The database    │
+│    recovers from the GC pause, but now there's a queue of 10,000        │
+│    retries waiting to hit it. That's the metastable state."             │
 │                                                                         │
-│ ✅ "I'm thinking about thread pool sizing. If all 100 threads are      │
-│    blocked on a slow dependency, no new work can start. That's how    │
-│    failures cascade upstream."                                         │
+│ ✅ "I'm thinking about thread pool sizing. If all 100 threads are       │
+│    blocked on a slow dependency, no new work can start. That's how      │
+│    failures cascade upstream."                                          │
 │                                                                         │
-│ ✅ "After an outage, I wouldn't bring traffic back all at once.        │
-│    Gradual ramp-up prevents the recovery from causing another          │
-│    outage."                                                            │
+│ ✅ "After an outage, I wouldn't bring traffic back all at once.         │
+│    Gradual ramp-up prevents the recovery from causing another           │
+│    outage."                                                             │
 │                                                                         │
-│ ✅ "Bulkheads are key here. The payment service has its own            │
-│    connection pool. If it's slow, it only exhausts its own pool,      │
-│    not the shared one."                                                │
+│ ✅ "Bulkheads are key here. The payment service has its own             │
+│    connection pool. If it's slow, it only exhausts its own pool,        │
+│    not the shared one."                                                 │
 │                                                                         │
-│ ❌ AVOID: "We'll add more retries so it recovers faster."              │
-│ ❌ AVOID: "The database recovered, so the system should recover."      │
+│ ❌ AVOID: "We'll add more retries so it recovers faster."               │
+│ ❌ AVOID: "The database recovered, so the system should recover."       │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2855,22 +2855,22 @@ These are exact phrases and patterns that signal Staff-level thinking to intervi
 │                    WHAT A STAFF ENGINEER SAYS                           │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│ ✅ "There's a tradeoff between latency and reliability here.           │
-│    Adding a queue gives us resilience, but adds P99 latency.           │
-│    For this use case, I'd prioritize reliability."                     │
+│ ✅ "There's a tradeoff between latency and reliability here.            │
+│    Adding a queue gives us resilience, but adds P99 latency.            │
+│    For this use case, I'd prioritize reliability."                      │
 │                                                                         │
-│ ✅ "We could make this simpler by not having idempotency, but          │
-│    then we'd need perfect exactly-once delivery, which is harder.      │
-│    I'd rather have the idempotency complexity."                        │
+│ ✅ "We could make this simpler by not having idempotency, but           │
+│    then we'd need perfect exactly-once delivery, which is harder.       │
+│    I'd rather have the idempotency complexity."                         │
 │                                                                         │
-│ ✅ "This design is more complex, but the complexity buys us            │
-│    graceful degradation. Without it, any failure is a total failure." │
+│ ✅ "This design is more complex, but the complexity buys us             │
+│    graceful degradation. Without it, any failure is a total failure."   │
 │                                                                         │
-│ ✅ "I'm not trying to prevent all failures—that's impossible.          │
-│    I'm trying to limit the blast radius when failures happen."         │
+│ ✅ "I'm not trying to prevent all failures—that's impossible.           │
+│    I'm trying to limit the blast radius when failures happen."          │
 │                                                                         │
-│ ❌ AVOID: "This is the best approach."                                 │
-│ ❌ AVOID: Giving a solution without discussing alternatives.           │
+│ ❌ AVOID: "This is the best approach."                                  │
+│ ❌ AVOID: Giving a solution without discussing alternatives.            │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2888,24 +2888,24 @@ These are exact phrases and patterns that signal Staff-level thinking to intervi
 │                    STAR-D FRAMEWORK                                 │
 │                                                                     │
 │   S - SITUATION                                                     │
-│       What's the scale? What are the SLOs?                         │
-│       "We're handling 100K QPS with P99 < 100ms SLO"              │
+│       What's the scale? What are the SLOs?                          │
+│       "We're handling 100K QPS with P99 < 100ms SLO"                │
 │                                                                     │
 │   T - THREAT MODEL                                                  │
 │       What can go wrong? What failure modes exist?                  │
-│       "Database can have GC pauses, network can partition"         │
+│       "Database can have GC pauses, network can partition"          │
 │                                                                     │
 │   A - ARCHITECTURE                                                  │
 │       What resilience patterns address the threats?                 │
-│       "Circuit breakers at each boundary, retry budgets"           │
+│       "Circuit breakers at each boundary, retry budgets"            │
 │                                                                     │
 │   R - RECOVERY                                                      │
-│       How does the system heal? What's the blast radius?           │
-│       "Automatic circuit recovery, isolated bulkheads"             │
+│       How does the system heal? What's the blast radius?            │
+│       "Automatic circuit recovery, isolated bulkheads"              │
 │                                                                     │
 │   D - DEGRADATION                                                   │
 │       What's the graceful degradation path?                         │
-│       "Shed analytics first, fall back to cached data"             │
+│       "Shed analytics first, fall back to cached data"              │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -2920,58 +2920,58 @@ These are exact phrases and patterns that signal Staff-level thinking to intervi
 │                 PAYMENT SYSTEM DESIGN WALKTHROUGH                   │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│ INTERVIEWER: "What happens when your payment gateway is slow?"     │
+│ INTERVIEWER: "What happens when your payment gateway is slow?"      │
 │                                                                     │
 │ WEAK ANSWER:                                                        │
-│ "We'd add retries and timeouts."                                   │
+│ "We'd add retries and timeouts."                                    │
 │                                                                     │
 │ STAFF ENGINEER ANSWER:                                              │
 │ ───────────────────────                                             │
-│ "First, let me understand the failure mode. A slow gateway could   │
-│ mean network issues, their capacity issues, or a partial outage.   │
+│ "First, let me understand the failure mode. A slow gateway could    │ 
+│ mean network issues, their capacity issues, or a partial outage.    │
 │                                                                     │
 │ For resilience, I'd implement:                                      │
 │                                                                     │
-│ 1. IDEMPOTENCY (Non-negotiable for payments)                       │
-│    • Every transaction gets a client-generated idempotency key     │
-│    • Gateway deduplicates by this key                              │
-│    • Safe to retry without double-charging                         │
+│ 1. IDEMPOTENCY (Non-negotiable for payments)                        │
+│    • Every transaction gets a client-generated idempotency key      │
+│    • Gateway deduplicates by this key                               │
+│    • Safe to retry without double-charging                          │
 │                                                                     │
-│ 2. CIRCUIT BREAKER (Prevent cascade)                               │
-│    • Trip after 5 consecutive failures or 50% error rate           │
-│    • In open state: return cached 'pending' response               │
-│    • Background job reconciles when circuit recovers               │
+│ 2. CIRCUIT BREAKER (Prevent cascade)                                │
+│    • Trip after 5 consecutive failures or 50% error rate            │
+│    • In open state: return cached 'pending' response                │
+│    • Background job reconciles when circuit recovers                │
 │                                                                     │
-│ 3. RETRY WITH BUDGET (Prevent amplification)                       │
-│    • Max 2 retries with exponential backoff (1s, 4s)               │
-│    • Cluster-wide retry budget: max 10% retry ratio                │
-│    • Respect Retry-After headers from gateway                      │
+│ 3. RETRY WITH BUDGET (Prevent amplification)                        │
+│    • Max 2 retries with exponential backoff (1s, 4s)                │
+│    • Cluster-wide retry budget: max 10% retry ratio                 │
+│    • Respect Retry-After headers from gateway                       │
 │                                                                     │
 │ 4. TIMEOUT PROPAGATION                                              │
 │    • User's checkout timeout: 30s                                   │
-│    • Gateway timeout: 20s (leaves buffer for retry)                │
-│    • If <5s remaining when we start, fail fast                     │
+│    • Gateway timeout: 20s (leaves buffer for retry)                 │
+│    • If <5s remaining when we start, fail fast                      │
 │                                                                     │
 │ 5. GRACEFUL DEGRADATION                                             │
-│    • If gateway down: queue transaction, notify user 'pending'     │
-│    • Process queue when healthy (within reconciliation window)     │
-│    • Never lose a transaction, may delay confirmation              │
+│    • If gateway down: queue transaction, notify user 'pending'      │
+│    • Process queue when healthy (within reconciliation window)      │
+│    • Never lose a transaction, may delay confirmation               │
 │                                                                     │
-│ The key insight: payment systems must be SAFE over FAST.           │
-│ I'd rather tell a user 'pending' than risk double-charge."         │
+│ The key insight: payment systems must be SAFE over FAST.            │
+│ I'd rather tell a user 'pending' than risk double-charge."          │
 │                                                                     │
 │ INTERVIEWER: "What if the queue grows unbounded?"                   │
 │                                                                     │
 │ STAFF ENGINEER:                                                     │
 │ "Great callout. The queue needs admission control:                  │
 │                                                                     │
-│ • Bounded queue size (e.g., 1 hour of transactions)                │
-│ • Priority: VIP users processed first                              │
-│ • If queue full: synchronous fallback or reject with clear error   │
-│ • Alert when queue exceeds 15min backlog                           │
+│ • Bounded queue size (e.g., 1 hour of transactions)                 │
+│ • Priority: VIP users processed first                               │
+│ • If queue full: synchronous fallback or reject with clear error    │
+│ • Alert when queue exceeds 15min backlog                            │
 │                                                                     │
-│ This is load shedding - better to reject cleanly than queue        │
-│ forever. The user can retry immediately or we can notify later."   │
+│ This is load shedding - better to reject cleanly than queue         │
+│ forever. The user can retry immediately or we can notify later."    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
