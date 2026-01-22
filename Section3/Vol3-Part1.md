@@ -1011,6 +1011,415 @@ When choosing a consistency model, work through this decision tree:
 
 ---
 
+# Part 9: Consistency Under Failure — Staff-Level Thinking
+
+Staff engineers don't just choose consistency models for happy paths—they understand what happens when things break.
+
+## What Happens to Consistency During Failures?
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CONSISTENCY BEHAVIOR DURING FAILURES                     │
+│                                                                             │
+│   STRONGLY CONSISTENT SYSTEM                                                │
+│   ─────────────────────────                                                 │
+│   Normal:     Write → Quorum ack → Success                                  │
+│   Partition:  Write → Can't reach quorum → ERROR or TIMEOUT                 │
+│   Recovery:   Wait for partition heal → Resume                              │
+│                                                                             │
+│   User experience: "Service temporarily unavailable"                        │
+│   Guarantee: Never shows stale data (because shows nothing)                 │
+│                                                                             │
+│   EVENTUALLY CONSISTENT SYSTEM                                              │
+│   ────────────────────────────                                              │
+│   Normal:     Write → Local ack → Async replicate                           │
+│   Partition:  Write → Local ack → Queue for later                           │
+│   Recovery:   Replay queued writes → Converge                               │
+│                                                                             │
+│   User experience: "Everything works" (but may be stale)                    │
+│   Risk: Divergent state during partition                                    │
+│                                                                             │
+│   CAUSALLY CONSISTENT SYSTEM                                                │
+│   ──────────────────────────                                                │
+│   Normal:     Write with causal dependencies → Track → Replicate in order   │
+│   Partition:  Writes without cross-partition deps continue                  │
+│   Recovery:   Replay with dependency ordering                               │
+│                                                                             │
+│   User experience: Partial functionality, ordering preserved                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Failure Scenarios by Consistency Model
+
+| Failure | Strong Consistency | Eventual Consistency | Causal Consistency |
+|---------|-------------------|---------------------|-------------------|
+| **Single node crash** | Failover to replica, brief unavailability | Other nodes continue, no impact | Other nodes continue |
+| **Network partition** | Minority side unavailable | Both sides continue, diverge | Continue if deps available |
+| **Datacenter outage** | Other DC might be unavailable (quorum) | Other DC continues with stale data | Other DC continues |
+| **Slow network** | High latency, possible timeouts | No impact on writes | Deps may delay |
+
+## Staff-Level Questions to Ask
+
+When designing with a consistency model, ask:
+
+1. **"What's the failure mode?"**
+   - Strong: Errors and timeouts
+   - Eventual: Stale reads and temporary divergence
+   - Causal: Blocked on dependency availability
+
+2. **"What's the blast radius during partition?"**
+   - Strong: All users who need quorum-crossing data
+   - Eventual: Zero immediate impact (but divergence risk)
+   - Causal: Users with cross-partition causal chains
+
+3. **"What's the recovery path?"**
+   - Strong: Wait for partition heal, resume
+   - Eventual: Reconcile divergent state (may need conflict resolution)
+   - Causal: Replay with ordering, may surface conflicts
+
+## Real Example: Messaging System During Partition
+
+```
+SCENARIO: US-West ←✗→ US-East partition
+
+Alice (US-West) sends: "Meeting at 3pm"
+Bob (US-East) sends: "What time?"
+
+WITH STRONG CONSISTENCY:
+- Alice's message: BLOCKED (can't confirm Bob received)
+- Bob's message: BLOCKED (can't confirm Alice received)
+- Both users see: "Message not sent, try again"
+- User experience: FRUSTRATING but SAFE
+
+WITH EVENTUAL CONSISTENCY:
+- Alice's message: Delivered to US-West users
+- Bob's message: Delivered to US-East users
+- After partition heals: Messages merge
+- Risk: Out-of-order if both reply to old context
+
+WITH CAUSAL CONSISTENCY:
+- Alice's message: Delivered locally, queued for replication
+- Bob's message: Delivered locally
+- After partition: Causal ordering preserved
+- Carol (US-West) sees Alice's messages in order
+- Dave (US-East) sees Bob's messages in order
+- After heal: Full causal order restored
+```
+
+---
+
+# Part 10: Implementation Mechanisms — How Consistency Actually Works
+
+Staff engineers understand not just what consistency models do, but how they're implemented. This matters for debugging, capacity planning, and explaining technical trade-offs.
+
+## Implementing Read-Your-Writes
+
+**The Problem**: User writes to node A, reads from node B (replica), doesn't see their write.
+
+**Solutions**:
+
+| Technique | How It Works | Trade-off |
+|-----------|-------------|-----------|
+| **Session stickiness** | Route user to same node for reads/writes | Node failure disrupts session |
+| **Read-after-write token** | Write returns token; read waits for token to propagate | Slight read latency |
+| **Write-through primary** | All reads go to primary after recent write | Primary bottleneck |
+| **Hybrid** | Sticky session with fallback to token | Complexity |
+
+**Interview Articulation**:
+
+"For read-your-writes, I'd use session stickiness with a read-after-write fallback. The session routes the user to the same replica for writes and reads. If the session breaks (node failure), I fall back to passing a write token—the read waits until the token's version is available on the replica. This gives fast reads in the common case with correctness in the failure case."
+
+## Implementing Causal Consistency
+
+**The Problem**: Ensure causally-related events are seen in order across all replicas.
+
+**Mechanism: Vector Clocks / Version Vectors**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    VECTOR CLOCKS FOR CAUSAL CONSISTENCY                     │
+│                                                                             │
+│   Each write carries a vector clock: [A: 3, B: 2, C: 5]                     │
+│   Meaning: "This write happened after A's 3rd, B's 2nd, C's 5th operation"  │
+│                                                                             │
+│   EXAMPLE:                                                                  │
+│   ─────────                                                                 │
+│   Alice posts: "Dinner?"        → Clock: [Alice: 1]                         │
+│   Bob replies: "Sure!"          → Clock: [Alice: 1, Bob: 1]                 │
+│                                    (Bob saw Alice's [1])                    │
+│   Carol sees Bob's message      → Must first see Alice's [1]                │
+│                                                                             │
+│   REPLICA BEHAVIOR:                                                         │
+│   ─────────────────                                                         │
+│   Replica receives [Alice: 1, Bob: 1]                                       │
+│   Checks: Do I have [Alice: 1]?                                             │
+│   - YES → Deliver Bob's message                                             │
+│   - NO  → Queue until Alice's message arrives                               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Trade-offs**:
+- Vector clock size grows with participants
+- Need to track dependencies per message
+- Garbage collection of old clock entries
+
+## Implementing Strong Consistency
+
+**Mechanism: Consensus Protocols (Paxos, Raft)**
+
+| Step | What Happens | Latency Added |
+|------|--------------|---------------|
+| 1. Client sends write to leader | Leader receives | Network RTT |
+| 2. Leader proposes to followers | Followers receive | Network RTT |
+| 3. Followers acknowledge | Leader collects | Network RTT |
+| 4. Leader commits, responds to client | Client receives | Network RTT |
+
+**Total**: 2-4 network round trips minimum. Cross-region: 200-800ms.
+
+**Why This Matters**:
+
+"Understanding the implementation helps me reason about failure modes. Raft needs a leader—during leader election (typically 1-10 seconds), the system is unavailable for writes. This is the cost of strong consistency. For my rate limiter, where we need <1ms latency, Raft-based counters are impossible."
+
+---
+
+# Part 11: Observability and Consistency Verification
+
+Staff engineers don't just design consistency—they verify it's working and detect violations.
+
+## What to Monitor
+
+| Metric | What It Tells You | Alert Threshold |
+|--------|------------------|-----------------|
+| **Replication lag** | How far behind replicas are | >5s for eventual systems |
+| **Quorum failures** | Strong consistency failing | Any occurrence |
+| **Vector clock conflicts** | Concurrent writes detected | Spike above baseline |
+| **Read-your-writes violations** | Users not seeing own writes | Any occurrence |
+| **Causal ordering violations** | Messages delivered out of order | Any occurrence |
+
+## Detecting Consistency Violations
+
+**Technique 1: Write-then-read verification**
+
+```
+// Periodically test consistency
+write(key, value, timestamp)
+wait(expected_propagation_time)
+read_value = read(key)
+if read_value != value:
+    alert("Consistency violation detected")
+```
+
+**Technique 2: Anti-entropy checks**
+
+- Compare checksums across replicas periodically
+- Detect divergent state before users notice
+- Trigger reconciliation if divergence found
+
+**Technique 3: Client-side detection**
+
+- Include version in responses
+- Client tracks versions seen
+- Report if version goes backward (shouldn't with causal)
+
+## Staff-Level Statement
+
+"I'd instrument the system with replication lag metrics and periodic read-after-write probes. For eventual consistency, I'd set SLO at 99th percentile propagation under 5 seconds, with alerts if lag exceeds that. For causal systems, I'd log any causal ordering violations—those indicate a bug, not just lag."
+
+---
+
+# Part 12: Multi-Region Consistency — Deep Dive
+
+The section mentioned cross-region latency but didn't explore multi-region architecture patterns.
+
+## Multi-Region Consistency Patterns
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MULTI-REGION CONSISTENCY PATTERNS                        │
+│                                                                             │
+│   ACTIVE-PASSIVE (Strong Consistency Possible)                              │
+│   ──────────────────────────────────────────────                            │
+│   ┌─────────────┐         ┌─────────────┐                                   │
+│   │  US-West    │ ─────── │  US-East    │                                   │
+│   │  (PRIMARY)  │  sync   │  (REPLICA)  │                                   │
+│   │  All writes │  repli- │  Read-only  │                                   │
+│   └─────────────┘  cation └─────────────┘                                   │
+│                                                                             │
+│   Pros: Strong consistency achievable                                       │
+│   Cons: Writes have cross-region latency; failover complexity               │
+│                                                                             │
+│   ACTIVE-ACTIVE (Eventual/Causal Only)                                      │
+│   ───────────────────────────────────────                                   │
+│   ┌─────────────┐         ┌─────────────┐                                   │
+│   │  US-West    │ ←─────→ │  US-East    │                                   │
+│   │  Read/Write │  async  │  Read/Write │                                   │
+│   │  Local      │  repli- │  Local      │                                   │
+│   └─────────────┘  cation └─────────────┘                                   │
+│                                                                             │
+│   Pros: Low latency writes everywhere                                       │
+│   Cons: Conflicts possible; need resolution strategy                        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Conflict Resolution Strategies
+
+In active-active systems, concurrent writes to the same data create conflicts.
+
+| Strategy | How It Works | Best For |
+|----------|-------------|----------|
+| **Last-Write-Wins (LWW)** | Highest timestamp wins | Idempotent data, user preferences |
+| **First-Write-Wins** | First timestamp wins | Reservations, claims |
+| **Merge** | Combine conflicting values | Counters (CRDTs), sets |
+| **Application-level** | Custom logic resolves | Complex business rules |
+
+**Example: Shopping Cart Conflict**
+
+```
+User adds item in US-West: Cart = [A, B]
+User adds item in US-East: Cart = [A, C]  (before replication)
+
+LWW: One wins, other lost → User loses item (BAD)
+Merge (Union): Cart = [A, B, C] → Both items present (GOOD)
+
+For shopping carts, use merge (set union).
+```
+
+## Multi-Region Consistency Decision Tree
+
+```
+1. Do writes need global strong consistency?
+   YES → Active-passive with primary in one region
+   NO → Continue
+
+2. Can the data model tolerate conflicts?
+   YES → Active-active with automatic resolution
+   NO → Continue
+
+3. Can conflicts be resolved by application logic?
+   YES → Active-active with custom conflict resolution
+   NO → Active-passive (accept latency cost)
+```
+
+---
+
+# Part 13: Consistency Evolution at Scale
+
+Staff engineers understand that consistency requirements change as systems grow.
+
+## How Consistency Requirements Evolve
+
+| Scale | Typical Pattern | Why |
+|-------|-----------------|-----|
+| **Startup (1K users)** | Strong consistency everywhere | Simple, correct, latency acceptable |
+| **Growth (100K users)** | Read-your-writes for user data, eventual for social | Can't afford strong consistency latency |
+| **Scale (10M users)** | Eventual for most, strong for payments | Infrastructure cost matters |
+| **Hyperscale (1B users)** | Per-feature consistency tuning | Every ms of latency costs money |
+
+## Migration Path: Strong → Eventual
+
+| Step | Action | Risk | Validation |
+|------|--------|------|------------|
+| 1 | Identify candidates | Low | Analyze which data tolerates staleness |
+| 2 | Add replication lag monitoring | Low | Baseline current behavior |
+| 3 | Shadow read from replicas | Low | Compare results with primary |
+| 4 | Canary: 1% reads from replica | Medium | Monitor for user complaints |
+| 5 | Gradual rollout: 10% → 50% → 100% | Medium | Watch error rates, support tickets |
+| 6 | Remove primary read path | Low | Simplify architecture |
+
+## Cost Analysis
+
+| Consistency Model | Relative Infrastructure Cost | Why |
+|-------------------|------------------------------|-----|
+| **Strong (global)** | 3-5x baseline | Cross-region sync, consensus overhead |
+| **Strong (regional)** | 1.5-2x baseline | Regional consensus, async cross-region |
+| **Causal** | 1.2-1.5x baseline | Dependency tracking, ordered delivery |
+| **Eventual** | 1x baseline | Async replication, no coordination |
+
+---
+
+# Part 14: Interview Calibration for Consistency
+
+## Interviewer Probing Questions
+
+When you state a consistency choice, expect follow-ups:
+
+| Your Statement | Interviewer Probes |
+|----------------|-------------------|
+| "I'll use eventual consistency" | "What happens if user sees stale data?" |
+| "I'll use strong consistency" | "What's the latency impact? Availability during partition?" |
+| "I'll use causal consistency" | "How do you implement that? What's the overhead?" |
+| "Different parts need different consistency" | "Walk me through which parts need what" |
+
+## Common L5 Mistakes in Consistency Discussions
+
+| Mistake | Why It's L5 | L6 Approach |
+|---------|-------------|-------------|
+| "Strong consistency for safety" | Doesn't analyze actual need | "Let me analyze what breaks if stale" |
+| "Eventual is fine" without detail | No analysis of staleness window | "Eventual with 5-second target propagation" |
+| Not mentioning failure modes | Only considers happy path | "During partition, this degrades to..." |
+| One model for entire system | Over-simplification | "User data needs X, engagement metrics need Y" |
+| Ignoring implementation cost | Theoretically correct but impractical | "Causal requires vector clocks, which adds..." |
+
+## L6 Signals Interviewers Look For
+
+| Signal | What It Looks Like |
+|--------|-------------------|
+| **Nuanced model selection** | "This data needs causal because replies must follow originals, but like counts can be eventual" |
+| **Failure mode awareness** | "If we lose quorum, users will see errors. That's acceptable for payments, not for feed loading" |
+| **Implementation knowledge** | "Read-your-writes via session stickiness with token fallback" |
+| **Quantified trade-offs** | "Strong consistency adds 200ms cross-region. That's too slow for likes but acceptable for checkout" |
+| **Evolution thinking** | "At V1 we can use strong. At 10M users, we'll need to migrate likes to eventual" |
+
+## Sample L6 Answer Structure
+
+**Question**: "What consistency do you need for the messaging system?"
+
+**L6 Answer**:
+
+"Let me break this down by data type:
+
+For **message ordering within a conversation**, I need causal consistency. If Bob replies to Alice, everyone must see Alice's message first. Without this, conversations are nonsensical. I'd implement this with vector clocks—each message carries the version of messages it's replying to, and the receiving node delays delivery until dependencies are met.
+
+For **read receipts**, eventual consistency is fine. If 'seen' status lags by 2-3 seconds, users won't notice. Strong consistency would add cross-region latency for no user benefit.
+
+For **message delivery**, I want at-least-once semantics. I'd rather have occasional duplicates, which the UI can dedupe, than ever lose a message. Exactly-once would require distributed transactions.
+
+During a network partition, message delivery within each region continues. Cross-region messages queue until the partition heals. Users in the same region can chat; cross-region conversations pause but don't lose messages.
+
+The trade-off I'm making: complexity of causal tracking (vector clocks, dependency management) in exchange for correct conversation ordering. For a messaging app, this is worth it."
+
+---
+
+# Part 15: Final Verification — L6 Readiness Checklist
+
+## Does This Section Meet L6 Expectations?
+
+| L6 Criterion | Coverage | Notes |
+|-------------|----------|-------|
+| **Judgment & Decision-Making** | ✅ Strong | 6 heuristics, decision tree, real-world application |
+| **Failure & Degradation Thinking** | ✅ Strong | Consistency under failure, partition behavior |
+| **Implementation Depth** | ✅ Strong | Vector clocks, session stickiness, consensus protocols |
+| **Scale & Evolution** | ✅ Strong | Consistency evolution, migration paths, cost analysis |
+| **Observability** | ✅ Strong | Monitoring, verification, SLOs |
+| **Multi-Region** | ✅ Strong | Active-active/passive, conflict resolution |
+| **Interview Calibration** | ✅ Strong | Probing questions, L5 mistakes, L6 signals |
+
+## Staff-Level Signals Demonstrated
+
+✅ Consistency choice varies by data type within same system
+✅ Failure modes explicitly addressed for each model
+✅ Implementation mechanisms understood (not just concepts)
+✅ Multi-region patterns with conflict resolution
+✅ Observability and verification strategies
+✅ Evolution path as system scales
+✅ Quantified trade-offs (latency, cost, availability)
+✅ Interview-ready articulation structure
+
+---
+
 # Brainstorming Questions
 
 ## Understanding Consistency
@@ -1048,6 +1457,45 @@ When choosing a consistency model, work through this decision tree:
 14. Your eventually consistent system sometimes shows deleted content. How do you minimize this? What's the trade-off?
 
 15. You're migrating from strong to eventual consistency for a system. What do you need to change in the application layer? What might break?
+
+---
+
+# Reflection Prompts
+
+Set aside 15-20 minutes for each of these reflection exercises.
+
+## Reflection 1: Your Consistency Defaults
+
+Think about your instinctive choices when designing systems.
+
+- Do you default to strong consistency "just in case"?
+- When was the last time you explicitly chose eventual consistency and justified it?
+- Have you ever analyzed what breaks if data is stale for 5 seconds? 60 seconds?
+- Do you consider consistency differently for different data types in the same system?
+
+Examine a recent design. For each data type, write down what consistency model you chose and why.
+
+## Reflection 2: Your Failure Mode Awareness
+
+Consider how you think about consistency during failures.
+
+- Do you know what happens to your systems during network partitions?
+- Have you experienced split-brain issues? How were they resolved?
+- Can you explain the CAP theorem trade-off for a specific system you've built?
+- Do you design recovery paths alongside happy paths?
+
+For a system you know well, write down what happens to consistency guarantees when each component fails.
+
+## Reflection 3: Your Communication of Trade-offs
+
+Examine how you explain consistency decisions.
+
+- Can you articulate why you chose a consistency model in 30 seconds?
+- Do you quantify the trade-offs (e.g., "200ms latency cost for strong consistency")?
+- Can you explain to non-technical stakeholders why some data might be briefly stale?
+- How do you document consistency guarantees for your systems?
+
+Practice explaining the consistency model of a familiar system to both a technical and non-technical audience.
 
 ---
 

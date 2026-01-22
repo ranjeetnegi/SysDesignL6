@@ -3764,3 +3764,410 @@ AUTO-COMPACTION (etcd config):
 ---
 
 *"The first rule of distributed systems: Don't distribute. The second rule: If you must distribute, don't coordinate. The third rule: If you must coordinate, make it as rare as possible."*
+
+---
+
+# Part 17: Interview Calibration for Coordination Topics
+
+## What Interviewers Are Evaluating
+
+When a candidate discusses coordination in system design, interviewers assess:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    INTERVIEWER'S MENTAL RUBRIC                              │
+│                                                                             │
+│   QUESTION IN INTERVIEWER'S MIND          L5 SIGNAL           L6 SIGNAL     │
+│   ───────────────────────────────────────────────────────────────────────── │
+│                                                                             │
+│   "Did they question whether                                                │
+│    coordination is needed?"             Assumed needed    "Can we avoid it?"│
+│                                                                             │
+│   "Do they understand the costs?"       Lists benefits    Discusses costs   │
+│                                                           AND benefits      │
+│                                                                             │
+│   "Do they know failure modes?"         "It should work"  Split-brain,      │
+│                                                           election storms   │
+│                                                                             │
+│   "Can they size timeouts?"             Uses defaults     Calculates based  │
+│                                                           on latency/skew   │
+│                                                                             │
+│   "Do they consider operations?"        Not mentioned     Backup, restore,  │
+│                                                           runbooks          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## L5 vs L6 Interview Phrases
+
+| Topic | L5 Answer (Competent) | L6 Answer (Staff-Level) |
+|-------|----------------------|------------------------|
+| **Need for coordination** | "We'll use a distributed lock" | "First, can we avoid coordination? Can we partition the work or use idempotency instead?" |
+| **Leader election** | "We'll use ZooKeeper for leader election" | "Leader election with 30s lease, stepping down on quorum loss, and degraded mode when no leader available" |
+| **Lock implementation** | "Use Redis SETNX with TTL" | "SETNX with TTL, fencing tokens passed to downstream, and fallback behavior when Redis is unavailable" |
+| **Split-brain** | "We prevent it with proper design" | "Split-brain is possible. We use epoch numbers; resources reject stale epochs. If it happens, we have reconciliation procedures." |
+| **Failure detection** | "Heartbeat timeout" | "Phi accrual detector that adapts to network conditions. 30s timeout balances false positives against detection speed." |
+| **Clock assumptions** | "We use timestamps" | "Clocks can drift 100ms+. We use logical clocks for ordering and never rely on timestamps alone for coordination decisions." |
+| **Degradation** | Not discussed | "When coordination is unavailable, we fail closed for writes but allow cached reads for 5 minutes." |
+
+## Common L5 Mistakes That Cost the Level
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    L5 MISTAKES IN COORDINATION DISCUSSIONS                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   MISTAKE 1: "We'll use Kafka for coordination"                             │
+│   ─────────────────────────────────────────────                             │
+│   Kafka is a log, not a coordination service. Using it for leader           │
+│   election or distributed locks requires building consensus on top,         │
+│   which is complex and error-prone.                                         │
+│                                                                             │
+│   L6 CORRECTION: "Kafka is for event streaming. For coordination, I'd       │
+│   use etcd or ZooKeeper which provide consensus primitives."                │
+│                                                                             │
+│   MISTAKE 2: "The lock prevents duplicate processing"                       │
+│   ─────────────────────────────────────────────────                         │
+│   Locks expire. GC pauses can cause a process to continue after losing      │
+│   its lock. Without fencing tokens, duplicates are still possible.          │
+│                                                                             │
+│   L6 CORRECTION: "The lock provides mutual exclusion, but we also           │
+│   need fencing tokens. The downstream resource checks the token and         │
+│   rejects stale holders."                                                   │
+│                                                                             │
+│   MISTAKE 3: "We'll set timeout to 5 seconds"                               │
+│   ────────────────────────────────────────────                              │
+│   No justification. Timeouts should be calculated based on network          │
+│   latency, clock skew, and acceptable detection delay.                      │
+│                                                                             │
+│   L6 CORRECTION: "Given cross-AZ latency of 2ms P99 and 50ms clock          │
+│   skew worst case, I'd set heartbeat at 500ms, timeout at 2 seconds,        │
+│   and lease TTL at 10 seconds to account for GC pauses."                    │
+│                                                                             │
+│   MISTAKE 4: "We use 3-node cluster for high availability"                  │
+│   ─────────────────────────────────────────────────────────                 │
+│   3 nodes survives 1 failure. But what if you need to do rolling            │
+│   updates? Or if 2 nodes are in the same failure domain?                    │
+│                                                                             │
+│   L6 CORRECTION: "3 nodes survives 1 failure. For a critical service,       │
+│   I'd use 5 nodes across 3 AZs. This allows 2 failures and enables          │
+│   rolling updates without risking quorum."                                  │
+│                                                                             │
+│   MISTAKE 5: Not mentioning what happens when coordination fails            │
+│   ─────────────────────────────────────────────────────────────────         │
+│   This is the Staff-level differentiator. L5s design for the happy          │
+│   path. L6s design for failure.                                             │
+│                                                                             │
+│   L6 CORRECTION: "When etcd is unavailable, the job scheduler buffers       │
+│   jobs locally and stops leader election. Jobs continue processing at       │
+│   reduced capacity until coordination recovers."                            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Example Interview Exchange
+
+```
+INTERVIEWER: "How would you coordinate job scheduling across multiple workers?"
+
+L5 ANSWER:
+"I'd use a distributed lock. Before processing a job, the worker acquires 
+a lock on the job ID. This prevents duplicates. I'd use Redis for the lock 
+service."
+
+L6 ANSWER:
+"Let me first check if we need coordination at all. 
+
+If jobs can be partitioned by ID, each worker handles a specific partition 
+and we avoid coordination entirely. That's the best approach.
+
+If we can't partition, I'd use leader election rather than per-job locks. 
+The leader assigns jobs to workers. Benefits: one coordination point, not 
+one per job. I'd implement this with etcd leases.
+
+For failure handling:
+- Leader dies: 10-30 second election window. Workers buffer jobs locally.
+- Worker dies mid-job: Heartbeat-based detection. Leader reassigns after 
+  timeout. Job must be idempotent or we use fencing tokens.
+- etcd cluster down: Workers continue processing assigned jobs. No new 
+  assignments until etcd recovers. We accept reduced throughput.
+
+I'd also add:
+- Retry budget: max 10% of requests as retries to prevent storms
+- Circuit breaker on etcd calls: fail fast if etcd is struggling
+- Metrics on election frequency, lock acquisition latency, queue depth"
+```
+
+## Staff-Level Reasoning Visibility
+
+When discussing coordination, make your reasoning visible:
+
+```
+"I'm choosing leader election over per-job locks because..."
+   └─── Shows you considered alternatives
+
+"The timeout needs to be longer than network P99 plus clock skew..."
+   └─── Shows you understand the mathematics
+
+"When the lock service fails, we..."
+   └─── Shows you plan for failure
+
+"The trade-off is availability for consistency during the election window..."
+   └─── Shows you understand trade-offs
+```
+
+---
+
+# Part 18: Final Verification
+
+## Does This Section Meet L6 Expectations?
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    L6 COVERAGE CHECKLIST                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   JUDGMENT & DECISION-MAKING                                                │
+│   ☑ When to use coordination vs. alternatives (idempotency, partitioning)   │
+│   ☑ Choosing between leader election, locks, and consensus                  │
+│   ☑ Timeout and TTL sizing with justification                               │
+│   ☑ Trade-off between availability and consistency during failures          │
+│                                                                             │
+│   FAILURE & DEGRADATION THINKING                                            │
+│   ☑ Split-brain prevention and detection                                    │
+│   ☑ Election storms: causes and mitigations                                 │
+│   ☑ Graceful degradation when coordination unavailable                      │
+│   ☑ Fencing tokens for stale lock holders                                   │
+│   ☑ Clock skew handling                                                     │
+│                                                                             │
+│   SCALE & EVOLUTION                                                         │
+│   ☑ Multi-region coordination patterns                                      │
+│   ☑ Scaling beyond leader bottleneck                                        │
+│   ☑ Migration strategies (Redis to etcd, etc.)                              │
+│                                                                             │
+│   STAFF-LEVEL SIGNALS                                                       │
+│   ☑ Questions coordination necessity first                                  │
+│   ☑ Understands operational costs (runbooks, backup, restore)               │
+│   ☑ Makes reasoning visible                                                 │
+│   ☑ Acknowledges uncertainty and trade-offs                                 │
+│                                                                             │
+│   REAL-WORLD APPLICATION                                                    │
+│   ☑ Job scheduler case study                                                │
+│   ☑ Rate limiter coordination                                               │
+│   ☑ Metadata service architecture                                           │
+│                                                                             │
+│   INTERVIEW CALIBRATION                                                     │
+│   ☑ L5 vs L6 phrase comparisons                                             │
+│   ☑ Common mistakes that cost the level                                     │
+│   ☑ Interviewer evaluation criteria                                         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Remaining Gaps (Acceptable for Scope)
+
+| Gap | Reason Acceptable |
+|-----|-------------------|
+| Byzantine fault tolerance | Rarely needed in practice; covered conceptually |
+| Paxos algorithm details | Raft is preferred; Paxos covered at intuition level |
+| Vendor-specific tuning | General principles apply; ops teams handle specifics |
+
+## Self-Check Questions Before Interview
+
+Use these to verify your understanding:
+
+```
+□ Can I explain why coordination should be avoided when possible?
+□ Can I differentiate leader election, locks, and consensus use cases?
+□ Can I design a system that degrades gracefully when coordination fails?
+□ Can I size timeouts based on network and clock characteristics?
+□ Can I explain fencing tokens and why locks alone aren't sufficient?
+□ Can I discuss multi-region coordination trade-offs?
+□ Can I identify the failure modes of my coordination design?
+```
+
+---
+
+*"The best coordination is no coordination. The second best is coordination that fails gracefully."*
+---
+
+# Brainstorming Questions
+
+## Understanding Coordination
+
+1. Think of a system that uses distributed coordination. Could it be redesigned to avoid coordination? What would be the trade-offs?
+
+2. When have you seen leader election cause problems? What was the failure mode?
+
+3. How do you size timeouts for distributed locks? What's your mental model?
+
+4. What's the difference between a lock and a lease? When would you choose one over the other?
+
+5. How do you explain fencing tokens to someone who hasn't heard of them?
+
+## Failure Modes
+
+6. You have a distributed lock using Redis. What happens if Redis restarts during lock hold?
+
+7. Design a system where leader election failure causes minimal impact. What patterns do you use?
+
+8. How do you detect and recover from split-brain in a leader-based system?
+
+9. What's an election storm? How do you prevent it?
+
+10. Your lock service is experiencing high latency. What are the implications for lock holders?
+
+## Applied Scenarios
+
+11. Design leader election for a job scheduler. What's your availability vs. consistency trade-off?
+
+12. You need a rate limiter across 100 servers. Do you need coordination? What are the alternatives?
+
+13. How would you implement a lease-based cache invalidation system?
+
+14. Design a metadata service where consistency is critical but availability is also important.
+
+15. What's your go-to technology for coordination? When would you choose something different?
+
+---
+
+# Reflection Prompts
+
+Set aside 15-20 minutes for each of these reflection exercises.
+
+## Reflection 1: Your Coordination Instincts
+
+Think about how you approach problems that seem to need coordination.
+
+- Do you reach for locks and leader election by default?
+- When was the last time you avoided coordination by redesigning the problem?
+- Can you list three alternatives to distributed locks for a given problem?
+- Do you consider the operational cost of coordination infrastructure?
+
+For a system you've built that uses coordination, redesign it to minimize coordination.
+
+## Reflection 2: Your Failure Mode Coverage
+
+Consider how you think about coordination failures.
+
+- Do you design for the case where the lock service itself fails?
+- Have you ever debugged a fencing token issue?
+- Can you explain what happens during leader election to a non-expert?
+- Do you test coordination failure scenarios in your systems?
+
+Write a failure mode analysis for coordination in a system you know well.
+
+## Reflection 3: Your Technology Choices
+
+Examine how you choose coordination technologies.
+
+- Why do you choose one coordination technology over another?
+- Do you understand the consistency guarantees of your chosen tools?
+- Have you ever migrated between coordination technologies? What triggered it?
+- Can you explain the trade-offs of ZooKeeper vs. etcd vs. Redis for locks?
+
+Research a coordination technology you haven't used and compare it to your default choice.
+
+---
+
+# Homework Exercises
+
+## Exercise 1: Coordination Avoidance
+
+Take these problems that seem to require coordination. For each, design a solution that avoids centralized coordination:
+
+1. **Sequential ID generation** across 10 services
+2. **Rate limiting** across 50 servers
+3. **Cache invalidation** across multiple regions
+4. **Task assignment** to workers without double-processing
+5. **Configuration updates** that must be atomic across services
+
+For each:
+- Describe the no-coordination approach
+- What's the trade-off compared to coordinated approach?
+- When would coordination still be necessary?
+
+## Exercise 2: Leader Election Design
+
+Design a leader election system for:
+
+**Scenario: Multi-region job scheduler**
+- 3 regions, one active leader needed
+- Jobs must not be duplicated or lost
+- Switchover time < 30 seconds
+
+Include:
+- Technology choice with justification
+- Timeout values with reasoning
+- Fencing mechanism
+- Fallback behavior during election
+- Monitoring and alerting
+
+## Exercise 3: Failure Scenario Runbooks
+
+Create runbooks for these coordination failure scenarios:
+
+1. **Lock service completely unavailable**
+   - Detection, immediate response, recovery
+
+2. **Leader election taking > 5 minutes**
+   - Investigation steps, manual intervention options
+
+3. **Split-brain detected** (two leaders active)
+   - Immediate actions, damage assessment, resolution
+
+4. **Lock holder crashed without releasing**
+   - Detection, automatic vs. manual resolution
+
+5. **Clock skew causing lock issues**
+   - Detection, mitigation, prevention
+
+## Exercise 4: Technology Comparison
+
+Compare these coordination approaches for a distributed cache invalidation system:
+
+1. **Redis-based**: SETNX for locks
+2. **ZooKeeper/etcd**: Proper consensus-based locks
+3. **Kafka-based**: Event-driven invalidation
+4. **No coordination**: Version-based invalidation
+
+Create a comparison matrix with:
+- Consistency guarantees
+- Latency characteristics
+- Failure modes
+- Operational complexity
+- Scalability limits
+
+## Exercise 5: Interview Practice
+
+Practice explaining these concepts (3 minutes each):
+
+1. "Why shouldn't you use distributed locks in most cases?"
+2. "Explain fencing tokens and why they're necessary"
+3. "How does leader election work and what are its failure modes?"
+4. "When would you choose ZooKeeper vs. Redis for coordination?"
+5. "Design a job scheduler that's resilient to coordination failures"
+
+Record yourself and evaluate for clarity and trade-off acknowledgment.
+
+---
+
+# Conclusion
+
+Coordination is one of the hardest problems in distributed systems. The key insights from this section:
+
+1. **Avoid coordination when possible.** Redesign problems to use idempotency, partitioning, or CRDTs instead.
+
+2. **When coordination is needed, understand the failure modes.** Leader election can stall, locks can deadlock, consensus can partition.
+
+3. **Timeouts and TTLs require careful tuning.** Too short causes false positives; too long causes availability issues.
+
+4. **Fencing tokens are essential for correctness.** Locks alone are not sufficient in distributed systems.
+
+5. **Graceful degradation matters.** What happens when coordination is unavailable? Design for this.
+
+6. **Operational complexity is high.** Coordination infrastructure (ZooKeeper, etcd) requires expertise to run well.
+
+In interviews, demonstrate that you think about coordination critically. Don't reach for it by default—question whether it's necessary. When it is, address failure modes proactively. That's Staff-level thinking.
+
+---

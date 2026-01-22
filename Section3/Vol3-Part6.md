@@ -3307,6 +3307,45 @@ Use these questions to practice failure reasoning:
 
 ---
 
+# Reflection Prompts
+
+Set aside 15-20 minutes for each of these reflection exercises.
+
+## Reflection 1: Your Failure-First Thinking
+
+Consider how you approach failure in system design.
+
+- Do you think about failure modes from the start, or as an afterthought?
+- When you draw architecture diagrams, do you trace failure propagation paths?
+- Have you ever designed a system where you explicitly defined "what does 50% functionality look like"?
+- Do you distinguish between "slow" and "dead" in your failure planning?
+
+For a recent design, add failure mode annotations to every component and connection.
+
+## Reflection 2: Your Blast Radius Awareness
+
+Think about how you contain failures.
+
+- Can you identify the blast radius of each component in your systems?
+- Do you use bulkhead isolation patterns?
+- When was the last time you added a circuit breaker? What triggered it?
+- Do you design for failure containment or hope for the best?
+
+For a system you know, draw a blast radius diagram showing what fails when each component degrades.
+
+## Reflection 3: Your Recovery Planning
+
+Examine how you handle the aftermath of failures.
+
+- Do you plan recovery as carefully as you plan failure handling?
+- Have you experienced thundering herd on recovery? How did you mitigate it?
+- Do you know the recovery sequence for your critical systems?
+- Have you ever run a chaos engineering experiment?
+
+For your most critical system, write a recovery runbook that prevents secondary failures.
+
+---
+
 # Part 19: Homework Exercises
 
 ## Exercise 1: Redesign with Flaky Dependency

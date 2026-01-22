@@ -3455,6 +3455,223 @@ Timeout:             [X]ms (should be < caller timeout)
 Circuit Breaker:     Trip at [X]% errors over [Y]s
 ```
 
+---
+
+## Part 17: Interview Calibration for Resilience Topics
+
+### What Interviewers Are Evaluating
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    INTERVIEWER'S MENTAL RUBRIC                              │
+│                                                                             │
+│   QUESTION IN INTERVIEWER'S MIND          L5 SIGNAL           L6 SIGNAL     │
+│   ───────────────────────────────────────────────────────────────────────── │
+│                                                                             │
+│   "Do they understand retry                                                 │
+│    amplification?"                      "3 retries is fine"  Calculates 3^N │
+│                                                              amplification  │
+│                                                                             │
+│   "Do they know idempotency                                                 │
+│    limitations?"                        "Idempotency solves   "Safe retries,│
+│                                          duplicates"          not ordering" │
+│                                                                             │
+│   "Can they design for                                                      │
+│    degradation?"                        Not discussed         4-level       │
+│                                                               degradation   │
+│                                                                             │
+│   "Do they think about                                                      │
+│    recovery?"                           "System recovers"     "Gradual ramp │
+│                                                               prevents      │
+│                                                               re-triggering"│
+│                                                                             │
+│   "Do they understand                                                       │
+│    cascading failure?"                  "Timeout, retry"      Explains      │
+│                                                               metastable    │
+│                                                               failure loop  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### L5 vs L6 Interview Phrases
+
+| Topic | L5 Answer (Competent) | L6 Answer (Staff-Level) |
+|-------|----------------------|------------------------|
+| **Retry strategy** | "We'll retry 3 times with exponential backoff" | "Exponential backoff with jitter, max 3 attempts, 10% retry budget, respecting Retry-After headers. Circuit breaker trips at 5 failures in 10s." |
+| **Idempotency** | "We'll use idempotency keys" | "Client-generated UUID in header, server-side dedup with 24hr TTL, in-progress requests return 409, cached response includes X-Idempotent-Replayed header" |
+| **Partial failure** | "We'll retry until success" | "Each step has its own idempotency. If step 2 fails after step 1 succeeded, retry completes remaining steps. We track sub-operation state, not just completion." |
+| **Backpressure** | "We'll use a queue" | "Bounded queue with 1000 capacity. Producer blocks at 80% full. At 100%, returns 503 with Retry-After. Consumer uses reactive pull to control flow." |
+| **Load shedding** | "We'll return 503" | "Priority-based shedding: CRITICAL (auth) never shed, HIGH (checkout) shed at 90% capacity, MEDIUM (browse) shed at 80%, LOW (analytics) shed at 70%." |
+| **Recovery** | "When the service comes back, it'll work" | "Gradual traffic ramp after outage: 10% → 25% → 50% → 100% over 5 minutes. Prevent the recovery itself from triggering another cascade." |
+
+### Common L5 Mistakes That Cost the Level
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    L5 MISTAKES IN RESILIENCE DISCUSSIONS                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   MISTAKE 1: Retrying without calculating amplification                     │
+│   ────────────────────────────────────────────────────                      │
+│   "3 retries per tier is fine."                                             │
+│                                                                             │
+│   PROBLEM: 3-tier system → 3³ = 27x amplification. A small blip becomes     │
+│   a self-reinforcing outage.                                                │
+│                                                                             │
+│   L6 CORRECTION: "In a 3-tier system with 3 retries each, amplification     │
+│   is 27x. I'd use retry budgets (10% max) and only retry at the edge."      │
+│                                                                             │
+│   MISTAKE 2: "Idempotency prevents duplicates"                              │
+│   ────────────────────────────────────────────                              │
+│   Idempotency prevents duplicate side effects from the SAME request.        │
+│   Different requests with different keys can still cause business           │
+│   duplicates (double-booking).                                              │
+│                                                                             │
+│   L6 CORRECTION: "Idempotency handles retry safety. Business constraints    │
+│   like 'no double-booking' require domain-level validation—checking if      │
+│   the seat is already booked, not just if this request was processed."      │
+│                                                                             │
+│   MISTAKE 3: Not discussing what happens during recovery                    │
+│   ───────────────────────────────────────────────────                       │
+│   "When the database recovers, things go back to normal."                   │
+│                                                                             │
+│   PROBLEM: Buffered requests + retries + new traffic can exceed             │
+│   capacity, causing a second outage.                                        │
+│                                                                             │
+│   L6 CORRECTION: "Recovery is dangerous. I'd drain queues gradually,        │
+│   ramp traffic from 10% to 100% over 5 minutes, and watch queue depth       │
+│   before each increment."                                                   │
+│                                                                             │
+│   MISTAKE 4: Circuit breaker without half-open testing                      │
+│   ─────────────────────────────────────────────────────                     │
+│   "Circuit breaker trips after 5 failures, resets after 30 seconds."        │
+│                                                                             │
+│   PROBLEM: What if the service is still down after 30 seconds?              │
+│   You flood it again.                                                       │
+│                                                                             │
+│   L6 CORRECTION: "After 30s, enter half-open state. Allow 1 test request.   │
+│   If it succeeds, close circuit. If it fails, reopen. This probes           │
+│   recovery without flooding."                                               │
+│                                                                             │
+│   MISTAKE 5: Treating all errors as retryable                               │
+│   ─────────────────────────────────────────────                             │
+│   "On error, retry with backoff."                                           │
+│                                                                             │
+│   PROBLEM: Retrying 400 Bad Request or 401 Unauthorized wastes              │
+│   resources and delays the real fix.                                        │
+│                                                                             │
+│   L6 CORRECTION: "Only retry 5xx and connection timeouts. 4xx errors        │
+│   except 429 are client errors—retrying won't help. For 429, respect        │
+│   the Retry-After header."                                                  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Example Interview Exchange
+
+```
+INTERVIEWER: "Your payment service is timing out under load. How do you fix it?"
+
+L5 ANSWER:
+"I'd add retries with exponential backoff. Maybe 3 retries with 
+100ms, 200ms, 400ms delays. I'd also add a queue to buffer requests."
+
+L6 ANSWER:
+"Let me understand the failure first. If the payment service is slow,
+adding retries will amplify the problem. With 1000 requests and 3 retries,
+we could hit the payment service 4000 times.
+
+My approach:
+1. IMMEDIATE: Add circuit breaker. If 5 requests fail in 10 seconds, 
+   stop sending for 30 seconds. This protects the payment service 
+   and fails fast for users.
+
+2. BACKPRESSURE: Bound the in-flight requests to payment service. 
+   If we have 50 concurrent connections allowed, reject new requests 
+   with 503 + Retry-After when full.
+
+3. PRIORITIZATION: Payment confirmation is CRITICAL. Payment history
+   lookup is MEDIUM. If shedding needed, shed history first.
+
+4. RETRY STRATEGY: Only retry at the edge (API gateway), not internal
+   services. Max 2 retries, exponential backoff with jitter, 10% retry 
+   budget. Skip retries for 4xx errors.
+
+5. IDEMPOTENCY: Payment requests must include idempotency key. The 
+   payment service checks before processing to prevent double charges.
+
+6. OBSERVABILITY: Alert on retry ratio > 5%, circuit breaker state 
+   changes, and queue depth. Trace requests to identify the actual 
+   bottleneck in the payment service.
+
+The root cause is the payment service being slow. These mechanisms 
+protect the system while we fix it, but we also need to investigate 
+why it's slow—could be database, external provider, or resource 
+exhaustion."
+```
+
+---
+
+## Part 18: Final Verification
+
+### Does This Section Meet L6 Expectations?
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    L6 COVERAGE CHECKLIST                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   JUDGMENT & DECISION-MAKING                                                │
+│   ☑ Retry amplification calculation and mitigation                          │
+│   ☑ Error classification (retryable vs. non-retryable)                      │
+│   ☑ Idempotency design with limitations acknowledged                        │
+│   ☑ Priority-based load shedding decisions                                  │
+│                                                                             │
+│   FAILURE & DEGRADATION THINKING                                            │
+│   ☑ Cascading failure mechanics (metastable state)                          │
+│   ☑ Retry storms and prevention (budgets, jitter)                           │
+│   ☑ Circuit breaker with half-open state                                    │
+│   ☑ Graceful degradation levels                                             │
+│   ☑ Recovery dangers and gradual ramp-up                                    │
+│                                                                             │
+│   SCALE & EVOLUTION                                                         │
+│   ☑ Backpressure at different scales                                        │
+│   ☑ Bulkhead isolation patterns                                             │
+│   ☑ Deadline propagation across services                                    │
+│                                                                             │
+│   STAFF-LEVEL SIGNALS                                                       │
+│   ☑ Quantifies trade-offs (amplification factors)                           │
+│   ☑ Discusses operational concerns (observability, alerts)                  │
+│   ☑ Acknowledges idempotency limitations                                    │
+│   ☑ Plans for recovery, not just failure                                    │
+│                                                                             │
+│   REAL-WORLD APPLICATION                                                    │
+│   ☑ Payment processing resilience                                           │
+│   ☑ Notification system backpressure                                        │
+│   ☑ Order processing partial failure                                        │
+│                                                                             │
+│   INTERVIEW CALIBRATION                                                     │
+│   ☑ L5 vs L6 phrase comparisons                                             │
+│   ☑ Common mistakes that cost the level                                     │
+│   ☑ Interviewer evaluation criteria                                         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Self-Check Questions Before Interview
+
+```
+□ Can I calculate retry amplification for a multi-tier system?
+□ Can I explain the difference between idempotency and deduplication?
+□ Can I design a 4-level graceful degradation strategy?
+□ Can I explain metastable failure and how to break the loop?
+□ Can I configure retry, timeout, and circuit breaker values with justification?
+□ Can I design safe recovery after an outage?
+□ Do I know which errors to retry and which to fail fast?
+```
+
+---
+
 ### Idempotency Key Patterns
 
 ```
@@ -3476,5 +3693,189 @@ OPEN        Fail fast, no calls         → HALF_OPEN after timeout
 HALF_OPEN   Allow test request          → CLOSED if success
                                          → OPEN if failure
 ```
+
+---
+---
+
+# Brainstorming Questions
+
+## Understanding Backpressure
+
+1. Think of a system you've built. Where are the backpressure points? What happens when they trigger?
+
+2. When have you seen a system fail due to lack of backpressure? What was the cascade effect?
+
+3. How do you explain backpressure to someone who thinks "just add more servers" is always the answer?
+
+4. What's the difference between rate limiting and backpressure? When do you use each?
+
+5. How do you design backpressure that doesn't cause upstream callers to fail?
+
+## Understanding Retries
+
+6. Calculate the retry amplification for a 5-tier system where each tier retries 3 times. What's the maximum load on the final tier?
+
+7. When should you NOT retry? List at least five scenarios.
+
+8. How do you implement exponential backoff correctly? What about jitter?
+
+9. What's a retry budget? How do you share it across services in a call chain?
+
+10. How do you prevent retry storms during recovery from an outage?
+
+## Understanding Idempotency
+
+11. For a payment system, design the idempotency key strategy. What edge cases do you need to handle?
+
+12. What's the difference between idempotency and deduplication? When do you need both?
+
+13. How long should you store idempotency keys? What are the trade-offs?
+
+14. Design idempotent handlers for: user creation, order placement, notification sending, file upload.
+
+15. What happens if your idempotency store fails? How do you degrade gracefully?
+
+---
+
+# Reflection Prompts
+
+Set aside 15-20 minutes for each of these reflection exercises.
+
+## Reflection 1: Your Resilience Patterns
+
+Think about how you build resilient systems.
+
+- Do you think about backpressure proactively or reactively?
+- Have you calculated retry amplification for systems you've built?
+- Is idempotency a first-class concern in your designs?
+- Do you test for cascading failures?
+
+Analyze a recent system design for these three patterns. What's missing?
+
+## Reflection 2: Your Failure Recovery Thinking
+
+Consider how you handle the aftermath of failures.
+
+- Do you design for recovery as carefully as you design for failure?
+- Have you experienced thundering herd on recovery? How was it mitigated?
+- Do you know the recovery sequence for your systems?
+- Can you explain why gradual ramp-up matters?
+
+For a system you know, write a recovery runbook that prevents secondary failures.
+
+## Reflection 3: Your Trade-off Communication
+
+Examine how you explain resilience decisions.
+
+- Can you articulate why "just retry" is dangerous?
+- How do you explain the cost of idempotency to stakeholders?
+- Do you quantify the impact of backpressure mechanisms?
+- Can you draw the failure cascade for a given design?
+
+Practice explaining why a "slower" system with proper resilience is better than a "faster" fragile one.
+
+---
+
+# Homework Exercises
+
+## Exercise 1: Retry Strategy Design
+
+Design retry strategies for each scenario:
+
+1. **HTTP API call to payment provider**
+   - What to retry, backoff strategy, max attempts, budget
+
+2. **Database write that might have succeeded**
+   - How to detect success, idempotency handling
+
+3. **Message queue consumption with at-least-once delivery**
+   - Deduplication, poison message handling
+
+4. **Cross-region API call with 200ms baseline latency**
+   - Timeout, retry timing, fallback
+
+5. **Batch job processing 1M records**
+   - Checkpointing, partial retry, progress tracking
+
+For each, specify concrete numbers and explain your reasoning.
+
+## Exercise 2: Cascading Failure Prevention
+
+Design a resilient architecture for:
+
+**Scenario: E-commerce checkout**
+- Web → API Gateway → Order Service → Inventory → Payment → Notification
+- Peak: 1000 checkouts/second, each hitting all services
+
+Include:
+- Timeout at each layer (with deadline propagation)
+- Retry strategy at each layer (with budget)
+- Circuit breaker configuration
+- Bulkhead isolation
+- Graceful degradation levels
+- Recovery sequence after outage
+
+## Exercise 3: Idempotency Implementation
+
+Implement idempotency for:
+
+1. **Order placement**: User clicks "Place Order" multiple times
+2. **Payment charging**: Network timeout after charge succeeds
+3. **Message sending**: Producer retries after broker ack lost
+4. **Account creation**: Duplicate signup requests
+5. **Inventory decrement**: Multiple reservations for same item
+
+For each:
+- Idempotency key design
+- Storage requirements
+- TTL decisions
+- Failure mode handling
+
+## Exercise 4: Load Shedding Design
+
+Design a load shedding strategy for a service with:
+- 10,000 QPS capacity
+- Peak bursts to 50,000 QPS
+- Mix of critical and non-critical requests
+- SLA: 99.9% success for critical, 99% for non-critical
+
+Include:
+- Priority classification
+- Shedding thresholds
+- Request identification mechanism
+- Fairness considerations
+- Monitoring and alerting
+
+## Exercise 5: Interview Practice
+
+Practice explaining these scenarios (3 minutes each):
+
+1. "Your service is being overwhelmed. Walk me through your response."
+2. "How do you prevent retries from making an outage worse?"
+3. "Design idempotency for a payment system."
+4. "What's a circuit breaker and when do you use it?"
+5. "How do you recover safely after an outage?"
+
+Record yourself and evaluate for clarity, quantified trade-offs, and failure mode coverage.
+
+---
+
+# Conclusion
+
+Backpressure, retries, and idempotency are the three pillars of resilient distributed systems. The key insights from this section:
+
+1. **Backpressure prevents cascading failures.** Without it, overload propagates upstream and downstream, causing system-wide collapse.
+
+2. **Retries are dangerous without limits.** Exponential backoff, jitter, and budgets are essential to prevent retry storms.
+
+3. **Idempotency enables safe retries.** Without idempotent operations, retries can cause duplicate effects.
+
+4. **These patterns work together.** Retries need idempotency. Backpressure needs graceful degradation. Circuit breakers need recovery strategies.
+
+5. **Recovery is as important as failure handling.** Thundering herd on recovery has caused many secondary outages.
+
+6. **Quantify everything.** Retry amplification factors, backpressure thresholds, and recovery ramp rates should all be explicit.
+
+In interviews, demonstrate that you understand how these patterns interact. Don't just mention circuit breakers—explain how they integrate with retries and recovery. That's Staff-level thinking.
 
 ---
