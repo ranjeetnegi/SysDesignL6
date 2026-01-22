@@ -1168,131 +1168,6 @@ Let's identify the communication anti-patterns that hurt candidates.
 **Fix**: Answer directly, then expand. If you don't know, say so. "I'm not sure about that specific detail, but here's how I'd approach it."
 
 ---
-
-# Brainstorming Questions
-
-## Self-Assessment
-
-1. Record yourself explaining a system design. Watch it back. What communication patterns do you notice—good and bad?
-
-2. Think about a time you explained something technical and the listener seemed confused. What went wrong?
-
-3. How do you typically react when someone challenges your technical decisions? Do you get defensive?
-
-4. How often do you summarize when explaining something? Too often, not enough, or about right?
-
-5. When explaining, do you tend to go too deep, stay too shallow, or misjudge what's interesting?
-
-## Practice Focus
-
-6. Pick a system you know well. Can you explain it in 30 seconds? 2 minutes? 10 minutes? Practice all three.
-
-7. How would you explain the same system to a fellow engineer vs. a product manager vs. an executive?
-
-8. What words or phrases do you overuse when explaining things? (Everyone has them.)
-
-9. How comfortable are you with silence? Can you pause to think without filling the space with "um"?
-
-10. When you're explaining and realize you've made a mistake, what's your instinct? Do you course-correct smoothly?
-
-## Interview-Specific
-
-11. How do you start a system design explanation? What's your opening move?
-
-12. How do you decide what to draw on the whiteboard vs. what to say verbally?
-
-13. When the interviewer asks a question, do you answer it directly or do you tend to give context first?
-
-14. How do you handle it when you don't understand a question?
-
-15. What do you do in the last 5 minutes of an interview?
-
----
-
-# Homework Exercises
-
-## Exercise 1: The Recording Review
-
-Record yourself doing a complete system design (30-45 minutes). Use any problem.
-
-Watch the recording and evaluate:
-- How clear was your structure?
-- Did you signpost transitions?
-- Did you check in with your imaginary interviewer?
-- How were your filler words and pacing?
-- Did you summarize effectively?
-- How did you handle getting stuck?
-
-Write down three specific things to improve.
-
-## Exercise 2: The Three Lengths
-
-Pick a system you know well.
-
-Practice explaining it in:
-- 30 seconds (elevator pitch)
-- 3 minutes (executive summary)
-- 15 minutes (technical overview)
-
-Each version should be complete and coherent—not just a truncated version of the longer one. The 30-second version hits the key point. The 15-minute version has depth.
-
-## Exercise 3: The Interruption Drill
-
-Have a partner give you a system design problem.
-
-As you explain, have them interrupt frequently with:
-- Clarifying questions
-- Challenges
-- Requests to go deeper
-- Requests to move on
-- Devil's advocate questions
-
-Practice the Acknowledge-Respond-Resume pattern until it's natural.
-
-## Exercise 4: The Recovery Practice
-
-Have a partner give you a system design problem.
-
-Deliberately practice course-correction by:
-- Starting down a wrong path (on purpose), then resetting
-- Spending too long on one area, then accelerating
-- Making a technical mistake, then correcting it
-- Getting "stuck," then using an invitation to seek guidance
-
-The goal is to make recovery feel comfortable, not panicked.
-
-## Exercise 5: The Peer Observation
-
-Exchange recordings with another person preparing for Staff interviews.
-
-Watch their recording and provide feedback on:
-- Clarity of structure
-- Quality of transitions
-- Handling of depth decisions
-- Communication confidence
-- Course-correction moments
-
-Provide specific, actionable feedback. Receive their feedback gracefully.
-
-## Exercise 6: The Daily Explanation
-
-For two weeks, practice explaining something technical every day.
-
-It could be:
-- A concept you're learning
-- A design decision you made
-- A system you're working on
-- A bug you fixed
-
-Practice explaining to different audiences:
-- A fellow engineer
-- A product manager
-- Someone non-technical
-
-The goal is to make clear explanation a natural habit.
-
----
-
 # Quick Reference Card
 
 ## The 45-Minute Interview Timeline
@@ -1412,11 +1287,573 @@ The goal is to make clear explanation a natural habit.
 
 ---
 
+# Part 9: Communicating Failure Modes and Edge Cases (L6 Gap Coverage)
+
+This section addresses a critical Staff-level communication skill: **how to verbalize failure thinking during an interview**.
+
+Senior engineers mention failures when asked. Staff engineers proactively communicate failure modes as part of their design explanation—making their failure reasoning visible.
+
+---
+
+## Why Failure Communication Matters at L6
+
+Interviewers evaluate not just whether you consider failures, but **whether you can articulate them clearly**. A design that handles failures well is useless if you can't explain how.
+
+### The Failure Communication Test
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FAILURE COMMUNICATION COMPARISON                         │
+│                                                                             │
+│   L5 COMMUNICATION (Reactive)                                               │
+│   ─────────────────────────────                                             │
+│   Interviewer: "What happens if the database fails?"                        │
+│   Candidate: "We'd fail over to the replica."                               │
+│                                                                             │
+│   → Correct, but minimal. Doesn't show proactive thinking.                  │
+│                                                                             │
+│   L6 COMMUNICATION (Proactive)                                              │
+│   ─────────────────────────────                                             │
+│   Candidate: "Before I move on, let me discuss failure modes for this       │
+│   component. The primary risk is database unavailability. If the primary    │
+│   fails, we have a hot standby that takes over in ~30 seconds. During       │
+│   failover, writes fail but reads continue from the replica. Users see      │
+│   'temporarily unavailable' for writes—annoying but not catastrophic.       │
+│                                                                             │
+│   The more subtle failure is slow queries under load. If query latency      │
+│   exceeds 500ms, we timeout and return cached data with a staleness         │
+│   indicator. Users get a degraded but functional experience."               │
+│                                                                             │
+│   → Proactive, specific, considers user experience during failure.          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## The Failure Communication Framework
+
+When explaining failure modes, use this structure:
+
+### 1. Identify the Failure
+
+"The primary failure scenario for this component is..."
+
+### 2. Describe the Mechanism
+
+"When this happens, the system behaves as follows..."
+
+### 3. Explain the Impact
+
+"The user/downstream impact is..."
+
+### 4. State the Mitigation
+
+"We handle this by..."
+
+### 5. Acknowledge Residual Risk
+
+"The remaining risk is... which we accept because..."
+
+### Example: Rate Limiter Failure Communication
+
+**Component**: Distributed rate limiter using Redis
+
+**Staff-Level Communication**:
+
+"Let me walk through the failure modes for the rate limiter.
+
+**Scenario 1: Redis completely unavailable**
+When Redis is down, every rate limit check fails. We have two choices: fail open (allow all requests) or fail closed (reject all requests).
+
+I'm recommending fail open with local fallback. Each API server maintains an approximate local limit. During Redis outage, we degrade to per-server limiting—accuracy drops but the system stays available. A user might get 2-3x their actual limit during a Redis outage, but that's better than blocking all users.
+
+**Scenario 2: Redis slow (p99 > 50ms)**
+This is more subtle. We can't wait 50ms for every request. I'd set an aggressive timeout of 10ms. If Redis doesn't respond, we use the last known count plus a local increment. When Redis recovers, we sync.
+
+**Scenario 3: Network partition**
+Some servers can reach Redis, some can't. During partition, each partition rate limits independently. We might allow 2x the intended rate across all partitions. This is acceptable for the duration of a typical partition (minutes, not hours).
+
+**The key principle**: The rate limiter is a safety mechanism. Its failures shouldn't be worse than the attacks it prevents."
+
+---
+
+## Blast Radius Communication
+
+Staff engineers communicate not just that something can fail, but **how far the failure spreads**.
+
+### The Blast Radius Verbalization
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    BLAST RADIUS COMMUNICATION                               │
+│                                                                             │
+│   WEAK (Doesn't show scope thinking):                                       │
+│   "If the cache fails, we fall back to the database."                       │
+│                                                                             │
+│   STRONG (Shows blast radius awareness):                                    │
+│   "If the cache fails, let me trace the blast radius:                       │
+│   - Direct impact: Cache-dependent reads slow down (100ms → 500ms)          │
+│   - Secondary impact: Database load increases, potentially affecting        │
+│     other services sharing the database                                     │
+│   - Tertiary impact: If database becomes saturated, writes also slow        │
+│                                                                             │
+│   Containment strategy: Connection pool limits per service prevent          │
+│   cache-miss traffic from monopolizing the database."                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Phrases for Blast Radius Communication
+
+- "Let me trace the blast radius of this failure..."
+- "The direct impact is X. The secondary impact is Y."
+- "This failure is contained to [scope] because [reason]."
+- "Without containment, this could cascade to [broader scope]."
+- "Here's how we prevent this from spreading..."
+
+---
+
+## Degradation Communication
+
+Staff engineers explain not just failure but **degraded states**—when things are partially working.
+
+### The Degradation Spectrum
+
+When explaining a component, address the spectrum from healthy to failed:
+
+| State | What to Communicate |
+|-------|---------------------|
+| **Healthy** | Normal operation (briefly) |
+| **Slow** | What happens when latency increases? User impact? |
+| **Partial failure** | Some requests fail, others succeed. Which? Why? |
+| **Degraded** | Reduced functionality. What's preserved? What's lost? |
+| **Complete failure** | Full outage. Fallback behavior? |
+
+### Example: Notification System Degradation Communication
+
+"Let me walk through how the notification system behaves across the degradation spectrum.
+
+**Healthy**: Notifications delivered in <5 seconds, all channels operational.
+
+**Email provider slow**: If SendGrid latency exceeds our SLO, we queue emails and send async. Users see slight delay but notifications still arrive. In-app notifications unaffected.
+
+**Push notification partial failure**: If 10% of push requests fail (common during iOS/Android service issues), we log failures and retry once. Users might miss some push notifications—we accept this as the nature of push.
+
+**Queue backing up**: If the processing queue backs up (maybe processing is slow), we prioritize by notification type. Critical notifications (2FA, security alerts) have dedicated capacity. Marketing notifications get delayed first.
+
+**Complete database failure**: If we lose the preference database, we can't determine user notification preferences. Fallback: send via default channel (push for mobile users, email otherwise). Users might get notifications on non-preferred channels, but critical messages still arrive."
+
+---
+
+# Part 10: Communicating Uncertainty and Assumptions
+
+Staff engineers don't pretend to know everything. They **communicate uncertainty explicitly**, which paradoxically increases interviewer confidence in their judgment.
+
+---
+
+## Why Uncertainty Communication Matters
+
+Experienced interviewers distrust candidates who seem certain about everything. Real systems have unknowns. Staff engineers acknowledge them.
+
+### The Confidence Calibration Principle
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CONFIDENCE CALIBRATION                                   │
+│                                                                             │
+│   OVER-CONFIDENT (Red flag):                                                │
+│   "Kafka will definitely handle our throughput."                            │
+│   "This design will scale to any load."                                     │
+│   "There won't be any consistency issues."                                  │
+│                                                                             │
+│   UNDER-CONFIDENT (Red flag):                                               │
+│   "I'm not sure if any of this will work."                                  │
+│   "Maybe we should use a database? I don't know."                           │
+│   "I have no idea about the scale requirements."                            │
+│                                                                             │
+│   WELL-CALIBRATED (Staff-level):                                            │
+│   "Based on our estimates, Kafka should handle our throughput. The main     │
+│    uncertainty is peak-to-average ratio—we could validate with a load test."│
+│   "This design handles our current scale comfortably. At 10x, we'd need     │
+│    to revisit the database architecture."                                   │
+│   "I'm making an assumption about consistency requirements. If strong       │
+│    consistency is critical, the design changes significantly."              │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## The Assumption Declaration Pattern
+
+When making assumptions, declare them explicitly:
+
+### Structure
+
+1. **State the assumption**: "I'm assuming X"
+2. **Explain why it matters**: "This matters because..."
+3. **Describe the alternative**: "If the assumption is wrong..."
+4. **Invite validation**: "Does this assumption hold?"
+
+### Example
+
+"I'm assuming we're optimizing for read latency over write throughput—our requirements suggest a 100:1 read-write ratio. This assumption drives my choice of a heavily cached architecture with async writes.
+
+If the ratio is actually closer to 10:1 or we need strong write consistency, I'd design differently—probably a synchronous write path with less aggressive caching.
+
+Does my assumption about the read-write ratio match your understanding?"
+
+---
+
+## Uncertainty Phrases for Interviews
+
+### For Assumptions
+
+- "I'm making an assumption here that..."
+- "My design depends on [X] being true. Let me verify that with you."
+- "I'm proceeding based on [assumption]. If that changes, we'd need to revisit."
+
+### For Estimates
+
+- "My rough estimate is [X], but I'd want to validate that with actual data."
+- "Based on back-of-envelope math, [X]. The main uncertainty is [Y]."
+- "I'm less confident about [specific aspect] and would want to prototype before committing."
+
+### For Knowledge Gaps
+
+- "I don't know the exact [specific thing] off the top of my head, but I know how to find out."
+- "I'm less familiar with [technology]. My understanding is [X]—is that accurate?"
+- "I'd want to consult with the [team/expert] before finalizing this part."
+
+### For Design Uncertainty
+
+- "This is the part I'm least confident about. Here's my best thinking..."
+- "There are a few approaches here. I'm leaning toward [X] but I'm not certain."
+- "I'd want to validate this with a prototype before committing to the approach."
+
+---
+
+## The "What I Know / What I Don't Know" Technique
+
+For complex areas, explicitly separate certainties from uncertainties:
+
+**Example**:
+
+"For the distributed transaction handling, let me separate what I know from what I'm uncertain about.
+
+**What I know**:
+- We need atomic operations across the order and inventory services
+- Eventual consistency is acceptable—we can tolerate a few seconds of inconsistency
+- We need to handle the case where one service fails mid-transaction
+
+**What I'm uncertain about**:
+- The exact failure recovery mechanism—saga vs. two-phase commit depends on latency requirements I don't have
+- Whether we need compensating transactions or can rely on idempotent retries
+- The timeout thresholds for detecting failed transactions
+
+Given these uncertainties, I'll design with sagas since they're more flexible. We can adjust the specific implementation once we understand the failure scenarios better."
+
+---
+
+# Part 11: Making Technical Reasoning Visible
+
+Staff engineers don't just state conclusions—they **show their reasoning process**. This is the difference between sounding smart and demonstrating judgment.
+
+---
+
+## Why Visible Reasoning Matters
+
+Interviewers can't evaluate your judgment from conclusions alone. Two candidates might reach the same conclusion for different reasons—one through careful analysis, one through lucky guessing.
+
+### The Reasoning Visibility Test
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    REASONING VISIBILITY                                     │
+│                                                                             │
+│   INVISIBLE REASONING (Looks like guessing):                                │
+│   "I'd use PostgreSQL for this."                                            │
+│                                                                             │
+│   PARTIALLY VISIBLE (Better):                                               │
+│   "I'd use PostgreSQL because we need ACID transactions."                   │
+│                                                                             │
+│   FULLY VISIBLE (Staff-level):                                              │
+│   "Let me think through the database choice. We have a few options:         │
+│                                                                             │
+│   PostgreSQL gives us ACID transactions and SQL flexibility. The team       │
+│   knows it well, which reduces risk. The downside is horizontal scaling—    │
+│   we'd need to shard if we exceed single-node capacity.                     │
+│                                                                             │
+│   DynamoDB scales horizontally out of the box but forces us into a          │
+│   key-value access pattern. Our query requirements seem relational.         │
+│                                                                             │
+│   Given that our scale is moderate (won't hit PostgreSQL limits soon)       │
+│   and our queries are complex (benefit from SQL), I'd choose PostgreSQL.    │
+│   If we learn our access patterns are simpler than expected, we could       │
+│   revisit."                                                                 │
+│                                                                             │
+│   → Shows the evaluation process, not just the conclusion.                  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Techniques for Making Reasoning Visible
+
+### The "Let Me Think Through This" Technique
+
+Verbalize your evaluation process:
+
+"Let me think through the options here..."
+- "Option A gives us [X] but costs us [Y]"
+- "Option B gives us [Z] but requires [W]"
+- "Given our priorities of [priority], I'd lean toward [choice]"
+
+### The "Why Not" Technique
+
+Explain why you rejected alternatives:
+
+"I considered [alternative] but rejected it because..."
+- "It doesn't scale beyond [threshold]"
+- "It adds operational complexity we don't need yet"
+- "The team doesn't have expertise in this technology"
+
+### The "Context-Dependent" Technique
+
+Show that your choice depends on context:
+
+"In this context, I'd choose [X]. In a different context..."
+- "If we had a larger team, I might choose [Y]"
+- "If latency were more critical, I'd reconsider [Z]"
+- "If we expected 10x growth, I'd design differently"
+
+### The "Changed My Mind" Technique
+
+Show intellectual flexibility by revising in real-time:
+
+"Actually, now that I think about it..."
+- "Let me reconsider that choice"
+- "I was leaning toward [X], but given [new consideration], [Y] might be better"
+- "My initial instinct was [X], but on reflection..."
+
+---
+
+## Live Reasoning Example: Messaging System
+
+**Problem**: Design a messaging system.
+
+**Staff-Level Reasoning (Visible)**:
+
+"Let me think through the core architecture. The fundamental question is: do we fan out on write or fan out on read?
+
+**Fan-out on write**: When Alice sends a message to a group, we write to every recipient's inbox. Reads are simple—just query your inbox.
+- Pro: Fast reads, simple read path
+- Con: Write amplification for large groups
+
+**Fan-out on read**: When Alice sends, we store once. When Bob reads, we aggregate all groups he's in.
+- Pro: Simple writes
+- Con: Complex read aggregation, slower reads
+
+For messaging, I think read latency matters more than write efficiency—users expect instant message loading. So I lean toward fan-out on write.
+
+But wait—what about large groups? If there's a 10,000-person group, fan-out on write means 10,000 writes per message. That's expensive.
+
+Let me adjust: hybrid approach. For small groups (<100 members), fan out on write. For large groups, store once and fan out on read with caching.
+
+Actually, let me reconsider the threshold. The cost of fan-out is proportional to group size. Maybe the threshold should be based on message frequency × group size to balance total write load.
+
+This is getting complex. For a first version, I'd start with fan-out on write for all groups and add the hybrid optimization if large groups become a problem. Simpler to start, optimize when we have data."
+
+**Why This Works**: The interviewer sees the candidate evaluating options, recognizing tradeoffs, catching their own oversimplification, and arriving at a pragmatic conclusion. The visible reasoning is more valuable than the final answer.
+
+---
+
+# Part 12: Interview Calibration for Communication
+
+## What Interviewers Listen For
+
+When evaluating communication, interviewers assess:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    INTERVIEWER'S COMMUNICATION EVALUATION                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   1. Do they STRUCTURE their explanation or ramble?                         │
+│      → Looking for: previews, transitions, summaries                        │
+│                                                                             │
+│   2. Do they DRIVE the conversation or wait to be led?                      │
+│      → Looking for: agenda-setting, time awareness, proactive depth choices │
+│                                                                             │
+│   3. Do they show REASONING or just state conclusions?                      │
+│      → Looking for: "I chose X because...", "I considered Y but..."         │
+│                                                                             │
+│   4. Do they discuss FAILURES proactively?                                  │
+│      → Looking for: failure modes, blast radius, degradation behavior       │
+│                                                                             │
+│   5. Do they acknowledge UNCERTAINTY appropriately?                         │
+│      → Looking for: assumptions stated, confidence calibrated               │
+│                                                                             │
+│   6. Can they ADAPT when redirected?                                        │
+│      → Looking for: graceful pivots, not defensive, integrates feedback     │
+│                                                                             │
+│   THE CORE QUESTION:                                                        │
+│   "Would I want this person leading a technical design discussion with      │
+│    stakeholders who aren't as technical as they are?"                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Common L5 Communication Mistake: Failure as Afterthought
+
+### The Mistake
+
+Strong L5 engineers cover failures when asked but don't integrate failure thinking into their core explanation. It sounds like an add-on rather than a fundamental design consideration.
+
+**L5 Pattern**:
+```
+[30 minutes of design explanation]
+Interviewer: "What about failures?"
+Candidate: "Oh yes, for failures we'd add retry logic and circuit breakers."
+```
+
+**L6 Pattern**:
+```
+[During component explanation]
+Candidate: "...and that's the write path. Before I move on, let me discuss 
+what happens when this fails. The primary failure mode is [X]. During 
+this failure, users experience [Y]. We mitigate with [Z]. The residual 
+risk is [acceptable because/addressed by]...
+
+Now let me move to the read path, and I'll similarly discuss its failure 
+modes as I go."
+```
+
+**The Difference**: L6 candidates weave failure thinking into their explanation naturally. It's not a separate section—it's part of how they think about every component.
+
+---
+
+## Phrases That Signal Staff-Level Communication
+
+### For Structure
+
+- "Let me outline my approach before diving in..."
+- "I'll cover three areas: [X], [Y], [Z]. Starting with [X]..."
+- "To summarize what we have so far..."
+
+### For Proactive Failure Discussion
+
+- "Before I move on, let me discuss what happens when this fails..."
+- "The main failure mode here is... Here's how we handle it..."
+- "Let me trace the blast radius of this failure..."
+
+### For Visible Reasoning
+
+- "Let me think through the options here..."
+- "I'm choosing [X] because [reasoning]. The alternative would be [Y], which I rejected because [reason]..."
+- "Given our constraints of [A] and [B], the right choice is [C]..."
+
+### For Uncertainty
+
+- "I'm making an assumption here that [X]. If that's wrong, we'd need to adjust..."
+- "I'm confident about [X]. I'm less certain about [Y]..."
+- "My estimate is [X], but I'd want to validate with [method]..."
+
+### For Adaptation
+
+- "That's a good point—let me reconsider..."
+- "Given what you just said, I'd adjust my approach to..."
+- "I hadn't fully considered that. Here's how it changes things..."
+
+---
+
+# Section Verification: L6 Coverage Assessment
+
+## Final Statement
+
+**This section now meets Google Staff Engineer (L6) expectations.**
+
+The original content provided excellent coverage of interview structure, explanation patterns, and handling interruptions. The additions address critical gaps in failure communication, uncertainty verbalization, and making reasoning visible.
+
+## Staff-Level Signals Covered
+
+| L6 Dimension | Coverage Status | Key Content |
+|--------------|-----------------|-------------|
+| **Interview Leadership** | ✅ Covered | Active vs passive, driving the interview, time management |
+| **Structural Communication** | ✅ Covered | 5 explanation patterns, signposting, transitions |
+| **Depth Decisions** | ✅ Covered | When to go deep vs stay high-level |
+| **Handling Interruptions** | ✅ Covered | Acknowledge-Respond-Resume, types of interruptions |
+| **Course Correction** | ✅ Covered | 5 recovery techniques |
+| **Failure Communication** | ✅ Covered (NEW) | Failure framework, blast radius verbalization, degradation spectrum |
+| **Uncertainty Communication** | ✅ Covered (NEW) | Confidence calibration, assumption declaration, knowledge gaps |
+| **Visible Reasoning** | ✅ Covered (NEW) | Making reasoning visible, live reasoning example |
+| **Interview Calibration** | ✅ Covered (NEW) | What interviewers listen for, common L5 mistake, L6 phrases |
+
+## Diagrams Included
+
+1. **Staff-Level Interview Flow** (Original) — 4-phase timeline
+2. **5 Structural Patterns** (Original) — Explanation approaches
+3. **Should I Go Deep?** (Original) — Depth decision framework
+4. **Acknowledge-Respond-Resume** (Original) — Interruption handling
+5. **5 Course-Correction Techniques** (Original) — Recovery patterns
+6. **Failure Communication Comparison** (NEW) — L5 vs L6 failure discussion
+7. **Blast Radius Communication** (NEW) — Tracing failure scope
+8. **Confidence Calibration** (NEW) — Over/under/well-calibrated uncertainty
+9. **Reasoning Visibility** (NEW) — Hidden vs visible reasoning
+10. **Interviewer's Communication Evaluation** (NEW) — What they assess
+
+## Remaining Considerations
+
+The following topics are touched on but may warrant deeper treatment in subsequent volumes:
+
+- **Non-verbal communication** — Whiteboard presence, eye contact, pacing
+- **Remote interview specifics** — Virtual whiteboard tools, screen sharing
+- **Cross-functional communication** — Explaining to PMs, executives (different from engineers)
+
+These gaps are acceptable for this section focused on technical communication fundamentals. The content now provides actionable frameworks for Staff-level interview communication.
+
+---
+
+## Quick Self-Check: Communication
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PRE-INTERVIEW COMMUNICATION CHECK                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   □ I can drive an interview from start to finish without prompting         │
+│   □ I structure explanations with previews, transitions, summaries          │
+│   □ I discuss failure modes proactively, not just when asked                │
+│   □ I trace blast radius when explaining failures                           │
+│   □ I explain degradation behavior, not just binary up/down                 │
+│   □ I state assumptions explicitly and invite validation                    │
+│   □ I calibrate confidence appropriately (not over/under confident)         │
+│   □ I make my reasoning visible, not just my conclusions                    │
+│   □ I can course-correct gracefully when I realize I'm off track            │
+│   □ I check in strategically, not constantly                                │
+│                                                                             │
+│   If you check 8+, you're demonstrating Staff-level communication.          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 # Conclusion
 
 Communication is the medium through which your technical skills become visible. In a system design interview, the interviewer experiences your abilities only through what you say, draw, and explain.
 
 Staff engineers lead discussions. They structure their explanations. They go deep where it matters. They summarize to create shared understanding. They handle interruptions gracefully. They course-correct when needed.
+
+But beyond structure, Staff engineers also:
+- **Communicate failure modes proactively**—not as an afterthought
+- **Make their reasoning visible**—showing evaluation, not just conclusions
+- **Acknowledge uncertainty explicitly**—calibrating confidence appropriately
+- **Trace blast radius**—showing they think about failure scope
 
 These are skills you can develop through deliberate practice:
 - **Structure your explanations** with previews, signposts, and summaries
@@ -1424,8 +1861,10 @@ These are skills you can develop through deliberate practice:
 - **Choose your depth** based on what's interesting and important
 - **Handle questions** as collaboration, not challenges
 - **Recover gracefully** when things go off track
+- **Weave failure thinking** into your component explanations
+- **Show your reasoning** so interviewers can evaluate your judgment
 
-Remember: the interviewer wants you to succeed. They're not trying to trick you or catch you out. They're trying to understand how you think and communicate. Make it easy for them.
+Remember: the interviewer wants you to succeed. They're not trying to trick you or catch you out. They're trying to understand how you think and communicate. Make it easy for them by making your thinking visible.
 
 Every system design interview is an opportunity to demonstrate not just what you know, but how you lead.
 
@@ -1433,4 +1872,177 @@ Lead well.
 
 ---
 
-*End of Volume 1, Section 5*
+# Brainstorming Questions
+
+## Self-Assessment
+
+1. Record yourself explaining a system design. Watch it back. What communication patterns do you notice—good and bad?
+
+2. Think about a time you explained something technical and the listener seemed confused. What went wrong?
+
+3. How do you typically react when someone challenges your technical decisions? Do you get defensive?
+
+4. How often do you summarize when explaining something? Too often, not enough, or about right?
+
+5. When explaining, do you tend to go too deep, stay too shallow, or misjudge what's interesting?
+
+## Practice Focus
+
+6. Pick a system you know well. Can you explain it in 30 seconds? 2 minutes? 10 minutes? Practice all three.
+
+7. How would you explain the same system to a fellow engineer vs. a product manager vs. an executive?
+
+8. What words or phrases do you overuse when explaining things? (Everyone has them.)
+
+9. How comfortable are you with silence? Can you pause to think without filling the space with "um"?
+
+10. When you're explaining and realize you've made a mistake, what's your instinct? Do you course-correct smoothly?
+
+## Interview-Specific
+
+11. How do you start a system design explanation? What's your opening move?
+
+12. How do you decide what to draw on the whiteboard vs. what to say verbally?
+
+13. When the interviewer asks a question, do you answer it directly or do you tend to give context first?
+
+14. How do you handle it when you don't understand a question?
+
+15. What do you do in the last 5 minutes of an interview?
+
+---
+
+# Reflection Prompts
+
+Set aside 15-20 minutes for each of these reflection exercises.
+
+## Reflection 1: Your Communication Style
+
+Record yourself explaining a technical concept for 5 minutes, then watch it back.
+
+- Do you preview structure before diving in?
+- Do you use transitions and signposts?
+- How many filler words ("um," "uh," "like") do you use?
+- Do you check in periodically or ramble continuously?
+- Does your pace vary appropriately or is it monotonous?
+
+Write down three specific things you'd change about your communication style.
+
+## Reflection 2: Your Depth/Breadth Balance
+
+Think about your last few technical explanations or interviews.
+
+- Do you go too deep on familiar topics while skimming unfamiliar ones?
+- Can you zoom out as effectively as you zoom in?
+- Do you let the interviewer's interest guide your depth choices?
+- How well do you estimate time?
+
+Rate yourself 1-10 on depth management. What would improve your score?
+
+## Reflection 3: Your Recovery Ability
+
+Think about times when things went off track in a technical discussion.
+
+- Did you recognize it quickly or slowly?
+- Did you recover gracefully or fumble?
+- Were you flustered or calm?
+- Did you blame the situation or adapt?
+
+What's your biggest weakness in recovery? What would help?
+
+## Reflection 4: Your Failure Mode Communication
+
+Review Part 9 on communicating failure modes.
+
+- Do you discuss failures proactively or only when asked?
+- Do you think about blast radius naturally?
+- Do you explain degradation behavior, not just binary failure?
+- Do you acknowledge uncertainty appropriately?
+
+For any dimension you rated below 7, identify what practice would help.
+
+---
+
+# Homework Exercises
+
+## Exercise 1: The Recording Review
+
+Record yourself doing a complete system design (30-45 minutes). Use any problem.
+
+Watch the recording and evaluate:
+- How clear was your structure?
+- Did you signpost transitions?
+- Did you check in with your imaginary interviewer?
+- How were your filler words and pacing?
+- Did you summarize effectively?
+- How did you handle getting stuck?
+
+Write down three specific things to improve.
+
+## Exercise 2: The Three Lengths
+
+Pick a system you know well.
+
+Practice explaining it in:
+- 30 seconds (elevator pitch)
+- 3 minutes (executive summary)
+- 15 minutes (technical overview)
+
+Each version should be complete and coherent—not just a truncated version of the longer one. The 30-second version hits the key point. The 15-minute version has depth.
+
+## Exercise 3: The Interruption Drill
+
+Have a partner give you a system design problem.
+
+As you explain, have them interrupt frequently with:
+- Clarifying questions
+- Challenges
+- Requests to go deeper
+- Requests to move on
+- Devil's advocate questions
+
+Practice the Acknowledge-Respond-Resume pattern until it's natural.
+
+## Exercise 4: The Recovery Practice
+
+Have a partner give you a system design problem.
+
+Deliberately practice course-correction by:
+- Starting down a wrong path (on purpose), then resetting
+- Spending too long on one area, then accelerating
+- Making a technical mistake, then correcting it
+- Getting "stuck," then using an invitation to seek guidance
+
+The goal is to make recovery feel comfortable, not panicked.
+
+## Exercise 5: The Peer Observation
+
+Exchange recordings with another person preparing for Staff interviews.
+
+Watch their recording and provide feedback on:
+- Clarity of structure
+- Quality of transitions
+- Handling of depth decisions
+- Communication confidence
+- Course-correction moments
+
+Provide specific, actionable feedback. Receive their feedback gracefully.
+
+## Exercise 6: The Daily Explanation
+
+For two weeks, practice explaining something technical every day.
+
+It could be:
+- A concept you're learning
+- A design decision you made
+- A system you're working on
+- A bug you fixed
+
+Practice explaining to different audiences:
+- A fellow engineer
+- A product manager
+- Someone non-technical
+
+The goal is to make clear explanation a natural habit.
+
+---

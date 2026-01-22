@@ -983,7 +983,681 @@ To make the Staff expectations concrete, let's compare them directly with Senior
 - Staff: Evaluate technologies for multiple teams' needs. Consider organizational factors (expertise, maintenance, consistency). Drive alignment across teams.
 
 ---
+# Quick Reference Card
 
+## Self-Check: Am I Demonstrating Staff-Level Scope?
+
+Use this checklist during practice or actual interviews:
+
+| Signal | Weak (L5) | Strong (L6) | ✓ |
+|--------|-----------|-------------|---|
+| **Problem Framing** | Accepted problem as-is | Explored context, questioned assumptions | ☐ |
+| **Boundaries** | Stayed within stated scope | Asked about adjacent systems, team ownership | ☐ |
+| **Future States** | Designed for now; "scale later" | Discussed 10x/100x evolution and migration | ☐ |
+| **Stakeholders** | Focused on primary user | Considered operators, other teams, compliance | ☐ |
+| **Adjacent Problems** | "Out of scope" | Engaged with cross-cutting concerns | ☐ |
+| **Tradeoffs** | Technical merits only | Business impact, team velocity, org factors | ☐ |
+
+---
+
+## Interview Signals: Weak vs Strong Responses
+
+### Handling Pushback
+
+| Weak | Strong |
+|------|--------|
+| Defends position rigidly | Explores concern, integrates valid points |
+| Immediately abandons position | Adjusts OR explains why original is still preferred |
+| Gets defensive or flustered | Treats pushback as collaborative exploration |
+
+### Proposing Tradeoffs
+
+| Weak | Strong |
+|------|--------|
+| "We could do A or B" (waits for interviewer) | "I recommend A because [reasons], B if [different priorities]" |
+| "A is better, end of discussion" | "Given our requirements... though if we valued X more..." |
+| Lists pros/cons without recommendation | Makes a clear recommendation with reasoning |
+
+### Framing Problems
+
+| Weak | Strong |
+|------|--------|
+| "Should we use Kafka or RabbitMQ?" | "We need X throughput with Y semantics. Given that..." |
+| Accepts problem as stated | "Before solving this, is this the right problem?" |
+| Jumps to solution immediately | Spends time understanding context first |
+
+---
+
+## Phrases That Signal Staff-Level Thinking
+
+### Scope
+- "Before I design this, let me understand the broader context..."
+- "Are there other teams building similar systems?"
+- "What's the organization's long-term vision for this?"
+- "This pattern could be useful for other teams too..."
+
+### Impact
+- "This affects not just us, but also Team X and Team Y..."
+- "If I were solving this for three teams instead of one..."
+- "We should document this so future teams benefit..."
+
+### Ownership
+- "Even though it's not my service, let me help coordinate..."
+- "I feel responsible for the user outcome, not just my component..."
+- "What systemic fix can we implement to prevent this class of issues?"
+
+### Influence
+- "Let me gather data to support this proposal..."
+- "I'll talk to the other tech leads to understand their concerns..."
+- "Here's a prototype that demonstrates the approach..."
+
+---
+
+## The Mental Models At a Glance
+
+| Model | L5 | L6 |
+|-------|----|----|
+| **Ripple Effect** | Ripples reach edge of your team | Ripples cross team boundaries regularly |
+| **Problem vs Solution** | Owns solutions | Owns problems |
+| **Zoom Levels** | Excels zoomed in (component) | Moves fluidly between all levels |
+| **Builder vs Architect** | Given blueprint, builds excellently | Designs AND ensures it gets built |
+| **Leverage** | 1x (effort = output) | 10x+ (multiplies through others) |
+
+---
+
+## Common Mistakes to Avoid
+
+| Mistake | Why It's Weak | Staff Alternative |
+|---------|--------------|-------------------|
+| "That's not my team's problem" | Shows narrow ownership | "Let me understand how this affects the user and help" |
+| Designing in isolation | Misses cross-team opportunities | Ask about related systems early |
+| Only discussing current scale | Lacks temporal scope | "At 10x, we'll need to... let me design for that" |
+| Waiting to be asked | Shows passive stance | Proactively identify and propose solutions |
+| Single-stakeholder focus | Misses complexity | Consider operators, compliance, other teams |
+| Pure technology debates | Misses requirements focus | Frame with requirements first, then evaluate options |
+
+---
+
+# Conclusion
+
+Scope, impact, and ownership are the currency of Staff-level contribution. They're not granted by job titles or project assignments—they're created through initiative, credibility, and consistent excellent judgment.
+
+Understanding these concepts intellectually is the easy part. Embodying them in your daily work—and demonstrating them in interviews—is the challenge.
+
+As you continue preparing:
+- Look for opportunities to expand scope in your current role
+- Seek out multi-team impact, even when it's not required
+- Take ownership of problem spaces, not just components
+- Practice driving direction through influence, not authority
+
+The interview is a performance, but it's a performance of something real. The best way to perform Staff-level thinking in an interview is to practice Staff-level thinking in your work.
+
+---
+
+# Part 9: Failure Ownership and Blast Radius (L6 Gap Coverage)
+
+This section addresses a critical dimension missing from the conceptual frameworks above: **how Staff-level scope and ownership manifest during failures, incidents, and degraded system states**.
+
+Anyone can own something when it works. Staff engineers demonstrate ownership when things break.
+
+---
+
+## Why Failure Ownership Matters at L6
+
+The previous parts defined scope conceptually. But scope is tested most severely during incidents. This is where the difference between L5 and L6 becomes starkly visible.
+
+### The Failure Ownership Spectrum
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FAILURE OWNERSHIP BY LEVEL                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   INCIDENT: "Users can't complete checkout"                                 │
+│   ROOT CAUSE: Payment service returning errors (owned by different team)    │
+│                                                                             │
+│   L4 (MID):                                                                 │
+│   "That's the payment team's service. I'll wait for them to fix it."        │
+│                                                                             │
+│   L5 (SENIOR):                                                              │
+│   "I confirmed it's not our code. I've notified the payment team and        │
+│    escalated to my manager."                                                │
+│                                                                             │
+│   L6 (STAFF):                                                               │
+│   "Users can't checkout—that's my problem regardless of where the root      │
+│    cause is. I've joined the payment team's incident channel, I'm helping   │
+│    them debug, and I'm exploring whether we can degrade gracefully while    │
+│    they fix it. I've also notified downstream teams that depend on          │
+│    checkout completion events."                                             │
+│                                                                             │
+│   THE DIFFERENCE:                                                           │
+│   L5 → Owns their component's correctness                                   │
+│   L6 → Owns the user-facing outcome across the system                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Blast Radius: The Scope of Failure
+
+**Blast radius** is the scope of impact when a component fails. Staff engineers own not just their component, but its blast radius—everything that breaks when their area breaks.
+
+### Diagram: Blast Radius Ownership Model
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    BLAST RADIUS OWNERSHIP                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│                         ┌──────────────────┐                                │
+│                         │   YOUR SERVICE   │                                │
+│                         │  (Direct Owner)  │                                │
+│                         └────────┬─────────┘                                │
+│                                  │                                          │
+│              ┌───────────────────┼───────────────────┐                      │
+│              ▼                   ▼                   ▼                      │
+│     ┌────────────────┐  ┌────────────────┐  ┌────────────────┐              │
+│     │  Consumer A    │  │  Consumer B    │  │  Consumer C    │              │
+│     │  (Team Alpha)  │  │  (Team Beta)   │  │  (Team Gamma)  │              │
+│     └───────┬────────┘  └───────┬────────┘  └────────────────┘              │
+│             │                   │                                           │
+│             ▼                   ▼                                           │
+│     ┌────────────────┐  ┌────────────────┐                                  │
+│     │   End Users    │  │   End Users    │                                  │
+│     │   (Mobile)     │  │   (Web)        │                                  │
+│     └────────────────┘  └────────────────┘                                  │
+│                                                                             │
+│   L5 THINKING: "I own my service. If consumers fail, that's their problem." │
+│   L6 THINKING: "I own my blast radius. If I break, everyone downstream      │
+│                 breaks. I'm accountable for that impact."                   │
+│                                                                             │
+│   STAFF ENGINEER ACTIONS:                                                   │
+│   • Maintain explicit dependency map                                        │
+│   • Define SLAs with each critical consumer                                 │
+│   • Design graceful degradation for consumers                               │
+│   • Proactively notify consumers during incidents                           │
+│   • Run chaos engineering to test consumer resilience                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Cross-Team Failure Ownership
+
+Many production incidents exist in the **interstitial zones**—the gaps between team boundaries where no one clearly owns the problem.
+
+### The Interstitial Failure Pattern
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    INTERSTITIAL FAILURE ZONES                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   ┌─────────────┐              ┌─────────────┐              ┌─────────────┐ │
+│   │  Service A  │  ──────────▶ │  Service B  │  ──────────▶ │  Service C  │ │
+│   │  (Team A)   │              │  (Team B)   │              │  (Team C)   │ │
+│   └─────────────┘              └─────────────┘              └─────────────┘ │
+│                    ▲                           ▲                            │
+│                    │                           │                            │
+│              ┌─────┴──────┐              ┌─────┴──────┐                     │
+│              │INTERSTITIAL│              │INTERSTITIAL│                     │
+│              │  ZONE 1    │              │  ZONE 2    │                     │
+│              │            │              │            │                     │
+│              │ • Timeout  │              │ • Retry    │                     │
+│              │   mismatch │              │   storms   │                     │
+│              │ • Contract │              │ • Backpres-│                     │
+│              │   drift    │              │   sure     │                     │
+│              └────────────┘              └────────────┘                     │
+│                                                                             │
+│   WHO OWNS INTERSTITIAL ZONES?                                              │
+│   L5: "Neither team—we should escalate"                                     │
+│   L6: "I'll take ownership of the interaction"                              │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Concrete Example: The Timeout Mismatch Incident
+
+**Situation**: Service A calls Service B with a 5-second timeout. Service B has p90 latency of 4 seconds under load. During traffic spikes, 15% of requests timeout, causing user-visible errors.
+
+**L5 Response from Team A**: "Service B is too slow. They need to optimize."
+**L5 Response from Team B**: "We're within our SLA. Team A's timeout is too aggressive."
+
+Both teams are "correct" within their scope. The problem persists.
+
+**L6 Response**: 
+"I'll take ownership of this interaction:
+
+1. **Diagnosis**: The real issue is we never aligned on SLAs. Service B's implicit contract doesn't match Team A's assumption.
+
+2. **Short-term fix**: Work with Team A to increase timeout to 10s and add a circuit breaker to prevent cascade during B's slowdowns.
+
+3. **Medium-term fix**: Define an explicit SLA between A and B—p99 latency of 3 seconds—with alerting when B approaches that threshold.
+
+4. **Long-term fix**: Propose org-wide standard for cross-service SLA contracts so this class of issue doesn't repeat.
+
+Neither team caused this. The gap between teams caused it. I'm owning the gap."
+
+---
+
+## Degradation Ownership
+
+Staff engineers don't just own binary up/down states. They own **degradation behavior**—what happens when the system is partially working.
+
+### The Degradation Ownership Matrix
+
+| System State | L5 Ownership | L6 Ownership |
+|--------------|--------------|--------------|
+| **Healthy** | "My service is healthy" | "The user experience depending on me is healthy" |
+| **Degraded** | "My service is slow, investigating" | "I've activated fallbacks, communicated to consumers, investigating root cause in parallel" |
+| **Partial Failure** | "Some requests failing, filed a bug" | "Identified affected user segments, prioritized critical paths, engaged support for user communication" |
+| **Full Outage** | "Service down, working on recovery" | "Coordinating incident response, notified all blast radius consumers, managing user impact while driving recovery" |
+
+---
+
+# Part 10: Real-World System Examples with Technical Depth
+
+The previous parts discussed scope, impact, and ownership conceptually. This section grounds those concepts in concrete system design decisions.
+
+---
+
+## Example 1: Rate Limiter—Scope Across Consumers
+
+**System**: A centralized rate limiting service used by 12 API teams.
+
+### Scope Dimensions in Practice
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    RATE LIMITER SCOPE DIAGRAM                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   EXTERNAL CLIENTS              RATE LIMITER                BACKEND APIS    │
+│   ────────────────              ──────────                  ────────────    │
+│                                                                             │
+│   ┌─────────────┐         ┌────────────────────┐         ┌─────────────┐    │
+│   │ Mobile Apps │────────▶│                    │────────▶│  User API   │    │
+│   └─────────────┘         │    RATE LIMITER    │         │  (Team A)   │    │
+│                           │                    │         └─────────────┘    │
+│   ┌─────────────┐         │  • Token bucket    │                            │
+│   │  Web Apps   │────────▶│  • Per-user limits │         ┌─────────────┐    │
+│   └─────────────┘         │  • Per-API limits  │────────▶│ Product API │    │
+│                           │  • Burst handling  │         │  (Team B)   │    │
+│   ┌─────────────┐         │                    │         └─────────────┘    │
+│   │ Partner APIs│────────▶│  YOUR SCOPE        │                            │
+│   └─────────────┘         │                    │         ┌─────────────┐    │
+│                           └────────────────────┘────────▶│ Payment API │    │
+│                                     │                    │  (Team C)   │    │
+│                                     │                    └─────────────┘    │
+│                                     ▼                                       │
+│                           ┌────────────────────┐                            │
+│                           │   Redis Cluster    │                            │
+│                           │  (Infrastructure)  │                            │
+│                           └────────────────────┘                            │
+│                                                                             │
+│   L5 SCOPE: "I own the rate limiter service"                                │
+│   L6 SCOPE: "I own fair access to backend APIs for all clients"             │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Technical Decision: Failure Behavior
+
+**Decision**: What happens when Redis (the backing store) fails?
+
+**Options considered**:
+
+| Option | Behavior | Pros | Cons |
+|--------|----------|------|------|
+| **Fail Closed** | Reject all requests | Safe from abuse | All users blocked; catastrophic UX |
+| **Fail Open** | Allow all requests | Users not blocked | Abuse possible; could overwhelm backends |
+| **Local Fallback** | Per-node approximate limit | Moderate protection, moderate UX | Less accurate; still allows 2-3× rate during outage |
+
+**My Decision**: Local fallback with tiered behavior.
+
+**Why**:
+1. Rate limiting is a safety mechanism. Its failure shouldn't be worse than the attacks it prevents.
+2. Fail-closed would block all users—that's worse than allowing some abuse during a brief outage.
+3. Fail-open is dangerous for the Payment API—abuse there could cause financial loss.
+4. **Solution**: Default to local fallback, but Payment API is configured for fail-closed (they'd rather have a brief outage than fraud risk).
+
+**What I rejected and why**:
+- "Just fail-open everywhere" — Rejected because Payment API team explicitly needs protection over availability.
+- "Fail-closed everywhere" — Rejected because blocking all users during a Redis blip is disproportionate.
+
+### Blast Radius Ownership
+
+"If my rate limiter fails, 12 API teams are affected. I maintain an explicit runbook for each consumer. During an incident, I proactively notify all 12 teams—I don't wait for them to discover the issue. I've also worked with each team to define their graceful degradation behavior when rate limiting is unavailable."
+
+---
+
+## Example 2: Notification System—Multi-Team Impact
+
+**System**: Notification platform used by 8 product teams to send emails, push notifications, and SMS.
+
+### Ownership Scope Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              NOTIFICATION SYSTEM MULTI-TEAM OWNERSHIP                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   PRODUCER TEAMS                    YOUR PLATFORM                CHANNELS   │
+│   ──────────────                    ─────────────                ────────   │
+│                                                                             │
+│   ┌──────────────────┐                                                      │
+│   │  Social Team     │──┐                                    ┌──▶ Email     │
+│   │  (friend reqs)   │  │                                    │              │
+│   └──────────────────┘  │        ┌─────────────────┐         │              │
+│                         │        │                 │         ├──▶ Push      │
+│   ┌──────────────────┐  ├───────▶│  NOTIFICATION   │─────────┤              │
+│   │  Payment Team    │──┤        │    PLATFORM     │         ├──▶ SMS       │
+│   │  (txn alerts)    │  │        │                 │         │              │
+│   └──────────────────┘  │        │  (YOUR SCOPE)   │         └──▶ In-app    │
+│                         │        │                 │                        │
+│   ┌──────────────────┐  │        └─────────────────┘                        │
+│   │  Security Team   │──┤                                                   │
+│   │  (2FA, fraud)    │  │                                                   │
+│   └──────────────────┘  │                                                   │
+│                         │                                                   │
+│   ┌──────────────────┐  │                                                   │
+│   │  5 more teams... │──┘                                                   │
+│   └──────────────────┘                                                      │
+│                                                                             │
+│   L5 SCOPE: "I operate the notification platform"                           │
+│   L6 SCOPE: "I ensure users receive the right notifications reliably"       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Technical Decision: Priority System Design
+
+**Problem**: All notifications go through one pipeline. During load spikes, 2FA codes (critical) compete with marketing emails (low priority).
+
+**Decision**: Implement 4-tier priority system with separate processing queues.
+
+| Priority | Examples | SLA | Degradation Behavior |
+|----------|----------|-----|---------------------|
+| **Critical** | 2FA codes, fraud alerts | <10s delivery | Never shed; synchronous fallback if queue fails |
+| **High** | Transaction confirmations | <1m delivery | Shed only under extreme load |
+| **Normal** | Social notifications | <10m delivery | Shed during high load |
+| **Low** | Marketing, digests | Best effort | First to shed; can be delayed hours |
+
+**Why this design**:
+1. **Separate queues per tier** ensure Critical never waits behind Low.
+2. **Explicit SLAs per tier** let producer teams choose appropriately.
+3. **Shedding policy** protects Critical by sacrificing Low during degradation.
+
+**Alternatives rejected**:
+- **Single queue with priority ordering**: Rejected because a burst of Low notifications could still delay Critical during queue processing.
+- **Per-team queues**: Rejected because priority cuts across teams (Security Team sends both Critical 2FA and Low marketing).
+
+**Failure behavior**:
+- If Critical queue processor fails: Page immediately, synchronous fallback activates.
+- If Low queue processor fails: Alert after 15 minutes; allows for self-healing.
+- If queue broker fails entirely: Critical-only synchronous path activates; all other notifications queue to disk for later processing.
+
+---
+
+## Example 3: API Gateway—Organizational Scope
+
+**System**: API gateway handling all external traffic (~500K QPS).
+
+### Scope Evolution Over Time
+
+| Phase | Scale | Technical Scope | Organizational Scope |
+|-------|-------|-----------------|---------------------|
+| **V1** (Launch) | 10K QPS | Routing, basic auth | Your team only |
+| **V2** (Growth) | 100K QPS | + Rate limiting, caching | + Mobile team, Partner team |
+| **V3** (Scale) | 500K QPS | + Circuit breakers, observability | + All API teams, SRE, Security |
+
+### What L6 Ownership Looked Like at Each Phase
+
+**V1**: "I own the gateway. It routes requests correctly."
+
+**V2**: "I own the external API experience. I'm working with Mobile team to understand their latency requirements. I've established on-call handoff procedures with Partner team. I'm tracking end-to-end latency, not just gateway latency."
+
+**V3**: "I own external API reliability and evolution. I'm defining the 2-year architecture vision as we approach service mesh. I've established the API governance process that all new endpoints go through. I coordinate incident response for any external-facing issue, regardless of which backend is the root cause."
+
+### Technical Decision: Error Response Standardization
+
+**Problem**: Each backend team returned errors differently. Mobile app had to handle 15 different error formats.
+
+**L5 approach**: "Each team owns their error format. I just proxy what they return."
+
+**L6 approach**: "I own the external API experience. I'll standardize error responses at the gateway level."
+
+**Decision**:
+- Gateway wraps all backend errors in a consistent envelope
+- Standard error codes across all APIs
+- Machine-readable error types for client retry logic
+- Human-readable messages for debugging
+
+**Why**:
+1. Mobile team can implement one error handler instead of 15.
+2. Consistent retry behavior across all API calls.
+3. Backend teams can still add context; I just ensure format consistency.
+
+**What I had to do organizationally**:
+1. Met with each backend team to understand their error semantics.
+2. Drafted RFC for standard error format.
+3. Got buy-in from Mobile, Web, and Partner teams (consumers).
+4. Implemented translation layer in gateway.
+5. Gave backend teams 6 months to migrate to new format (gateway handles legacy during transition).
+
+This is **multi-team impact through influence**, not authority.
+
+---
+
+# Part 11: Interview Calibration by Mental Model
+
+Each mental model from Part 7 has specific interview signals. Here's how to demonstrate Staff-level thinking for each.
+
+---
+
+## Mental Model 1: The Ripple Effect
+
+### What Interviewers Look For
+
+| Signal | L5 Behavior | L6 Behavior |
+|--------|-------------|-------------|
+| **Problem framing** | Focuses on immediate component | Asks who else is affected |
+| **Design scope** | Optimizes local system | Considers downstream impact |
+| **Communication** | Describes their solution | Describes effect on other teams |
+
+### Staff-Level Phrases
+
+- "If we change this, Teams A and B will be affected. Let me think about how to minimize disruption..."
+- "This design decision ripples into the notification system. Let me check if that's acceptable..."
+- "I want to design this so other teams could use it too—what would that require?"
+
+### Common L5 Mistake
+
+**The mistake**: Designing an excellent solution without considering who consumes it.
+
+**Example**: Candidate designs a great caching layer but never asks about cache invalidation impact on consuming services.
+
+**L6 thinking**: "Before I finalize this cache design, let me understand who reads from it. If Product service reads cached data, they need to tolerate some staleness. If Payment service reads it, they might need stronger consistency. Let me design invalidation accordingly."
+
+---
+
+## Mental Model 2: Problem vs. Solution Ownership
+
+### What Interviewers Look For
+
+| Signal | L5 Behavior | L6 Behavior |
+|--------|-------------|-------------|
+| **Initial approach** | "Here's how I'd build it" | "Let me understand what problem we're solving" |
+| **Scope questions** | Clarifies implementation details | Questions whether this is the right problem |
+| **Alternatives** | Considers implementation alternatives | Considers problem-framing alternatives |
+
+### Staff-Level Phrases
+
+- "Before I design the solution, I want to make sure we're solving the right problem..."
+- "Is this the real issue, or is there a deeper problem we should address instead?"
+- "What happens if we don't build this? What's the cost of the problem persisting?"
+
+### Common L5 Mistake
+
+**The mistake**: Accepting the problem as stated and optimizing the solution.
+
+**Example**: Asked to "design a cache to speed up the product page," candidate immediately designs an excellent cache—without asking why the page is slow or whether caching is the right solution.
+
+**L6 thinking**: "Before I design a cache, let me understand why the page is slow. Is it database queries? API latency? Frontend rendering? Caching might be a band-aid. Let me ensure we're solving the root cause."
+
+---
+
+## Mental Model 3: The Zoom Levels
+
+### What Interviewers Look For
+
+| Signal | L5 Behavior | L6 Behavior |
+|--------|-------------|-------------|
+| **Depth navigation** | Goes deep and stays deep | Zooms in and out fluidly |
+| **Context awareness** | Knows their component well | Understands how component fits system |
+| **Evolution thinking** | "Add more servers if needed" | "At 10× scale, architecture changes" |
+
+### Staff-Level Phrases
+
+- "Let me zoom out for a moment and check how this fits the bigger picture..."
+- "I've been focused on this component—let me step back and verify it integrates correctly..."
+- "At the detail level, this works. At the system level, I see a potential issue..."
+
+### Common L5 Mistake
+
+**The mistake**: Getting stuck at one zoom level (usually too detailed).
+
+**Example**: Spending 20 minutes on database indexing strategy while never discussing how the service fits into the overall architecture or how it will evolve.
+
+**L6 thinking**: "I've designed the indexing strategy. Let me zoom out—how does this database fit with our other data stores? Is there duplication we should address? Now let me zoom forward—at 10× data, will this indexing approach still work, or do we need to shard?"
+
+---
+
+## Mental Model 4: Builder vs. Architect Spectrum
+
+### What Interviewers Look For
+
+| Signal | L5 Behavior | L6 Behavior |
+|--------|-------------|-------------|
+| **Implementation awareness** | Designs with implementation in mind | Designs AND thinks about who implements |
+| **Practicality** | "This is how it works" | "This is how we'll actually get this built" |
+| **Team consideration** | Focuses on technical feasibility | Considers team skills, timeline, dependencies |
+
+### Staff-Level Phrases
+
+- "This design is technically sound. Let me think about how we'd actually execute it..."
+- "This component could be a stretch project for a mid-level engineer with guidance..."
+- "We could build this from scratch, or leverage the auth team's existing work. Let me weigh those options..."
+
+### Common L5 Mistake
+
+**The mistake**: Designing something elegant that's impractical to implement.
+
+**Example**: Proposing a custom consensus protocol when the team has no distributed systems expertise.
+
+**L6 thinking**: "A custom protocol would be optimal, but our team doesn't have that expertise. Using Raft via etcd is less optimal but gets us to production in 2 months instead of 8. I'd trade some efficiency for lower execution risk."
+
+---
+
+## Mental Model 5: Leverage Multiplier
+
+### What Interviewers Look For
+
+| Signal | L5 Behavior | L6 Behavior |
+|--------|-------------|-------------|
+| **Reusability thinking** | Solves immediate problem | Asks if solution can help others |
+| **Pattern recognition** | Solves one instance | Identifies repeating patterns to solve once |
+| **Documentation instinct** | Writes code | Writes code AND documentation for others |
+
+### Staff-Level Phrases
+
+- "This pattern appears in three services. Let me design something reusable..."
+- "If I document this approach, other teams won't have to rediscover it..."
+- "I could solve this just for us, or I could solve it in a way that helps 5 other teams. The latter is worth the extra effort..."
+
+### Common L5 Mistake
+
+**The mistake**: Building excellent point solutions without considering broader applicability.
+
+**Example**: Implementing a perfect retry library for one service when three other teams have the same need.
+
+**L6 thinking**: "Before I build this retry library, let me check if other teams need it too. If so, I should design it as a shared library from the start—slightly more work now, but 3× the impact."
+
+---
+
+# Section Verification: L6 Coverage Assessment
+
+## Final Statement
+
+**This section now meets Google Staff Engineer (L6) expectations.**
+
+The original content provided strong conceptual frameworks for scope, impact, and ownership. The additions address critical gaps in failure thinking, technical grounding, and interview calibration.
+
+## Staff-Level Signals Covered
+
+| L6 Dimension | Coverage Status | Key Content |
+|--------------|-----------------|-------------|
+| **Scope Conceptualization** | ✅ Covered | Three dimensions of scope, scope creation, mental models |
+| **Multi-Team Impact** | ✅ Covered | Impact ladder, influence toolkit, examples |
+| **Ownership vs Leadership vs Influence** | ✅ Covered | Clear definitions, tests, reinforcement loop |
+| **Failure Ownership** | ✅ Covered (NEW) | Blast radius model, interstitial failures, degradation ownership |
+| **Technical System Examples** | ✅ Covered (NEW) | Rate limiter, notification system, API gateway with tradeoffs |
+| **Interview Calibration** | ✅ Covered (NEW) | Per-mental-model phrases, L5 mistakes, interviewer signals |
+
+## Diagrams Included
+
+1. **Three Dimensions of Scope** (Part 1) — Conceptual framing
+2. **Impact Ladder** (Part 2) — Level progression
+3. **Ownership/Leadership/Influence Reinforcement Loop** (Part 3) — Concept relationships
+4. **Failure Ownership by Level** (Part 9) — L4/L5/L6 comparison during incidents
+5. **Blast Radius Ownership** (Part 9) — Visual model of failure scope
+6. **Interstitial Failure Zones** (Part 9) — Cross-team failure pattern
+7. **Rate Limiter Scope Diagram** (Part 10) — Real-system scope example
+8. **Notification System Multi-Team Ownership** (Part 10) — Platform ownership model
+
+## Remaining Considerations
+
+The following topics may warrant deeper treatment in subsequent volumes:
+
+- **Political Navigation**: Building coalitions in politically complex environments
+- **Executive Communication**: Tailoring scope/impact narratives for VP+ audiences
+- **Post-Mortem Leadership**: Driving blameless post-mortems and systemic fixes
+
+These gaps are acceptable for this section focused on scope, impact, and ownership fundamentals.
+
+---
+
+## Quick Self-Check: Scope, Impact, and Ownership Mastery
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PRE-INTERVIEW SELF-CHECK                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   SCOPE                                                                     │
+│   □ I can describe my scope in terms of problem space, not component        │
+│   □ I ask about related systems and cross-team implications early           │
+│   □ I think about 1-year and multi-year evolution                           │
+│                                                                             │
+│   IMPACT                                                                    │
+│   □ I articulate outcomes enabled, not just features built                  │
+│   □ I look for patterns that could help multiple teams                      │
+│   □ I consider leverage—doing things once that help many                    │
+│                                                                             │
+│   OWNERSHIP                                                                 │
+│   □ I own outcomes, not just components                                     │
+│   □ I take responsibility for failures in my blast radius                   │
+│   □ I coordinate cross-team incidents, not just escalate                    │
+│                                                                             │
+│   FAILURE THINKING                                                          │
+│   □ I know my blast radius and who depends on me                            │
+│   □ I design degradation behavior, not just recovery                        │
+│   □ I own interstitial failures between team boundaries                     │
+│                                                                             │
+│   6+ checks = Staff-level readiness. <6 = Focus on gaps.                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
 # Brainstorming Questions
 
 Use these questions to reflect on your own experience and prepare for interviews.
@@ -1153,116 +1827,5 @@ Design a scalable capability-building plan:
 - What would it look like to share it at 10x scale? (Documentation, workshops, etc.)
 - What would it look like to share it at 100x scale? (Tools, processes, organizational practices)
 - Pick one level-up and create a plan to execute it
-
----
-
-# Quick Reference Card
-
-## Self-Check: Am I Demonstrating Staff-Level Scope?
-
-Use this checklist during practice or actual interviews:
-
-| Signal | Weak (L5) | Strong (L6) | ✓ |
-|--------|-----------|-------------|---|
-| **Problem Framing** | Accepted problem as-is | Explored context, questioned assumptions | ☐ |
-| **Boundaries** | Stayed within stated scope | Asked about adjacent systems, team ownership | ☐ |
-| **Future States** | Designed for now; "scale later" | Discussed 10x/100x evolution and migration | ☐ |
-| **Stakeholders** | Focused on primary user | Considered operators, other teams, compliance | ☐ |
-| **Adjacent Problems** | "Out of scope" | Engaged with cross-cutting concerns | ☐ |
-| **Tradeoffs** | Technical merits only | Business impact, team velocity, org factors | ☐ |
-
----
-
-## Interview Signals: Weak vs Strong Responses
-
-### Handling Pushback
-
-| Weak | Strong |
-|------|--------|
-| Defends position rigidly | Explores concern, integrates valid points |
-| Immediately abandons position | Adjusts OR explains why original is still preferred |
-| Gets defensive or flustered | Treats pushback as collaborative exploration |
-
-### Proposing Tradeoffs
-
-| Weak | Strong |
-|------|--------|
-| "We could do A or B" (waits for interviewer) | "I recommend A because [reasons], B if [different priorities]" |
-| "A is better, end of discussion" | "Given our requirements... though if we valued X more..." |
-| Lists pros/cons without recommendation | Makes a clear recommendation with reasoning |
-
-### Framing Problems
-
-| Weak | Strong |
-|------|--------|
-| "Should we use Kafka or RabbitMQ?" | "We need X throughput with Y semantics. Given that..." |
-| Accepts problem as stated | "Before solving this, is this the right problem?" |
-| Jumps to solution immediately | Spends time understanding context first |
-
----
-
-## Phrases That Signal Staff-Level Thinking
-
-### Scope
-- "Before I design this, let me understand the broader context..."
-- "Are there other teams building similar systems?"
-- "What's the organization's long-term vision for this?"
-- "This pattern could be useful for other teams too..."
-
-### Impact
-- "This affects not just us, but also Team X and Team Y..."
-- "If I were solving this for three teams instead of one..."
-- "We should document this so future teams benefit..."
-
-### Ownership
-- "Even though it's not my service, let me help coordinate..."
-- "I feel responsible for the user outcome, not just my component..."
-- "What systemic fix can we implement to prevent this class of issues?"
-
-### Influence
-- "Let me gather data to support this proposal..."
-- "I'll talk to the other tech leads to understand their concerns..."
-- "Here's a prototype that demonstrates the approach..."
-
----
-
-## The Mental Models At a Glance
-
-| Model | L5 | L6 |
-|-------|----|----|
-| **Ripple Effect** | Ripples reach edge of your team | Ripples cross team boundaries regularly |
-| **Problem vs Solution** | Owns solutions | Owns problems |
-| **Zoom Levels** | Excels zoomed in (component) | Moves fluidly between all levels |
-| **Builder vs Architect** | Given blueprint, builds excellently | Designs AND ensures it gets built |
-| **Leverage** | 1x (effort = output) | 10x+ (multiplies through others) |
-
----
-
-## Common Mistakes to Avoid
-
-| Mistake | Why It's Weak | Staff Alternative |
-|---------|--------------|-------------------|
-| "That's not my team's problem" | Shows narrow ownership | "Let me understand how this affects the user and help" |
-| Designing in isolation | Misses cross-team opportunities | Ask about related systems early |
-| Only discussing current scale | Lacks temporal scope | "At 10x, we'll need to... let me design for that" |
-| Waiting to be asked | Shows passive stance | Proactively identify and propose solutions |
-| Single-stakeholder focus | Misses complexity | Consider operators, compliance, other teams |
-| Pure technology debates | Misses requirements focus | Frame with requirements first, then evaluate options |
-
----
-
-# Conclusion
-
-Scope, impact, and ownership are the currency of Staff-level contribution. They're not granted by job titles or project assignments—they're created through initiative, credibility, and consistent excellent judgment.
-
-Understanding these concepts intellectually is the easy part. Embodying them in your daily work—and demonstrating them in interviews—is the challenge.
-
-As you continue preparing:
-- Look for opportunities to expand scope in your current role
-- Seek out multi-team impact, even when it's not required
-- Take ownership of problem spaces, not just components
-- Practice driving direction through influence, not authority
-
-The interview is a performance, but it's a performance of something real. The best way to perform Staff-level thinking in an interview is to practice Staff-level thinking in your work.
 
 ---

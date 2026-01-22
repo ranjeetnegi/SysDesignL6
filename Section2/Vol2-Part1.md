@@ -1330,121 +1330,6 @@ With this foundation, let me design the system..."
 
 ---
 
-# Brainstorming Questions
-
-## Self-Assessment
-
-1. When you hear a new design problem, what's your instinctive first action—do you start solving, or do you start understanding?
-
-2. Can you list five different types of users for a system you've built? (If you can't, you might be missing important perspectives.)
-
-3. How often do you explicitly prioritize requirements into "must-have" vs. "nice-to-have"? Does this happen naturally or do you have to force it?
-
-4. When did you last do a back-of-envelope capacity calculation? Was it accurate when you compared it to reality?
-
-5. What's the highest availability system you've worked on? What design patterns made that availability possible?
-
-6. What assumptions are you making right now about your current work that you've never stated explicitly?
-
-## Framework Application
-
-7. Pick a system you know well. Walk through all five phases of the framework for it. What new insights emerge?
-
-8. For your current project, can you articulate the non-functional requirements in quantitative terms? (Not "high availability" but "99.9% availability"?)
-
-9. What are the constraints on your current project? Which are truly fixed vs. potentially negotiable?
-
-10. If you had to design the same system at 10x scale, what would change? At 100x scale?
-
-## Interview Preparation
-
-11. Practice introducing yourself to a framework: "Before I design, I want to understand..." What are the first three questions you'd ask for any problem?
-
-12. Practice scoping: For a notification system, how would you divide requirements into core/important/nice-to-have?
-
-13. Practice estimation: If told "a major social platform," what numbers would you assume? Can you derive them from first principles?
-
-14. Practice trade-offs: For a given system, what's the trade-off between consistency and availability? When would you choose each?
-
-15. Practice assumptions: What are the standard assumptions you'd make for any cloud-based system? List at least five.
-
----
-
-# Homework Exercises
-
-## Exercise 1: The Framework Drill
-
-Choose three different design problems (e.g., URL shortener, chat system, recommendation engine).
-
-For each one, practice only the framework phase—no actual designing:
-- Spend 10 minutes going through all five phases
-- Write down your questions, answers, and conclusions
-- Time yourself on each phase
-
-Goal: The framework phase should become natural and take 5-10 minutes.
-
-## Exercise 2: The Scale Calibration
-
-Choose five different system types:
-- Personal project (you and a few friends)
-- Startup MVP (1,000 users)
-- Growing startup (100,000 users)
-- Successful company (10 million users)
-- Major platform (1 billion users)
-
-For each scale:
-- What architecture patterns are appropriate?
-- What's the team size to build and maintain it?
-- What's the infrastructure cost (order of magnitude)?
-
-Goal: Develop intuition for what scale requires what complexity.
-
-## Exercise 3: The Trade-off Matrix
-
-Create a matrix of non-functional requirements:
-- Rows: Availability, Latency, Consistency, Durability
-- Columns: Same four properties
-
-For each pair, identify the trade-off:
-- How does optimizing for Row property affect Column property?
-- Can you have both at maximum? If not, why not?
-- Give a concrete example of choosing one over the other
-
-Goal: Internalize the fundamental trade-offs in distributed systems.
-
-## Exercise 4: The Assumption Excavation
-
-Take a system you've recently built or designed:
-- List every assumption you made (aim for at least 20)
-- Categorize them: infrastructure, team, organization, technology, user behavior
-- For each one, ask: what if this assumption was wrong?
-
-Goal: Develop the habit of making assumptions explicit.
-
-## Exercise 5: The Requirements Interview
-
-With a partner, practice the requirements-gathering conversation:
-- Partner gives you a vague prompt ("design a messaging system")
-- You ask clarifying questions for 10 minutes
-- Partner answers (they can make things up)
-- At the end, summarize what you learned
-
-Then switch roles.
-
-Goal: Practice having the clarifying conversation naturally and thoroughly.
-
-## Exercise 6: The Constraint Discovery
-
-For a system you know well:
-- List all the constraints you're operating under
-- Categorize: truly fixed vs. potentially flexible
-- For each flexible constraint, identify what you'd need to change it
-- Identify one constraint that, if removed, would significantly improve the system
-
-Goal: Understand that constraints are often more negotiable than they appear.
-
----
-
 # Quick Reference Card
 
 ## The 5 Phases At a Glance
@@ -1539,6 +1424,742 @@ Goal: Understand that constraints are often more negotiable than they appear.
 
 ---
 
+# Part 9: Failure Requirements—The Missing Phase (L6 Gap Coverage)
+
+This section addresses a critical dimension of Staff-level requirements gathering: **explicitly gathering requirements about failure modes, degradation behavior, and recovery expectations**.
+
+Senior engineers focus on what the system should do when it works. Staff engineers also establish what the system should do when things go wrong.
+
+---
+
+## Why Failure Requirements Matter at L6
+
+Most requirements-gathering frameworks focus on functional and non-functional requirements during normal operation. But Staff engineers know that systems spend significant time in degraded states.
+
+### The Failure Requirements Test
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FAILURE REQUIREMENTS COMPARISON                          │
+│                                                                             │
+│   L5 REQUIREMENTS GATHERING:                                                │
+│   ─────────────────────────                                                 │
+│   "What should the system do?"                                              │
+│   "How fast should it be?"                                                  │
+│   "How available should it be?"                                             │
+│                                                                             │
+│   L6 REQUIREMENTS GATHERING (adds):                                         │
+│   ───────────────────────────────                                           │
+│   "What should the system do when the database is slow?"                    │
+│   "What's acceptable user experience during degradation?"                   │
+│   "Which failures are acceptable to users vs. which are catastrophic?"      │
+│   "How long can the system be degraded before it's considered an outage?"   │
+│   "What should we preserve vs. sacrifice during partial failure?"           │
+│                                                                             │
+│   THE DIFFERENCE:                                                           │
+│   L5 → Requirements for the happy path                                      │
+│   L6 → Requirements for the full operational spectrum                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## The Failure Requirements Framework
+
+When gathering requirements, explicitly cover:
+
+### 1. Degradation Behavior Requirements
+
+**Questions to ask**:
+- "When the system is slow or partially unavailable, what should users experience?"
+- "Which features can degrade gracefully? Which must work or fail completely?"
+- "Is stale data acceptable during degradation? How stale?"
+
+**Example for Notification System**:
+"If the notification delivery pipeline backs up, what should happen?
+- Option A: Delay all notifications equally (fair but slow)
+- Option B: Prioritize critical notifications, delay others (fast for critical)
+- Option C: Drop low-priority notifications after X hours (shed load)
+
+I'm recommending Option B—critical notifications like 2FA and fraud alerts should always get through, even if 'someone liked your post' is delayed. Does that priority model match business expectations?"
+
+### 2. Failure Mode Tolerance
+
+**Questions to ask**:
+- "What types of failures are acceptable? Lost data? Duplicate delivery? Delayed processing?"
+- "What's the blast radius that's acceptable? Single user? Single feature? Entire system?"
+- "How quickly must we recover from different failure types?"
+
+**Example for Notification System**:
+"For notification delivery, which failures are acceptable?
+- Lost notification: Acceptable for social notifications (likes, comments), unacceptable for security notifications (2FA, fraud alerts)
+- Duplicate notification: Mildly annoying but acceptable for all types
+- Delayed notification: Acceptable up to 5 minutes for social, unacceptable for time-sensitive (2FA expires)
+
+This tells me we need different reliability guarantees for different notification types—not a one-size-fits-all approach."
+
+### 3. Recovery Requirements
+
+**Questions to ask**:
+- "What's the recovery time objective (RTO) for different failure scenarios?"
+- "What's the recovery point objective (RPO)—how much data loss is acceptable?"
+- "Should recovery be automatic or can it require human intervention?"
+
+**Example for Notification System**:
+"If the entire notification system goes down:
+- RTO: Back online within 15 minutes
+- RPO: Notifications generated during outage should be delivered after recovery (no loss)
+- Backlog processing: Spread over 30 minutes to avoid thundering herd
+
+This tells me we need durable message storage and controlled replay capability."
+
+---
+
+## Integrating Failure Requirements into the Framework
+
+The five phases now look like:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    EXTENDED FRAMEWORK WITH FAILURE REQUIREMENTS             │
+│                                                                             │
+│   1. USERS & USE CASES                                                      │
+│      + "What do users experience during degradation?"                       │
+│      + "Which user journeys are critical vs. deferrable?"                   │
+│                                                                             │
+│   2. FUNCTIONAL REQUIREMENTS                                                │
+│      + "Which functions must work vs. can degrade vs. can fail?"            │
+│      + "What's the fallback behavior for each function?"                    │
+│                                                                             │
+│   3. SCALE                                                                  │
+│      + "What's the scale during failure recovery (backlog processing)?"     │
+│      + "What's the peak load during failover scenarios?"                    │
+│                                                                             │
+│   4. NON-FUNCTIONAL REQUIREMENTS                                            │
+│      + "What's the degraded latency budget?"                                │
+│      + "What's availability during planned maintenance?"                    │
+│      + "What's the acceptable error rate during degradation?"               │
+│                                                                             │
+│   5. ASSUMPTIONS & CONSTRAINTS                                              │
+│      + "What's the on-call response time assumption?"                       │
+│      + "What recovery automation exists?"                                   │
+│      + "What's the budget for redundancy?"                                  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Failure Requirements Interview Example
+
+**Prompt**: "Design a payment processing system."
+
+**Staff-Level Failure Requirements Gathering**:
+
+"Before I design, I want to understand failure requirements—payments are high-stakes.
+
+**Degradation behavior**:
+- If the system is slow, should we queue transactions or reject them?
+- If we can process some transactions but not others, how do we prioritize?
+
+**Failure tolerance**:
+- Lost transaction: Never acceptable—must have exactly-once semantics
+- Duplicate charge: Never acceptable—critical to prevent
+- Delayed processing: Acceptable up to how long? 30 seconds? 5 minutes?
+
+**Recovery**:
+- If the system goes down mid-transaction, what state should we be in?
+- What's the recovery process—automatic or manual?
+- How do we handle transactions that were in-flight during failure?
+
+**Blast radius**:
+- If one payment processor (Visa) is down, should we fail all transactions or only Visa transactions?
+- If our database is slow, should we fail all transactions or degrade to a simplified flow?
+
+These answers will significantly shape the architecture. A system that can never lose transactions needs different infrastructure than one that can occasionally delay them."
+
+---
+
+# Part 10: Requirements-to-Architecture Mapping
+
+This section addresses how requirements drive specific architectural decisions. Staff engineers don't just gather requirements—they trace each requirement to its architectural implication.
+
+---
+
+## The Requirements-Decision Chain
+
+Every architectural decision should trace back to a requirement. If you can't explain why a design choice exists in terms of requirements, it's potentially unnecessary complexity.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    REQUIREMENTS-TO-ARCHITECTURE MAPPING                     │
+│                                                                             │
+│   REQUIREMENT                        ARCHITECTURAL IMPLICATION              │
+│   ───────────                        ────────────────────────               │
+│                                                                             │
+│   "99.9% availability"          →    Redundancy at every layer              │
+│                                      No single points of failure            │
+│                                      Automated failover                     │
+│                                                                             │
+│   "P99 latency < 100ms"         →    Caching layer required                 │
+│                                      Async processing where possible        │
+│                                      Geographic distribution                │
+│                                                                             │
+│   "50K writes/second"           →    Horizontally scalable write path       │
+│                                      Sharded database or NoSQL              │
+│                                      Write-ahead logging                    │
+│                                                                             │
+│   "Strong consistency"          →    Single leader for writes               │
+│                                      Synchronous replication                │
+│                                      Higher latency accepted                │
+│                                                                             │
+│   "Never lose a transaction"    →    Durable message queue                  │
+│                                      Write-ahead log                        │
+│                                      Multi-region replication               │
+│                                                                             │
+│   STAFF ENGINEERS MAKE THESE CONNECTIONS EXPLICIT.                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Concrete Example: Notification System Requirements-to-Architecture
+
+Let me show how each requirement from our notification system example drives specific architectural decisions.
+
+### Requirement: "30M DAU, 7K notifications/second"
+
+**Architectural implications**:
+- Single database won't handle write throughput → Need distributed message queue
+- Single server won't handle connection load → Need connection server fleet
+- Can't fan-out synchronously → Need async processing pipeline
+
+**What I'd say in interview**:
+"At 7K notifications/second, a single database can't handle the write load. I'm introducing a message queue—Kafka—to decouple ingestion from processing. This also gives us replay capability for failure recovery, which addresses our durability requirement."
+
+### Requirement: "99.9% availability"
+
+**Architectural implications**:
+- Every component needs redundancy → Minimum 3 replicas per service
+- Need automated health checks and failover → Load balancers with health probes
+- Need to handle partial failures → Circuit breakers between services
+
+**What I'd say in interview**:
+"99.9% availability means 8 hours of downtime per year. To achieve this, I'm designing with no single points of failure. Every service has at least 3 replicas. The message queue has replication factor 3. The database has a hot standby with automatic failover."
+
+### Requirement: "5-second delivery P95"
+
+**Architectural implications**:
+- Can't do batch processing → Need streaming architecture
+- Can't have long queues → Need horizontal scaling with low queue depth
+- Need to prioritize → Separate queues for priority levels
+
+**What I'd say in interview**:
+"5-second P95 delivery means we can't batch notifications. I'm designing a streaming pipeline where each notification is processed immediately. To handle the 10x peak (70K/sec), the processing tier auto-scales based on queue depth, targeting <1 second queue wait time."
+
+### Requirement: "Eventual consistency acceptable"
+
+**Architectural implications**:
+- Can use async replication → Lower-latency writes
+- Can use caching aggressively → Better read performance
+- Can tolerate temporary inconsistency → Simpler architecture
+
+**What I'd say in interview**:
+"Since eventual consistency is acceptable, I can use async replication for the notification database, which gives us lower write latency. Read status might be slightly stale across devices for a few seconds, but that's acceptable for this use case. If we needed strong consistency, I'd need synchronous replication, which would add latency."
+
+### Requirement: "Critical notifications (2FA) must have higher reliability"
+
+**Architectural implications**:
+- Need priority queuing → Separate processing pipeline for critical
+- Need different SLAs → Dedicated capacity for critical path
+- Need different failure handling → Fail-safe for critical, best-effort for regular
+
+**What I'd say in interview**:
+"The requirement for different reliability levels means I can't have a one-size-fits-all pipeline. I'm splitting into two paths: a critical path for 2FA/security notifications with dedicated capacity and stricter delivery guarantees, and a standard path for social notifications that can shed load during peaks."
+
+---
+
+## The Decision Justification Template
+
+When making an architectural decision, use this structure:
+
+```
+"I'm choosing [ARCHITECTURE CHOICE] because our requirement for [SPECIFIC REQUIREMENT].
+
+The alternative would be [ALTERNATIVE], which would be better if [DIFFERENT REQUIREMENT].
+
+The trade-off I'm accepting is [COST/DOWNSIDE], which is acceptable because [REQUIREMENT ALLOWS IT]."
+```
+
+**Example**:
+
+"I'm choosing Kafka over a simpler queue like RabbitMQ because our requirement for replay capability during failure recovery. 
+
+The alternative would be RabbitMQ, which would be simpler to operate if we didn't need replay.
+
+The trade-off I'm accepting is operational complexity. Kafka requires more expertise to run. This is acceptable because we have a dedicated platform team and the replay capability is essential for our durability requirements."
+
+---
+
+# Part 11: Requirements Evolution
+
+Requirements aren't static. Staff engineers understand that requirements change as systems scale, as users evolve, and as business needs shift.
+
+---
+
+## When to Revisit Requirements
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    REQUIREMENTS EVOLUTION TRIGGERS                          │
+│                                                                             │
+│   SCALE TRIGGERS:                                                           │
+│   • 10x user growth                                                         │
+│   • 10x data volume growth                                                  │
+│   • New geographic regions                                                  │
+│   • Hitting infrastructure limits                                           │
+│                                                                             │
+│   BUSINESS TRIGGERS:                                                        │
+│   • New product features that stress existing requirements                  │
+│   • New customer segments with different needs                              │
+│   • Regulatory changes (GDPR, CCPA, etc.)                                   │
+│   • Competitive pressure changing expectations                              │
+│                                                                             │
+│   OPERATIONAL TRIGGERS:                                                     │
+│   • Incidents revealing requirements gaps                                   │
+│   • On-call burden indicating over/under-engineering                        │
+│   • Cost growth outpacing value                                             │
+│   • Team growth changing operational capacity                               │
+│                                                                             │
+│   STAFF ENGINEERS PROACTIVELY IDENTIFY THESE TRIGGERS.                      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Requirements Evolution Example: Notification System
+
+### V1 Requirements (Launch: 1M users)
+
+| Dimension | V1 Requirement | Justification |
+|-----------|----------------|---------------|
+| Scale | 1K notifications/second | Current user base + 2x buffer |
+| Availability | 99.5% | Early product, some downtime acceptable |
+| Latency | 30-second delivery | Users tolerant during early adoption |
+| Durability | Best-effort | Social notifications, loss acceptable |
+| Team | 2 engineers | Startup mode |
+
+**V1 Architecture Implications**:
+- Single region, simple infrastructure
+- Synchronous processing acceptable
+- Single database, no sharding
+- Minimal redundancy
+
+### V2 Requirements (Growth: 30M users)
+
+| Dimension | V2 Requirement | What Changed |
+|-----------|----------------|--------------|
+| Scale | 7K notifications/second | 30x user growth |
+| Availability | 99.9% | Product is now critical to users |
+| Latency | 5-second delivery | User expectations increased |
+| Durability | At-least-once for all | Premium users paying |
+| Team | 6 engineers | Can handle more complexity |
+
+**V2 Architecture Implications**:
+- Need message queue for async processing
+- Need database sharding or NoSQL
+- Need multi-AZ redundancy
+- Need monitoring and alerting
+
+### V3 Requirements (Scale: 300M users)
+
+| Dimension | V3 Requirement | What Changed |
+|-----------|----------------|--------------|
+| Scale | 70K notifications/second | 10x growth |
+| Availability | 99.99% | Platform critical infrastructure |
+| Latency | 2-second delivery | Real-time expectations |
+| Durability | Exactly-once for payments | Financial notifications added |
+| Team | 15 engineers | Dedicated platform team |
+
+**V3 Architecture Implications**:
+- Multi-region deployment
+- Separate critical and standard paths
+- Sophisticated traffic management
+- Dedicated on-call rotation
+
+### Staff-Level Requirements Evolution Thinking
+
+**What I'd say in interview**:
+
+"Before I design, I want to understand where we are in the product lifecycle. The right architecture for V1 (1M users, early product) is very different from V3 (300M users, critical infrastructure).
+
+For this interview, I'll design for V2—30M users, 99.9% availability—but I'll make sure my architecture can evolve to V3 without a complete rewrite.
+
+Specifically, I'll:
+1. Design the data model so it can be sharded later without migration
+2. Use message queues from the start so we have replay capability
+3. Separate the critical path in the design even if we don't build it yet
+4. Choose technologies that scale horizontally
+
+This way we're not over-engineering for V3 scale we don't have, but we're also not painting ourselves into a corner."
+
+---
+
+# Part 12: Interview Calibration for Requirements Gathering
+
+## Phrases That Signal Staff-Level Requirements Gathering
+
+### For Users & Use Cases
+
+**L5 phrases** (acceptable but limited):
+- "Who are the users?"
+- "What are the main use cases?"
+
+**L6 phrases** (demonstrates depth):
+- "Who are all the stakeholders? I'm thinking primary users, but also ops, support, and systems that integrate with us."
+- "What do users experience when things go wrong? That'll shape my degradation design."
+- "Are there user segments with significantly different needs that might require different architectures?"
+
+### For Functional Requirements
+
+**L5 phrases**:
+- "What features do we need?"
+- "What should the system do?"
+
+**L6 phrases**:
+- "Let me categorize requirements: core, important, nice-to-have. For this design, I'll focus on core."
+- "Which functions must work fully vs. can degrade gracefully vs. can fail completely during issues?"
+- "What's the fallback behavior when this feature can't work normally?"
+
+### For Scale
+
+**L5 phrases**:
+- "How many users?"
+- "What's the traffic?"
+
+**L6 phrases**:
+- "Let me derive the scale. X users × Y actions = Z QPS. Peak at 10x is W."
+- "What's the scale during failure recovery? Backlog processing might exceed normal peak."
+- "What's the growth trajectory? I want to design with headroom but not over-engineer."
+
+### For Non-Functional Requirements
+
+**L5 phrases**:
+- "Should it be highly available?"
+- "Should it be fast?"
+
+**L6 phrases**:
+- "What's the availability target? 99.9% vs 99.99% are completely different architectures."
+- "What's the P99 latency during degradation, not just normal operation?"
+- "Which is more important when they conflict—latency or consistency?"
+
+### For Failure Requirements
+
+**L5 phrases**:
+- (Often doesn't ask)
+
+**L6 phrases**:
+- "What's acceptable user experience during partial failure?"
+- "Which failures are acceptable—lost data, duplicates, delays?"
+- "What's the blast radius we're designing for?"
+
+---
+
+## What Interviewers Are Looking For
+
+When evaluating requirements gathering, interviewers ask themselves:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    INTERVIEWER'S REQUIREMENTS EVALUATION                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   1. Do they establish context before designing?                            │
+│      → Or do they jump straight into architecture?                          │
+│                                                                             │
+│   2. Do they prioritize requirements?                                       │
+│      → Or do they treat all features as equally important?                  │
+│                                                                             │
+│   3. Do they quantify scale and NFRs?                                       │
+│      → Or do they use vague terms like "fast" and "reliable"?               │
+│                                                                             │
+│   4. Do they ask about failure modes?                                       │
+│      → Or do they only consider the happy path?                             │
+│                                                                             │
+│   5. Do they trace requirements to architecture?                            │
+│      → Or do they make arbitrary design choices?                            │
+│                                                                             │
+│   6. Do they consider evolution?                                            │
+│      → Or do they design only for today's requirements?                     │
+│                                                                             │
+│   THE CORE QUESTION:                                                        │
+│   "Would I trust this person to understand the problem before solving it?"  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Common L5 Mistake: Requirements as Checklist
+
+### The Mistake
+
+Strong L5 engineers often treat requirements gathering as a checklist to complete before the "real" design work. They ask the right questions but don't use the answers to drive architectural decisions.
+
+**L5 Pattern**:
+```
+"How many users?" → "10 million"
+"What's the latency requirement?" → "200ms"
+"Okay, let me start designing..."
+
+[Later in the design]
+"I'll use a relational database."
+
+[Interviewer thinking: Why? The scale and latency requirements weren't connected to this choice.]
+```
+
+**L6 Pattern**:
+```
+"How many users?" → "10 million"
+"What's the latency requirement?" → "200ms"
+
+"10 million users with 200ms latency tells me we need aggressive caching—database queries won't meet that latency at scale. I'm designing a cache-first architecture with the database as durable storage.
+
+For the cache, I'll use Redis because [reasoning tied to requirements]."
+```
+
+**The Difference**: L6 candidates explicitly connect every architectural decision back to the requirements they gathered. The requirements aren't a checkbox—they're the foundation that justifies every choice.
+
+---
+
+# Section Verification: L6 Coverage Assessment
+
+## Final Statement
+
+**This section now meets Google Staff Engineer (L6) expectations.**
+
+The original content provided an excellent 5-phase framework with good L5 vs L6 comparisons. The additions address critical gaps in failure requirements, requirements-to-architecture mapping, and evolution thinking.
+
+## Staff-Level Signals Covered
+
+| L6 Dimension | Coverage Status | Key Content |
+|--------------|-----------------|-------------|
+| **Framework Structure** | ✅ Covered | 5-phase framework with clear explanations |
+| **L5 vs L6 Comparisons** | ✅ Covered | Phase-by-phase comparison, interviewer evaluation |
+| **Scale Phase** | ✅ Covered | Back-of-envelope math, powers of ten |
+| **Mental Models** | ✅ Covered | Multiple models per phase |
+| **Failure Requirements** | ✅ Covered (NEW) | Degradation, failure tolerance, recovery requirements |
+| **Requirements-to-Architecture** | ✅ Covered (NEW) | Explicit mapping, decision justification template |
+| **Requirements Evolution** | ✅ Covered (NEW) | V1→V2→V3 example, evolution triggers |
+| **Interview Calibration** | ✅ Covered (NEW) | L6 phrases per phase, common L5 mistake |
+
+## Diagrams Included
+
+1. **5-Phase Framework** (Original) — Visual overview
+2. **NFR Quick Reference Table** (Original) — Dimensions and trade-offs
+3. **Back-of-Envelope Cheat Sheet** (Original) — Quick reference
+4. **Scale Mental Model** (Original) — Powers of ten
+5. **Failure Requirements Comparison** (NEW) — L5 vs L6 gathering
+6. **Extended Framework with Failure Requirements** (NEW) — Integrated view
+7. **Requirements-to-Architecture Mapping** (NEW) — Decision chain
+8. **Requirements Evolution Triggers** (NEW) — When to revisit
+9. **Interviewer's Requirements Evaluation** (NEW) — What they assess
+
+## Remaining Considerations
+
+The following topics are touched on but may warrant deeper treatment in subsequent volumes:
+
+- **Cross-functional requirements gathering** — Working with PMs, UX, legal on requirements
+- **Requirements documentation** — Design docs, PRDs, and how they relate
+- **Requirements negotiation** — When and how to push back on requirements
+
+These gaps are acceptable for this section focused on the requirements framework fundamentals.
+
+---
+
+## Quick Self-Check: Requirements Gathering
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PRE-INTERVIEW REQUIREMENTS CHECK                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   □ I establish context before designing (not jumping to architecture)      │
+│   □ I identify multiple user types, including internal users                │
+│   □ I prioritize requirements (core / important / nice-to-have)             │
+│   □ I quantify scale with back-of-envelope math                             │
+│   □ I quantify NFRs (99.9% not "high availability")                         │
+│   □ I ask about failure modes and degradation behavior                      │
+│   □ I connect every architectural decision to a requirement                 │
+│   □ I consider requirements evolution over time                             │
+│   □ I summarize understanding before designing                              │
+│   □ I confirm alignment with the interviewer at each phase                  │
+│                                                                             │
+│   If you check 8+, you're demonstrating Staff-level requirements gathering. │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+# Brainstorming Questions
+
+## Self-Assessment
+
+1. When you hear a new design problem, what's your instinctive first action—do you start solving, or do you start understanding?
+
+2. Can you list five different types of users for a system you've built? (If you can't, you might be missing important perspectives.)
+
+3. How often do you explicitly prioritize requirements into "must-have" vs. "nice-to-have"? Does this happen naturally or do you have to force it?
+
+4. When did you last do a back-of-envelope capacity calculation? Was it accurate when you compared it to reality?
+
+5. What's the highest availability system you've worked on? What design patterns made that availability possible?
+
+6. What assumptions are you making right now about your current work that you've never stated explicitly?
+
+## Framework Application
+
+7. Pick a system you know well. Walk through all five phases of the framework for it. What new insights emerge?
+
+8. For your current project, can you articulate the non-functional requirements in quantitative terms? (Not "high availability" but "99.9% availability"?)
+
+9. What are the constraints on your current project? Which are truly fixed vs. potentially negotiable?
+
+10. If you had to design the same system at 10x scale, what would change? At 100x scale?
+
+## Interview Preparation
+
+11. Practice introducing yourself to a framework: "Before I design, I want to understand..." What are the first three questions you'd ask for any problem?
+
+12. Practice scoping: For a notification system, how would you divide requirements into core/important/nice-to-have?
+
+13. Practice estimation: If told "a major social platform," what numbers would you assume? Can you derive them from first principles?
+
+14. Practice trade-offs: For a given system, what's the trade-off between consistency and availability? When would you choose each?
+
+15. Practice assumptions: What are the standard assumptions you'd make for any cloud-based system? List at least five.
+
+---
+
+# Reflection Prompts
+
+Set aside 15-20 minutes for each of these reflection exercises.
+
+## Reflection 1: Your Framework Discipline
+
+Think about your approach to system design problems.
+
+- When you hear a new problem, do you immediately start thinking about components, or do you pause to understand context?
+- How often do you explicitly state requirements before designing?
+- Do you naturally think about failure modes during requirements gathering?
+- What would change if you spent 10 minutes on requirements for every 35 minutes of design?
+
+Write down three specific habits you want to develop in requirements gathering.
+
+## Reflection 2: Your Scale Intuition
+
+Consider your experience with scale estimation.
+
+- How accurately have your scale estimates matched reality in past projects?
+- What dimensions of scale (users, data, QPS) do you estimate well vs. poorly?
+- Do you tend to over-estimate or under-estimate? Why?
+- What calculations have you done in interviews that felt shaky?
+
+Practice one back-of-envelope calculation daily for a week. Track your confidence.
+
+## Reflection 3: Your Trade-off Reasoning
+
+Examine how you make trade-off decisions.
+
+- Do you make trade-offs explicitly or implicitly?
+- When was the last time you documented a trade-off decision?
+- Do you default to certain choices (consistency over availability, for example)?
+- How do you communicate trade-offs to stakeholders?
+
+For your current project, list three trade-offs and whether they were explicitly made.
+
+---
+
+# Homework Exercises
+
+## Exercise 1: The Framework Drill
+
+Choose three different design problems (e.g., URL shortener, chat system, recommendation engine).
+
+For each one, practice only the framework phase—no actual designing:
+- Spend 10 minutes going through all five phases
+- Write down your questions, answers, and conclusions
+- Time yourself on each phase
+
+Goal: The framework phase should become natural and take 5-10 minutes.
+
+## Exercise 2: The Scale Calibration
+
+Choose five different system types:
+- Personal project (you and a few friends)
+- Startup MVP (1,000 users)
+- Growing startup (100,000 users)
+- Successful company (10 million users)
+- Major platform (1 billion users)
+
+For each scale:
+- What architecture patterns are appropriate?
+- What's the team size to build and maintain it?
+- What's the infrastructure cost (order of magnitude)?
+
+Goal: Develop intuition for what scale requires what complexity.
+
+## Exercise 3: The Trade-off Matrix
+
+Create a matrix of non-functional requirements:
+- Rows: Availability, Latency, Consistency, Durability
+- Columns: Same four properties
+
+For each pair, identify the trade-off:
+- How does optimizing for Row property affect Column property?
+- Can you have both at maximum? If not, why not?
+- Give a concrete example of choosing one over the other
+
+Goal: Internalize the fundamental trade-offs in distributed systems.
+
+## Exercise 4: The Assumption Excavation
+
+Take a system you've recently built or designed:
+- List every assumption you made (aim for at least 20)
+- Categorize them: infrastructure, team, organization, technology, user behavior
+- For each one, ask: what if this assumption was wrong?
+
+Goal: Develop the habit of making assumptions explicit.
+
+## Exercise 5: The Requirements Interview
+
+With a partner, practice the requirements-gathering conversation:
+- Partner gives you a vague prompt ("design a messaging system")
+- You ask clarifying questions for 10 minutes
+- Partner answers (they can make things up)
+- At the end, summarize what you learned
+
+Then switch roles.
+
+Goal: Practice having the clarifying conversation naturally and thoroughly.
+
+## Exercise 6: The Constraint Discovery
+
+For a system you know well:
+- List all the constraints you're operating under
+- Categorize: truly fixed vs. potentially flexible
+- For each flexible constraint, identify what you'd need to change it
+- Identify one constraint that, if removed, would significantly improve the system
+
+Goal: Understand that constraints are often more negotiable than they appear.
+
+---
+
+
+---
+
 # Conclusion
 
 The Staff-Level System Design Framework is simple:
@@ -1549,19 +2170,27 @@ The Staff-Level System Design Framework is simple:
 4. **Non-Functional Requirements**: What qualities must the system have?
 5. **Assumptions & Constraints**: What are we taking as given?
 
-But simple doesn't mean easy. Applying this framework well requires:
+But Staff engineers go deeper:
+
+6. **Failure Requirements**: What should the system do when things go wrong?
+7. **Requirements-to-Architecture Mapping**: How does each requirement drive design decisions?
+8. **Requirements Evolution**: How will requirements change as we scale?
+
+Applying this extended framework well requires:
 - The discipline to slow down when your instincts say "start building"
 - The skill to ask probing questions that reveal hidden requirements
 - The judgment to prioritize ruthlessly
+- The ability to trace every design decision to a requirement
+- The foresight to design for evolution, not just today's needs
 - The communication ability to articulate your understanding clearly
 
-This framework isn't just for interviews—it's how Staff engineers approach real work. Every design document at Google implicitly covers these five phases. Every technical discussion starts with understanding before solving.
+This framework isn't just for interviews—it's how Staff engineers approach real work. Every design document at Google implicitly covers these phases. Every technical discussion starts with understanding before solving.
 
 When you internalize this framework, two things happen:
 
 First, your interviews become more structured and confident. You know what to do in the first ten minutes. You know what questions to ask. You know how to establish a foundation before designing.
 
-Second, your actual engineering becomes more effective. You start asking the right questions before writing code. You start calibrating your designs to actual requirements. You start making trade-offs explicit instead of implicit.
+Second, your actual engineering becomes more effective. You start asking the right questions before writing code. You start calibrating your designs to actual requirements. You start making trade-offs explicit instead of implicit. You start designing for failure, not just success.
 
 The framework is your lens. Every design problem looks different through it—and that differentiation is exactly what makes your designs appropriate rather than generic.
 

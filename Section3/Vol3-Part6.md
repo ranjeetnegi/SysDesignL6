@@ -254,7 +254,7 @@ Staff Engineers recognize failure patterns instantly because they've seen each t
 │   Complete network failure between components                           │
 │                                                                         │
 │   ┌─────────┐          ╳          ┌─────────┐                           │
-│   │ Region  │◄────────╳──────────►│ Region  │                           │
+│   │ Region  │◄──────── ╳─────────►│ Region  │                           │
 │   │   US    │          ╳          │   EU    │                           │
 │   └─────────┘          ╳          └─────────┘                           │
 │                   No packets                                            │

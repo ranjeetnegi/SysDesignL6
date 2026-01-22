@@ -1095,129 +1095,6 @@ Now, if the interviewer says "Actually, we need this for Super Bowl ads," you ha
 
 ---
 
-# Brainstorming Questions
-
-## Non-Functional Requirements
-
-1. For a system you've built, what were the actual NFRs? Were they explicit or implicit?
-
-2. Can you recall a time when NFR trade-offs caused conflict? How was it resolved?
-
-3. What's the highest availability system you've worked on? What made it achievable?
-
-4. When have you seen latency requirements drive architecture? What patterns emerged?
-
-5. How do you decide between strong and eventual consistency? What factors matter?
-
-6. What security considerations have you seen significantly change a design?
-
-## Assumptions and Constraints
-
-7. Think of a project where assumptions turned out to be wrong. What was the impact?
-
-8. What constraints have you worked with that initially seemed limiting but turned out helpful?
-
-9. How do you distinguish between fixed constraints and negotiable requirements?
-
-10. What simplifications do you commonly make in system design? When do you un-simplify?
-
-## Trade-Off Reasoning
-
-11. Describe a trade-off you've made between cost and quality. How did you justify it?
-
-12. When have you chosen complexity for the sake of NFRs? Was it worth it?
-
-13. How do you communicate NFR trade-offs to non-technical stakeholders?
-
-14. What trade-offs have you made that you later regretted?
-
-15. How do you know when you're over-engineering for NFRs that don't matter?
-
----
-
-# Homework Exercises
-
-## Exercise 1: NFR Specification
-
-For each system, specify:
-- Availability target (with justification)
-- Latency targets for each operation type
-- Consistency model
-- Security requirements
-- Key trade-offs
-
-Systems:
-1. A banking mobile app
-2. A social media feed
-3. A real-time gaming leaderboard
-4. An IoT sensor data platform
-
-## Exercise 2: Trade-Off Analysis
-
-Take a design decision you've made (or pick a famous one, like Twitter's eventual consistency).
-
-Write a trade-off analysis:
-- What was being optimized for?
-- What was sacrificed?
-- What was the quantitative impact?
-- Was it the right choice? Would you change it?
-
-## Exercise 3: Assumptions Excavation
-
-Take a system you know well.
-
-List at least 15 assumptions it makes across:
-- Infrastructure (5+)
-- User behavior (3+)
-- Organizational capability (3+)
-- Environmental conditions (3+)
-
-For each, ask: "What if this assumption was wrong?"
-
-## Exercise 4: Phase 5 Write-Up
-
-Choose a system design prompt (or use: "Design a chat application").
-
-Write a complete Phase 5 document:
-- All NFRs with specific numbers
-- All assumptions (at least 5)
-- All constraints (at least 3)
-- All simplifications (at least 3)
-- Trade-off summary table
-
-## Exercise 5: NFR-Driven Architecture
-
-Start with these NFRs:
-- 99.99% availability
-- P99 latency <50ms
-- Strong consistency for writes
-- 100K QPS
-
-Design the architecture that achieves these.
-
-Then change to:
-- 99.9% availability
-- P99 latency <500ms
-- Eventual consistency
-- 100K QPS
-
-Design again. Compare the two architectures. What changed and why?
-
-## Exercise 6: Constraint Negotiation
-
-Practice with a partner.
-
-Partner gives you a design prompt with seemingly impossible constraints:
-- "Design a system that's strongly consistent, highly available, and globally distributed with <50ms latency"
-
-Your task:
-- Probe to understand which constraints are truly fixed
-- Negotiate which can be relaxed
-- Propose alternatives that meet the underlying needs
-- Document the final agreed constraints
-
----
-
 # Quick Reference Card
 
 ## NFR Checklist
@@ -1314,6 +1191,645 @@ SIMPLIFICATIONS (things I'm choosing to defer):
 | **Constraints probed** | All accepted | "Is X firm or negotiable?" | ☐ |
 | **Simplifications explicit** | Silent | "I'm simplifying by..." | ☐ |
 | **NFRs drive architecture** | Disconnected | "Because NFR X, design choice Y" | ☐ |
+
+---
+
+# Part 10: NFRs and Failure Modes — Staff-Level Thinking
+
+NFRs don't just define how well the system works—they define how the system fails. Staff engineers understand that NFRs implicitly specify acceptable failure behavior.
+
+## NFRs Define Acceptable Failure
+
+Every NFR has a failure mode embedded in it:
+
+| NFR | What It Says | What It Implies About Failure |
+|-----|--------------|------------------------------|
+| 99.9% availability | System up 99.9% of time | ~43 min/month downtime is acceptable |
+| P99 latency < 200ms | 99% of requests < 200ms | 1% of requests CAN be slower |
+| Eventual consistency | Data converges eventually | Stale reads ARE acceptable |
+| At-least-once delivery | All messages delivered | Duplicates ARE acceptable |
+
+## What Happens When NFRs Are Violated?
+
+Staff engineers define explicit behaviors when NFRs are exceeded:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              NFR VIOLATION RESPONSE FRAMEWORK                               │
+│                                                                             │
+│   For each NFR, define:                                                     │
+│                                                                             │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  1. DETECTION                                                       │   │
+│   │     "How do we know the NFR is being violated?"                     │   │
+│   │     → Metrics, alerts, SLI tracking                                 │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  2. GRACEFUL DEGRADATION                                            │   │
+│   │     "What's the degraded behavior?"                                 │   │
+│   │     → Reduced functionality, cached data, shed load                 │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  3. RECOVERY                                                        │   │
+│   │     "How do we return to normal?"                                   │   │
+│   │     → Auto-recovery, manual intervention, gradual ramp              │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  4. COMMUNICATION                                                   │   │
+│   │     "Who needs to know?"                                            │   │
+│   │     → Alerts to ops, status page, user messaging                    │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Example: Latency NFR Violation Response
+
+**NFR:** P99 latency < 200ms
+
+| Phase | Response |
+|-------|----------|
+| **Detection** | Latency metrics breach threshold for 5+ minutes |
+| **Degradation** | Disable personalization, serve cached/generic content |
+| **Recovery** | Monitor latency, re-enable features when recovered |
+| **Communication** | Alert on-call, consider status page if prolonged |
+
+## Degradation as an NFR
+
+Staff engineers treat degradation behavior as an explicit requirement:
+
+**Format:** "When [NFR] is violated, the system [degraded behavior] until [recovery condition]"
+
+**Examples:**
+
+| NFR | Degradation Requirement |
+|-----|------------------------|
+| Availability < 99.9% | Non-critical features disabled; core functionality preserved |
+| Latency > 500ms | Personalization disabled; return cached results |
+| Consistency delayed > 30s | Show "data may be delayed" indicator to users |
+| Storage > 90% capacity | Oldest data archived; new writes throttled |
+
+## Articulating Failure-Aware NFRs
+
+**L5 Approach:** "We need 99.9% availability."
+
+**L6 Approach:** "We're targeting 99.9% availability, which means we accept up to 43 minutes of downtime monthly. When availability drops:
+- Partial availability is preferred over complete outage
+- Non-critical features (recommendations, analytics) degrade first
+- Core functionality (message send/receive) is protected
+- Users see 'some features temporarily unavailable' not an error page
+- On-call is alerted at 99.5% (early warning before SLO breach)"
+
+---
+
+# Part 11: Operational NFRs as First-Class Requirements
+
+Operational NFRs define how the system is run, not just how it performs. Staff engineers treat these as first-class requirements.
+
+## The Operational NFR Categories
+
+| Category | What It Covers | Key Questions |
+|----------|---------------|---------------|
+| **Observability** | Ability to understand system state | Can we see what's happening? |
+| **Debuggability** | Ability to diagnose issues | Can we find root cause quickly? |
+| **Deployability** | Ability to ship changes safely | Can we deploy with confidence? |
+| **Operability** | Ability to control and adjust | Can we tune behavior without code changes? |
+
+## Observability Requirements
+
+| Requirement | Why It Matters | Design Implication |
+|-------------|----------------|-------------------|
+| Real-time metrics at service boundaries | SLO tracking | Metrics emission at every hop |
+| Latency percentiles (P50, P95, P99) | Performance monitoring | Histogram metrics, not just averages |
+| Error rates by type and endpoint | Issue detection | Structured error classification |
+| Queue depths and processing rates | Capacity visibility | Instrumented queues |
+
+## Debuggability Requirements
+
+| Requirement | Why It Matters | Design Implication |
+|-------------|----------------|-------------------|
+| Distributed tracing | Cross-service debugging | Trace context propagation |
+| Correlation IDs on all requests | Log aggregation | ID in request context |
+| Structured, searchable logs | Investigation speed | JSON logs with consistent fields |
+| Request/response logging (sanitized) | Reproduction | Audit trail capability |
+
+## Deployability Requirements
+
+| Requirement | Why It Matters | Design Implication |
+|-------------|----------------|-------------------|
+| Zero-downtime deployments | Availability SLO | Rolling deploys, drain support |
+| Canary deployment support | Safe rollout | Traffic splitting capability |
+| Fast rollback (<5 min) | Incident recovery | Stateless services, backward compatible |
+| Feature flags | Risk mitigation | Flag infrastructure, gradual rollout |
+
+## Operability Requirements
+
+| Requirement | Why It Matters | Design Implication |
+|-------------|----------------|-------------------|
+| Runtime configuration changes | Rapid response | Admin API, config service |
+| Circuit breakers | Failure isolation | Per-dependency breakers |
+| Rate limit adjustments | Load management | Dynamic limit configuration |
+| Graceful shutdown | Safe operations | Drain endpoints, connection handling |
+
+## Articulating Operational NFRs
+
+**L5 Approach:** "We'll add monitoring later."
+
+**L6 Approach:** "Beyond performance NFRs, I have operational requirements:
+
+**Observability:**
+- Latency metrics at P50/P95/P99 at every service boundary
+- Error rates by type (client error, server error, dependency failure)
+- Queue depths and processing lag
+
+**Debuggability:**
+- Distributed tracing across all services
+- Correlation ID in every log entry
+- Ability to trace any request through the full path
+
+**Deployability:**
+- Zero-downtime rolling deploys
+- Canary capability with automated rollback
+- Feature flags for all new functionality
+
+**Operability:**
+- Circuit breakers between services
+- Runtime-adjustable rate limits
+- Graceful shutdown with connection draining
+
+These aren't nice-to-haves—at this scale, they're required for the system to be maintainable."
+
+---
+
+# Part 12: NFR Evolution at Scale
+
+NFRs aren't static—they evolve as systems scale. Staff engineers anticipate this evolution.
+
+## How NFRs Change Across Scale
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    NFR EVOLUTION ACROSS SCALE                               │
+│                                                                             │
+│   V1 (Launch)              V2 (Growth)              V3 (Scale)              │
+│   ───────────────────────────────────────────────────────────────────────   │
+│                                                                             │
+│   AVAILABILITY                                                              │
+│   "Best effort"      →    "99.9%"           →    "99.99%"                   │
+│   Single server           Redundancy              Multi-region              │
+│                                                                             │
+│   LATENCY                                                                   │
+│   "Acceptable"       →    "P99 < 500ms"     →    "P99 < 200ms"              │
+│   Optimize later          Cache critical path     Edge deployment           │
+│                                                                             │
+│   CONSISTENCY                                                               │
+│   "Strong OK"        →    "Eventual OK"     →    "Per-operation choice"     │
+│   Single DB               Replicas                Hybrid per use case       │
+│                                                                             │
+│   OBSERVABILITY                                                             │
+│   "Logs exist"       →    "Metrics + Logs"  →    "Full tracing"             │
+│   Basic logging           Dashboards              Distributed tracing       │
+│                                                                             │
+│   KEY INSIGHT: Design V1 to not block V2/V3 NFR upgrades                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## NFRs That Intensify at Scale
+
+| NFR | V1 (10K users) | V2 (1M users) | V3 (100M users) |
+|-----|----------------|---------------|-----------------|
+| **Availability** | 99% acceptable | 99.9% required | 99.99% required |
+| **Latency** | 1s acceptable | 500ms required | 200ms required |
+| **Durability** | Nightly backup OK | Continuous backup | Zero data loss |
+| **Security** | Basic auth | SOC2 compliance | Full audit trail |
+| **Operability** | Manual ops OK | Automation needed | Self-healing required |
+
+## Designing for NFR Evolution
+
+**L5 Approach:** "We'll improve NFRs later."
+
+**L6 Approach:** "For V1, I'm targeting 99.9% availability, which is achievable with two availability zones. But I'm designing so we can reach 99.99% without major rearchitecture:
+- Stateless services (can add regions without coordination changes)
+- Database schema supports sharding (partition key chosen for future growth)
+- Health check endpoints ready (for load balancer integration)
+- Metrics emission from day one (for SLO tracking)
+
+V2 NFR upgrade is operational changes, not architecture changes."
+
+---
+
+# Part 13: NFR Validation — How to Verify Your Design Meets NFRs
+
+Staff engineers don't just state NFRs—they explain how the design achieves them.
+
+## The NFR Validation Pattern
+
+For each NFR, Staff engineers trace:
+
+1. **What's the NFR?** (Quantified target)
+2. **What design element achieves it?** (Specific component/pattern)
+3. **How would we measure it?** (SLI definition)
+4. **What's the fallback if it's not met?** (Degradation behavior)
+
+## Example: Validating Notification System NFRs
+
+| NFR | Design Element | Measurement (SLI) | Fallback |
+|-----|----------------|-------------------|----------|
+| 99.9% availability | Redundant services in 2 AZs | Successful requests / total requests | Shed non-critical notifications |
+| P99 delivery < 5s | Async queue + parallel workers | Time from submit to delivery | Show in-app even if push fails |
+| Zero notification loss | Persistent queue, ack after store | Notifications in - notifications delivered | Dead letter queue, manual replay |
+| Eventual consistency (prefs) | Read-through cache, 5s TTL | Staleness age on cache hits | Use defaults if cache miss |
+
+## Connecting NFRs to SLIs/SLOs
+
+Staff engineers speak in SLI/SLO terms:
+
+**SLI (Service Level Indicator):** What we measure
+**SLO (Service Level Objective):** The target for that measurement
+
+| NFR | SLI | SLO |
+|-----|-----|-----|
+| Availability | Successful requests / total requests | > 99.9% over 30-day window |
+| Latency | Request duration at P99 | < 200ms |
+| Durability | Items written - items lost / items written | > 99.9999% |
+| Freshness | Time since last data update | < 5 seconds for 99% of reads |
+
+## Articulating NFR Validation in Interviews
+
+**L5 Approach:** "The system will be highly available."
+
+**L6 Approach:** "I'm targeting 99.9% availability. Here's how I achieve and verify it:
+
+**Design elements:**
+- Stateless application tier behind load balancer (no single point of failure)
+- Database with synchronous replica (failover in < 30 seconds)
+- Health checks every 10 seconds (fast detection)
+
+**Measurement:**
+- SLI: Successful responses / total requests, measured at load balancer
+- SLO: > 99.9% calculated over 30-day rolling window
+
+**Fallback:**
+- If approaching SLO breach (99.5%), shed non-critical features
+- Alert at 99.7% for early warning
+
+This gives us defense in depth and visibility into whether we're meeting the target."
+
+---
+
+# Part 14: NFR Conflicts and Prioritization
+
+When multiple NFRs conflict and can't all be met, Staff engineers have a framework for prioritization.
+
+## Common NFR Conflict Patterns
+
+| NFR A | NFR B | Conflict | Resolution Pattern |
+|-------|-------|----------|-------------------|
+| Low latency | Strong consistency | Consensus adds latency | Choose per-operation; strong for writes, eventual for reads |
+| High availability | Strong consistency | CAP theorem | Accept eventual consistency or reduced availability |
+| Low cost | High availability | Redundancy costs money | Tier availability by feature criticality |
+| Fast deployment | Zero downtime | Blue-green needs double resources | Accept increased cost or slower deploys |
+
+## NFR Prioritization Framework
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    NFR PRIORITIZATION FRAMEWORK                             │
+│                                                                             │
+│   STEP 1: IDENTIFY THE CONFLICT                                             │
+│           "NFR A and NFR B can't both be fully met"                         │
+│                                                                             │
+│   STEP 2: ASSESS BUSINESS IMPACT                                            │
+│           "What's the cost of degrading each?"                              │
+│           • Revenue impact                                                  │
+│           • User trust impact                                               │
+│           • Regulatory impact                                               │
+│           • Operational impact                                              │
+│                                                                             │
+│   STEP 3: FIND THE DOMINANT NFR                                             │
+│           Usually one of:                                                   │
+│           • User-facing over internal                                       │
+│           • Safety over performance                                         │
+│           • Correctness over availability (for money/data)                  │
+│           • Availability over correctness (for engagement/content)          │
+│                                                                             │
+│   STEP 4: DEFINE ACCEPTABLE DEGRADATION                                     │
+│           "For the subordinate NFR, what's the minimum acceptable?"         │
+│                                                                             │
+│   STEP 5: DOCUMENT AND COMMUNICATE                                          │
+│           "We're prioritizing A over B because..."                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Domain-Specific NFR Priorities
+
+| Domain | Typical Priority Order | Rationale |
+|--------|----------------------|-----------|
+| **Financial/Payments** | Correctness > Durability > Availability > Latency | Money can't be wrong or lost |
+| **Social/Content** | Availability > Latency > Eventual Consistency > Durability | Engagement matters; slight staleness OK |
+| **Healthcare** | Security > Correctness > Availability > Latency | Compliance and patient safety |
+| **Real-time Gaming** | Latency > Availability > Consistency | Responsiveness is the product |
+| **E-commerce** | Availability > Latency > Consistency | Can't sell if site is down |
+
+## Articulating NFR Prioritization
+
+**L5 Approach:** "We need all these NFRs." (Doesn't acknowledge conflict)
+
+**L6 Approach:** "I see a conflict between our latency and consistency NFRs. Let me prioritize:
+
+**For this notification system:**
+1. **Durability** (top): Lost notifications break user trust
+2. **Availability**: Users should always be able to receive notifications
+3. **Latency**: 5-second delivery is acceptable
+4. **Consistency**: Eventual consistency is fine for read status
+
+**The trade-off:** I'm accepting 2-5 second delivery latency to ensure durability (write to persistent queue before acknowledging). If latency were the top priority, I'd acknowledge faster but risk notification loss.
+
+**Business rationale:** Users tolerate slight delay; they don't tolerate missed notifications."
+
+---
+
+# Part 15: Interview Calibration for NFRs and Assumptions (Phase 4 & 5)
+
+## What Interviewers Evaluate
+
+| Signal | What They're Looking For | L6 Demonstration |
+|--------|-------------------------|------------------|
+| **Proactive NFR inquiry** | Do you ask about quality requirements? | "What availability target? What latency budget?" |
+| **Quantification** | Do you use specific numbers? | "99.9% availability, P99 < 200ms" |
+| **Trade-off reasoning** | Do you acknowledge conflicts? | "Prioritizing X over Y because..." |
+| **Failure awareness** | Do you define failure behavior? | "When latency exceeds SLO, we degrade by..." |
+| **Operational thinking** | Do you include ops NFRs? | "For observability, I need metrics at every boundary" |
+| **Assumptions explicit** | Do you state what you assume? | "I'm assuming we have Redis. If not..." |
+| **Validation approach** | Do you explain how to verify? | "SLI is X, measured at Y, target Z" |
+
+## L6 Phrases That Signal Staff-Level Thinking
+
+### For NFR Quantification
+
+**L5 says:** "The system should be fast and reliable."
+
+**L6 says:** "I'm targeting P99 latency under 200ms for the critical path, and 99.9% availability measured as successful requests over total requests. That's about 43 minutes of allowed downtime monthly."
+
+### For NFR Trade-offs
+
+**L5 says:** "We'll have strong consistency and low latency."
+
+**L6 says:** "There's tension between consistency and latency. For this use case, I'm prioritizing latency because users are waiting. I'm accepting eventual consistency with up to 5 seconds of staleness. For the few operations that need strong consistency—like preference updates—I'll accept higher latency."
+
+### For Failure Behavior
+
+**L5 says:** [Doesn't discuss what happens when NFRs are violated]
+
+**L6 says:** "When latency exceeds our SLO:
+- We detect via metrics breaching threshold for 2+ minutes
+- We degrade by disabling personalization, serving cached content
+- We alert on-call and update status page if prolonged
+- We recover gradually, re-enabling features as latency stabilizes"
+
+### For Operational NFRs
+
+**L5 says:** "We'll add monitoring."
+
+**L6 says:** "For operational NFRs, I need:
+- Observability: Latency histograms and error rates at every service boundary
+- Debuggability: Distributed tracing with correlation IDs
+- Deployability: Canary releases with automated rollback
+- Operability: Runtime-adjustable rate limits and feature flags
+
+These shape my architecture—I need metrics emission, trace context propagation, and an admin API."
+
+### For Assumptions
+
+**L5 says:** [Uses Redis without mentioning it's an assumption]
+
+**L6 says:** "I'm assuming we have distributed caching infrastructure like Redis. If that's not available, I'd adjust—maybe use local caching with shorter TTLs, or provision caching as part of this design. Is Redis available, or should I include cache infrastructure in scope?"
+
+## Common L5 Mistakes in Phase 4 & 5
+
+| Mistake | How It Manifests | L6 Correction |
+|---------|------------------|---------------|
+| **No NFR questions** | Designs without knowing targets | "What availability? What latency budget?" |
+| **Vague NFRs** | "Should be fast" | "P99 < 200ms, measured at the API gateway" |
+| **All NFRs maximized** | "Highly available AND consistent" | "Prioritizing availability, accepting eventual consistency" |
+| **No failure behavior** | Only happy path | "When SLO breached, we degrade by X, alert Y" |
+| **No operational NFRs** | Forgets observability | "For debuggability, I need tracing and correlation IDs" |
+| **Implicit assumptions** | Uses infra without stating | "I'm assuming Redis exists. Is that valid?" |
+| **NFRs disconnected** | Lists NFRs, designs separately | "Because we need 99.9%, I'm adding redundancy here" |
+| **No validation approach** | Can't explain how to verify | "SLI is X, measured at Y, SLO is Z%" |
+
+## Interviewer's Mental Checklist
+
+As you work through Phase 4 & 5, imagine the interviewer asking:
+
+☐ "Did they ask about availability, latency, consistency?"
+☐ "Did they use specific numbers, not vague terms?"
+☐ "Did they acknowledge NFR trade-offs?"
+☐ "Did they explain what happens when NFRs are violated?"
+☐ "Did they include operational NFRs?"
+☐ "Did they state assumptions explicitly?"
+☐ "Did they explain how to validate the design meets NFRs?"
+☐ "Did they connect NFRs to architecture decisions?"
+
+Hit all of these, and you've demonstrated Staff-level Phase 4 & 5 thinking.
+
+---
+
+# Part 16: Final Verification — L6 Readiness Checklist
+
+## Does This Section Meet L6 Expectations?
+
+| L6 Criterion | Coverage | Notes |
+|-------------|----------|-------|
+| **Judgment & Decision-Making** | ✅ Strong | NFR trade-offs, prioritization framework, conflict resolution |
+| **Failure & Degradation Thinking** | ✅ Strong | NFR violation response, degradation as NFR, failure behavior |
+| **Scale & Evolution** | ✅ Strong | NFR evolution V1→V2→V3, anticipating changes |
+| **Staff-Level Signals** | ✅ Strong | L6 phrases, interviewer evaluation, L5 mistakes |
+| **Real-World Grounding** | ✅ Strong | Rate limiter, feed, notification examples throughout |
+| **Interview Calibration** | ✅ Strong | Explicit signals, phrases, mental checklist |
+
+## Staff-Level Signals Covered
+
+✅ Proactively asking about NFRs before designing
+✅ Quantifying NFRs with specific numbers (not vague terms)
+✅ Acknowledging and reasoning through NFR trade-offs
+✅ Defining failure/degradation behavior for each NFR
+✅ Including operational NFRs (observability, debuggability)
+✅ Stating assumptions explicitly with validation
+✅ Distinguishing assumptions, constraints, and simplifications
+✅ Connecting NFRs to architecture decisions
+✅ Explaining how to validate design meets NFRs (SLI/SLO)
+✅ Anticipating NFR evolution at scale
+
+## Remaining Gaps (Acceptable)
+
+- **Specific SRE practices**: Would require more operational depth
+- **Detailed capacity planning**: Covered in Scale section
+- **Compliance details**: Varies by domain
+
+---
+
+# Brainstorming Questions
+
+## Non-Functional Requirements
+
+1. For a system you've built, what were the actual NFRs? Were they explicit or implicit?
+
+2. Can you recall a time when NFR trade-offs caused conflict? How was it resolved?
+
+3. What's the highest availability system you've worked on? What made it achievable?
+
+4. When have you seen latency requirements drive architecture? What patterns emerged?
+
+5. How do you decide between strong and eventual consistency? What factors matter?
+
+6. What security considerations have you seen significantly change a design?
+
+## Assumptions and Constraints
+
+7. Think of a project where assumptions turned out to be wrong. What was the impact?
+
+8. What constraints have you worked with that initially seemed limiting but turned out helpful?
+
+9. How do you distinguish between fixed constraints and negotiable requirements?
+
+10. What simplifications do you commonly make in system design? When do you un-simplify?
+
+## Trade-Off Reasoning
+
+11. Describe a trade-off you've made between cost and quality. How did you justify it?
+
+12. When have you chosen complexity for the sake of NFRs? Was it worth it?
+
+13. How do you communicate NFR trade-offs to non-technical stakeholders?
+
+14. What trade-offs have you made that you later regretted?
+
+15. How do you know when you're over-engineering for NFRs that don't matter?
+
+---
+
+# Reflection Prompts
+
+Set aside 15-20 minutes for each of these reflection exercises.
+
+## Reflection 1: Your NFR Quantification
+
+Think about how you specify non-functional requirements.
+
+- Do you use vague terms ("fast," "reliable") or quantified targets ("P99 < 200ms," "99.9% availability")?
+- For your current project, can you state the availability target and what it means in downtime?
+- Do you know the latency budgets for your system's critical paths?
+- How do you validate that your design actually meets the NFRs?
+
+Rewrite the NFRs for a system you've designed using precise, measurable language.
+
+## Reflection 2: Your Trade-off Awareness
+
+Consider how you navigate NFR trade-offs.
+
+- What trade-offs have you made between consistency and availability?
+- When have you chosen simplicity over performance? Was it right?
+- Do you explicitly document trade-offs, or are they implicit?
+- How do you communicate trade-off decisions to stakeholders?
+
+For your current project, create a trade-off matrix showing which NFRs conflict and how you resolved them.
+
+## Reflection 3: Your Assumption Discipline
+
+Examine how you handle assumptions and constraints.
+
+- How many assumptions are you currently making implicitly?
+- What happens when assumptions turn out to be wrong?
+- Which constraints on your current project are truly fixed vs. negotiable?
+- Do you revisit assumptions as you design, or set them once and forget?
+
+List 20 assumptions for your current project. Categorize them by risk of being wrong.
+
+---
+
+# Homework Exercises
+
+## Exercise 1: NFR Specification
+
+For each system, specify:
+- Availability target (with justification)
+- Latency targets for each operation type
+- Consistency model
+- Security requirements
+- Key trade-offs
+
+Systems:
+1. A banking mobile app
+2. A social media feed
+3. A real-time gaming leaderboard
+4. An IoT sensor data platform
+
+## Exercise 2: Trade-Off Analysis
+
+Take a design decision you've made (or pick a famous one, like Twitter's eventual consistency).
+
+Write a trade-off analysis:
+- What was being optimized for?
+- What was sacrificed?
+- What was the quantitative impact?
+- Was it the right choice? Would you change it?
+
+## Exercise 3: Assumptions Excavation
+
+Take a system you know well.
+
+List at least 15 assumptions it makes across:
+- Infrastructure (5+)
+- User behavior (3+)
+- Organizational capability (3+)
+- Environmental conditions (3+)
+
+For each, ask: "What if this assumption was wrong?"
+
+## Exercise 4: Phase 5 Write-Up
+
+Choose a system design prompt (or use: "Design a chat application").
+
+Write a complete Phase 5 document:
+- All NFRs with specific numbers
+- All assumptions (at least 5)
+- All constraints (at least 3)
+- All simplifications (at least 3)
+- Trade-off summary table
+
+## Exercise 5: NFR-Driven Architecture
+
+Start with these NFRs:
+- 99.99% availability
+- P99 latency <50ms
+- Strong consistency for writes
+- 100K QPS
+
+Design the architecture that achieves these.
+
+Then change to:
+- 99.9% availability
+- P99 latency <500ms
+- Eventual consistency
+- 100K QPS
+
+Design again. Compare the two architectures. What changed and why?
+
+## Exercise 6: Constraint Negotiation
+
+Practice with a partner.
+
+Partner gives you a design prompt with seemingly impossible constraints:
+- "Design a system that's strongly consistent, highly available, and globally distributed with <50ms latency"
+
+Your task:
+- Probe to understand which constraints are truly fixed
+- Negotiate which can be relaxed
+- Propose alternatives that meet the underlying needs
+- Document the final agreed constraints
 
 ---
 

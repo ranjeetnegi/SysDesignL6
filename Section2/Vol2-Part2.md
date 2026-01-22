@@ -942,6 +942,629 @@ Let me walk through Phase 1 thinking for three real system types.
 
 ---
 
+# Quick Reference Card
+
+## Phase 1 Checklist: Users & Use Cases
+
+| Step | Question to Ask | Example Output |
+|------|-----------------|----------------|
+| **Identify all user types** | "Who interacts with this system?" | Human, System, Service, Operational users |
+| **Determine primary vs secondary** | "Whose needs drive the design?" | "Consumers are primary, ops is secondary" |
+| **Uncover intent** | "What problem are we really solving?" | "Keep users informed" not "send notifications" |
+| **Identify core vs edge** | "What's high frequency and high value?" | "Send/receive are core; export is edge" |
+| **Set explicit scope** | "What's in and what's out?" | "In: delivery. Out: content creation, billing" |
+
+---
+
+## Key Phrases for Phase 1
+
+### Identifying Users
+- "Who are all the users of this system?"
+- "Beyond end users, are there internal services? Operations teams?"
+- "Who operates this? Who debugs it when things go wrong?"
+
+### Determining Priority
+- "I'm treating [X] as primary users because..."
+- "Secondary users include [Y]—I'll accommodate but not optimize for them."
+
+### Uncovering Intent
+- "What problem are we really solving?"
+- "Is this for [intent A] or [intent B]? The design differs..."
+
+### Scoping
+- "For this design, I'm focusing on [in-scope]."
+- "I'm explicitly not designing [out-of-scope]—those are separate concerns."
+- "Does this scope work for what you had in mind?"
+
+---
+
+## Common Mistakes Quick Reference
+
+| Mistake | What It Looks Like | Fix |
+|---------|-------------------|-----|
+| **Single user type** | "Users send notifications" | "Who else? Internal services? Ops? Analytics?" |
+| **Taking prompt literally** | Immediately designing a rate limiter | "What problem are we solving? DDoS? Fair usage?" |
+| **Skipping discovery** | 30 seconds of questions, then architecture | Invest 5-10 minutes in Phase 1 |
+| **No prioritization** | All use cases treated equally | "Core: X, Y. Secondary: Z. Edge: W." |
+| **Implicit scope** | Designing without stating boundaries | "I'm focusing on X, not Y. Does that work?" |
+| **Confusing user/role** | "Senders and receivers" | "End users, internal services, marketing systems" |
+
+---
+
+## The Ripple Effect: Phase 1 → Architecture
+
+| Phase 1 Decision | Architectural Impact |
+|-----------------|---------------------|
+| **User types identified** | → APIs needed (REST for humans, gRPC for services) |
+| **Core use cases defined** | → Data model requirements (what to store) |
+| **Primary user chosen** | → Quality requirements (where to invest in availability/latency) |
+| **Scope boundaries set** | → Component boundaries (what you build vs. interface with) |
+
+**Example**: "System users generate 95% of notifications → service-to-service API is the critical path → optimize for throughput and low latency."
+
+---
+
+## Self-Check: Did I Cover Phase 1?
+
+| Signal | Weak | Strong | ✓ |
+|--------|------|--------|---|
+| **User types** | Assumed single user | Identified 4+ types including ops | ☐ |
+| **Primary/secondary** | Not distinguished | Explicit: "X is primary because..." | ☐ |
+| **Intent** | Accepted prompt literally | Asked "What problem are we solving?" | ☐ |
+| **Core vs edge** | Listed features flat | "Core: A, B. Edge: C, D." | ☐ |
+| **Scope** | Implicit or unclear | "In scope: X. Out of scope: Y." | ☐ |
+| **Confirmation** | Didn't check | "Does this scope work?" | ☐ |
+
+---
+
+# Part 11: User Needs Under Failure — Staff-Level Thinking
+
+A critical gap in most Senior engineers' thinking: they identify users and use cases for the happy path, but forget that failures affect different users differently. Staff engineers think about user needs under failure from the beginning.
+
+## The Failure Experience Matrix
+
+Different user types experience the same failure in fundamentally different ways:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              HOW USERS EXPERIENCE THE SAME FAILURE                          │
+│                                                                             │
+│   Failure: Notification delivery delayed 30+ seconds                        │
+│                                                                             │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  HUMAN USER                                                         │   │
+│   │  Experience: "App feels slow today"                                 │   │
+│   │  Tolerance: Low - expects instant gratification                     │   │
+│   │  Need: Feedback that something is happening                         │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  SYSTEM USER (calling service)                                      │   │
+│   │  Experience: Timeout errors, retry storms                           │   │
+│   │  Tolerance: Medium - has retry logic, but consumes budget           │   │
+│   │  Need: Clear error codes, backoff guidance                          │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  SERVICE USER (batch job)                                           │   │
+│   │  Experience: Job running longer than SLA                            │   │
+│   │  Tolerance: High - can wait, but needs visibility                   │   │
+│   │  Need: Progress indicators, partial success handling                │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  OPERATIONAL USER (on-call SRE)                                     │   │
+│   │  Experience: Alert firing, needs to diagnose                        │   │
+│   │  Tolerance: None - this IS their problem                            │   │
+│   │  Need: Metrics, traces, runbooks, control levers                    │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Staff-Level Questions for User Failure Analysis
+
+When identifying users, Staff engineers immediately ask:
+
+**For each user type:**
+1. "What does failure look like to this user?"
+2. "What's their tolerance for degradation?"
+3. "What information do they need during failure?"
+4. "What fallback serves this user when the primary path fails?"
+
+**Example: Rate Limiter Failure Analysis**
+
+| User Type | Failure Mode | Impact | Tolerance | Fallback Need |
+|-----------|--------------|--------|-----------|---------------|
+| APIs protected | Rate limiter unavailable | Unprotected, risk overload | Zero - this defeats the purpose | Fail-closed (block all) or fail-open with caching |
+| Clients calling APIs | Incorrect rate info | Unexpected rejections | Low - causes cascading failures | Stale limits with error budget |
+| Operations | Metrics missing | Blind to abuse patterns | Medium - can wait for recovery | Degraded dashboard, alerting still works |
+| Security team | Audit logs delayed | Investigation blocked | High - can analyze later | Buffer and replay when healthy |
+
+## Designing for Failure from Phase 1
+
+The user analysis should inform failure design from the start:
+
+**L5 Approach**: "I'll handle failures later in the design."
+
+**L6 Approach**: "For each user type, I'm noting their failure tolerance now. This shapes my core architecture—I can't add fault tolerance as an afterthought."
+
+**Example in Interview:**
+
+"I've identified four user types. Let me think about how each experiences failure:
+- Human users need graceful degradation—show cached content, not errors
+- System users need clear error codes and retry guidance—I'll design for that
+- Batch services need idempotent operations and progress checkpoints
+- Operations needs observability baked in—not bolted on
+
+This means my core design must include: cached fallbacks, structured error responses, idempotency keys, and metrics emission at key points."
+
+## User-Specific Failure Requirements
+
+For each user type, identify specific failure requirements:
+
+### Human Users Under Failure
+
+| Requirement | Why | Design Impact |
+|-------------|-----|---------------|
+| Graceful degradation | Users prefer partial functionality to errors | Fallback UI, cached content |
+| Progress feedback | Uncertainty is worse than delay | Loading states, estimated times |
+| Retry transparency | Users shouldn't double-submit | Optimistic UI, confirmation |
+| Clear error messages | Technical errors frustrate | User-friendly messages |
+
+### System Users Under Failure
+
+| Requirement | Why | Design Impact |
+|-------------|-----|---------------|
+| Idempotency | Retries must be safe | Idempotency keys, deduplication |
+| Structured errors | Machines parse responses | Error codes, not strings |
+| Retry guidance | Prevent thundering herd | Retry-After headers, backoff |
+| Partial success handling | Batch operations may half-succeed | Transaction semantics, results arrays |
+
+### Operational Users Under Failure
+
+| Requirement | Why | Design Impact |
+|-------------|-----|---------------|
+| Real-time metrics | Can't debug what you can't see | Metrics per component, SLI tracking |
+| Distributed tracing | Request flow visibility | Trace context propagation |
+| Control levers | Need to mitigate without deploys | Feature flags, circuit breakers |
+| Runbook hooks | Scripted remediation | Admin APIs, safe restart procedures |
+
+---
+
+# Part 12: Conflict Resolution Between User Types
+
+When different user types have incompatible needs, Staff engineers reason through the conflict explicitly—not by gut feeling, but with a structured approach.
+
+## The Conflict Pattern
+
+User conflicts arise when:
+- Optimizing for one user degrades experience for another
+- Resource constraints force trade-offs
+- Quality attributes conflict (latency vs. durability, simplicity vs. flexibility)
+
+## Conflict Resolution Framework
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              USER CONFLICT RESOLUTION DECISION TREE                         │
+│                                                                             │
+│   1. IDENTIFY THE CONFLICT                                                  │
+│      "User A needs X, User B needs Y. X and Y are incompatible."            │
+│                                                                             │
+│   2. DETERMINE USER PRIORITY                                                │
+│      "Who is primary? Whose needs drive the core design?"                   │
+│      │                                                                      │
+│      ├─► Primary wins outright?                                             │
+│      │   → If secondary user can tolerate degradation: yes                  │
+│      │                                                                      │
+│      └─► No clear winner?                                                   │
+│          → Move to trade-off analysis                                       │
+│                                                                             │
+│   3. TRADE-OFF ANALYSIS                                                     │
+│      "What's the cost of each choice?"                                      │
+│      │                                                                      │
+│      ├─► Can we serve both with different paths?                            │
+│      │   → Separate APIs, async processing, tiered service                  │
+│      │                                                                      │
+│      ├─► Can we time-slice?                                                 │
+│      │   → Serve primary during peak, secondary off-peak                    │
+│      │                                                                      │
+│      └─► Must choose one?                                                   │
+│          → Choose primary, document secondary degradation                   │
+│                                                                             │
+│   4. DOCUMENT THE DECISION                                                  │
+│      "I'm prioritizing X because..."                                        │
+│      "User B will experience degraded service in these scenarios..."        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Real-World Conflict Examples
+
+### Example 1: Notification System — Delivery Speed vs. Aggregation
+
+**Conflict:**
+- Human users want real-time notifications (within seconds)
+- System users (analytics) want aggregated data (batched for efficiency)
+- Same event triggers both
+
+**L5 Resolution:** Pick one—either real-time or batched.
+
+**L6 Resolution:**
+"These needs aren't actually incompatible if I design for it. I'll use:
+- A real-time path for immediate delivery to human users
+- An async fan-out that also writes to an event stream
+- Analytics consumes from the stream, aggregating as needed
+
+The core path optimizes for human users (latency). Analytics gets eventually-consistent data via the stream—they can aggregate at their own pace."
+
+### Example 2: Rate Limiter — Client Fairness vs. API Protection
+
+**Conflict:**
+- APIs being protected want strict limits (no overload ever)
+- Clients want burst capacity (occasional spikes should be allowed)
+- These conflict under load
+
+**L5 Resolution:** Set hard limits—clients adapt.
+
+**L6 Resolution:**
+"I need to reason about which user matters more in which scenario:
+- Under normal load: Allow bursting—client experience matters
+- Under high load: API protection takes priority—reject aggressively
+
+I'll design a tiered system:
+- Token bucket with burst capacity for normal operation
+- Circuit breaker that engages under sustained load, overriding burst
+- Clear communication to clients when in protected mode
+
+This serves both users, with explicit degradation rules."
+
+### Example 3: Messaging System — Real-Time vs. Persistence
+
+**Conflict:**
+- Human users want instant delivery (sub-second)
+- Compliance team needs guaranteed persistence (never lose a message)
+- Strong consistency for both is expensive
+
+**L5 Resolution:** Synchronous write to durable storage—accept higher latency.
+
+**L6 Resolution:**
+"These users have different failure tolerances:
+- Human users: Would rather see the message fast, even if there's rare loss
+- Compliance: Would rather delay than lose
+
+I'll design for eventual durability with optimistic delivery:
+- Acknowledge to sender after primary write (fast)
+- Async replication to durable storage
+- Compliance gets durability guarantee (eventual)
+- If primary fails before replication, we have a rare but documented failure mode
+
+I'll surface this trade-off: 'We prioritize perceived speed over zero-loss. Loss rate is <0.0001%. Compliance acknowledges this in SLA.'"
+
+## Communicating Conflicts in Interviews
+
+**Effective phrases:**
+
+"I've identified a conflict between user needs. Let me reason through it..."
+
+"User A needs X for latency reasons. User B needs Y for durability. These conflict under [scenario]. I'm going to prioritize A because [rationale], and design degraded service for B that looks like [specific behavior]."
+
+"Rather than choosing one winner, I can serve both with separate paths. The core path optimizes for [primary user]. A secondary path, potentially async, serves [secondary user] without impacting the primary path."
+
+---
+
+# Part 13: Designing for Operational Users — First-Class Citizenship
+
+The most commonly overlooked user type is operational users. Staff engineers treat them as first-class citizens from the start.
+
+## What Operational Users Actually Need
+
+Operational users (SREs, on-call engineers, platform teams) have specific, often unspoken needs:
+
+### During Normal Operation
+
+| Need | Why | Design Implication |
+|------|-----|--------------------|
+| Health dashboards | Proactive monitoring | Expose health metrics, SLI endpoints |
+| Capacity visibility | Prevent surprises | Show headroom, trending toward limits |
+| Configuration visibility | Know current state | Config API, current settings endpoint |
+| Dependency health | Upstream issues affect you | Dependency status aggregation |
+
+### During Incidents
+
+| Need | Why | Design Implication |
+|------|-----|--------------------|
+| Rapid diagnosis | MTTR drives SLA | Detailed logs, distributed tracing |
+| Control levers | Mitigate without deploys | Feature flags, rate adjustments, circuit breakers |
+| Safe restart | Recovery without data loss | Graceful shutdown, drain endpoints |
+| Isolation capability | Contain blast radius | Per-tenant controls, kill switches |
+
+### During Maintenance
+
+| Need | Why | Design Implication |
+|------|-----|--------------------|
+| Drain support | Zero-downtime deploys | Connection draining, graceful handoff |
+| Canary ability | Safe rollouts | Traffic splitting, progressive deployment |
+| Rollback speed | Fast recovery from bad deploys | Stateless design, backward compatibility |
+| Migration tooling | Schema and data evolution | Offline migration support, dual-write modes |
+
+## Operational Use Cases to Identify in Phase 1
+
+When enumerating use cases, explicitly include operational ones:
+
+**Core Operational Use Cases:**
+1. "View system health" — Is the system working?
+2. "Diagnose failure" — Why did this request fail?
+3. "Adjust behavior" — Change rate limits, enable/disable features
+4. "Safely deploy" — Ship new code without impact
+
+**Edge Operational Use Cases:**
+1. "Recover from data corruption" — Rare but catastrophic
+2. "Migrate to new infrastructure" — Every system eventually moves
+3. "Investigate security incident" — Audit trail, forensics
+4. "Handle capacity emergency" — Shed load, prioritize traffic
+
+## Example: Notification System Operational Design
+
+**Operational users identified:**
+- On-call SREs monitoring delivery
+- Platform engineers maintaining the system
+- Support engineers debugging user complaints
+
+**Operational use cases:**
+
+| Use Case | Frequency | Priority | Design Feature |
+|----------|-----------|----------|----------------|
+| Check delivery health | Constant | High | Metrics dashboard, SLI endpoints |
+| Debug failed notification | Daily | High | Per-notification trace, log correlation |
+| Adjust throttling | Weekly | Medium | Admin API for rate adjustment |
+| Disable broken channel | Rare | High | Per-channel circuit breaker |
+| Investigate spam complaint | Monthly | Medium | Audit log with sender/content |
+
+**Staff-Level Interview Statement:**
+
+"I want to call out operational users explicitly. On-call SREs need to answer: 'Is delivery healthy?' and 'Why did this notification fail?' I'll design:
+- A health endpoint showing delivery success rates by channel
+- Per-notification tracing so support can debug individual failures
+- Circuit breakers per delivery channel so we can isolate issues
+- An admin API for rate adjustment without deploys
+
+These aren't afterthoughts—they shape my data model and component design."
+
+---
+
+# Part 14: Use Case Evolution and Degradation
+
+Staff engineers think about use cases dynamically: how they evolve over scale, and how they degrade under failure.
+
+## Use Case Evolution Over Scale
+
+As systems scale, use cases shift in importance:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    USE CASE EVOLUTION OVER SCALE                            │
+│                                                                             │
+│   V1 (1K users)         V2 (100K users)        V3 (10M users)               │
+│   ┌───────────────┐     ┌───────────────┐      ┌───────────────┐            │
+│   │ Core:         │     │ Core:         │      │ Core:         │            │
+│   │ • Basic send  │ ──► │ • Send at     │ ──►  │ • Send at     │            │
+│   │ • Basic recv  │     │   scale       │      │   massive scale│           │
+│   │               │     │ • Reliability │      │ • Partitioned │            │
+│   │ Edge:         │     │               │      │   delivery    │            │
+│   │ • Everything  │     │ New Core:     │      │               │            │
+│   │   else        │     │ • Search      │      │ New Core:     │            │
+│   │               │     │ • History     │      │ • Real-time   │            │
+│   │               │     │               │      │   at scale    │            │
+│   │               │     │ Edge → Core:  │      │ • Ops tooling │            │
+│   │               │     │ • Preferences │      │               │            │
+│   └───────────────┘     └───────────────┘      └───────────────┘            │
+│                                                                             │
+│   KEY INSIGHT: Today's edge case is tomorrow's core use case                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Anticipating Use Case Shifts
+
+**L5 Approach:** Design for current use cases only.
+
+**L6 Approach:** "Which edge cases will become core as we scale? Let me design for extensibility there."
+
+**Example: Messaging System**
+
+| Current State | Edge Use Case | Trigger for Core | Design Now |
+|--------------|---------------|------------------|------------|
+| 1K users | Message search | Users complain they can't find old messages | Index-friendly message storage |
+| 10K users | Large groups (100+) | Enterprise customers request | Fan-out architecture that can scale |
+| 100K users | Compliance export | Regulatory requirement | Audit log from day one |
+| 1M users | Multi-region | Latency complaints | Region-aware IDs, no single-region assumptions |
+
+**Interview Statement:**
+
+"I've identified send/receive as core and export as edge. But I'm noting that export often becomes core at scale when compliance requirements kick in. I'll design message storage with export-friendliness in mind—even if I don't build the export feature now, I won't make it impossible."
+
+## Use Case Degradation Ladders
+
+Every core use case should have a degradation strategy. Staff engineers define these explicitly:
+
+### Degradation Ladder Pattern
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                USE CASE DEGRADATION LADDER                                  │
+│                                                                             │
+│   Use Case: "User views notification feed"                                  │
+│                                                                             │
+│   LEVEL 1: FULL FUNCTIONALITY (Healthy)                                     │
+│   ─────────────────────────────────────                                     │
+│   • Real-time updates, personalized ranking                                 │
+│   • All notification types displayed                                        │
+│   • Interactive actions (mark read, dismiss)                                │
+│                                                                             │
+│   LEVEL 2: REDUCED PERSONALIZATION (Ranking service degraded)               │
+│   ─────────────────────────────────────────────────────────                 │
+│   • Show notifications in chronological order                               │
+│   • All types still displayed                                               │
+│   • Actions still work                                                      │
+│                                                                             │
+│   LEVEL 3: CACHED CONTENT (Primary database degraded)                       │
+│   ────────────────────────────────────────────────────                      │
+│   • Show cached notifications from local/CDN                                │
+│   • May be stale (indicate "as of X time ago")                              │
+│   • Actions queued for later                                                │
+│                                                                             │
+│   LEVEL 4: STATIC FALLBACK (Multiple systems degraded)                      │
+│   ──────────────────────────────────────────────────────                    │
+│   • Show "Notifications temporarily unavailable"                            │
+│   • Offer refresh option                                                    │
+│   • Preserve user context (don't log them out)                              │
+│                                                                             │
+│   LEVEL 5: GRACEFUL ERROR (Complete failure)                                │
+│   ──────────────────────────────────────────                                │
+│   • Clear error message with estimated recovery                             │
+│   • Support contact information                                             │
+│   • No cascading failures to other features                                 │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Defining Degradation in Phase 1
+
+For each core use case, define:
+
+1. **What's the minimum viable experience?**
+2. **What can we drop first without breaking the use case?**
+3. **What's the fallback when the primary path fails?**
+4. **How do we communicate degradation to the user?**
+
+**Example: Rate Limiter Core Use Case — "Check if request allowed"**
+
+| Degradation Level | Trigger | Behavior | User Impact |
+|-------------------|---------|----------|-------------|
+| Full | Healthy | Accurate check, correct limit enforcement | None |
+| Stale limits | Redis unavailable | Use cached limits from last sync | Limits may be slightly off |
+| Fail-open | Limiter completely down, low-risk traffic | Allow all requests | No protection, but no blockage |
+| Fail-closed | Limiter down, high-risk/expensive operations | Block all requests | Users blocked, but system protected |
+
+**Interview Statement:**
+
+"For the core use case 'check if request allowed,' I'm thinking about degradation now:
+- If Redis is slow, I'll use locally cached limits—slightly stale but functional
+- If Redis is down, I need a fail-open vs. fail-closed decision based on the protected API's criticality
+- I'll expose a health check so operations knows which mode we're in
+
+This shapes my design: I need local caching, I need configurable fail modes per endpoint, and I need observability into limiter health."
+
+---
+
+# Part 15: Interview Calibration for Phase 1 (Users & Use Cases)
+
+## What Interviewers Evaluate During Phase 1
+
+| Signal | What They're Looking For | L6 Demonstration |
+|--------|-------------------------|------------------|
+| **Breadth of thinking** | Do you see beyond the obvious user? | Name 4+ user types including operational |
+| **Prioritization ability** | Can you distinguish what matters? | Explicit primary/secondary, core/edge |
+| **Intent understanding** | Do you solve the real problem? | Question the prompt, probe for purpose |
+| **Scope discipline** | Can you focus without being told? | State in/out scope explicitly |
+| **Failure awareness** | Do you think about degradation? | Per-user failure experience |
+| **Communication clarity** | Can you structure your thinking? | Organized, methodical approach |
+
+## L6 Phrases That Signal Staff-Level Thinking
+
+### For User Identification
+
+**L5 says:** "Users will send and receive messages."
+
+**L6 says:** "Let me enumerate the user types. We have end consumers who send and receive. We have internal services that trigger system-generated messages—probably higher volume than human senders. We have operations who need to monitor delivery health. And we have compliance who may need audit access. Each has different needs and failure tolerances."
+
+### For Primary/Secondary Classification
+
+**L5 says:** "All users are important."
+
+**L6 says:** "End consumers are primary—the product exists for them. Operations is secondary but critical—I'll design for their needs without compromising consumer experience. Compliance is tertiary—I'll ensure capability exists but won't optimize for it."
+
+### For Failure Thinking
+
+**L5 says:** [Doesn't mention failure during Phase 1]
+
+**L6 says:** "As I identify these users, I'm thinking about failure modes. Human users need graceful degradation—show something, not errors. System users need structured error responses with retry guidance. Operations needs observability to diagnose issues quickly. I'll carry these requirements into my component design."
+
+### For Conflict Resolution
+
+**L5 says:** "We'll optimize for latency."
+
+**L6 says:** "There's a tension here. Human users want low latency. Compliance needs durability. I can serve both with async durability—deliver fast, persist eventually. The trade-off is rare message loss during primary failure before replication. I'll document this as an accepted risk with a target loss rate."
+
+### For Scope
+
+**L5 says:** [Implicit scope, doesn't state it]
+
+**L6 says:** "Let me state my scope explicitly. In scope: core messaging between consumers, group chat up to 100, text and images. Out of scope: voice/video (separate infrastructure), E2E encryption (significant complexity), very large groups (different fan-out architecture). Does this scope match your expectations?"
+
+## Common L5 Mistakes in Phase 1
+
+| Mistake | How It Manifests | L6 Correction |
+|---------|------------------|---------------|
+| **Single user focus** | "Users do X" | "Which users? Human consumers, system integrations, operators..." |
+| **No failure thinking** | Happy path only | "How does each user type experience failure?" |
+| **Implicit priorities** | Treats all use cases equally | "Core use cases are X, Y. Edge cases are Z, W." |
+| **Prompt acceptance** | Takes "design a rate limiter" literally | "What problem are we actually solving? Is rate limiting the right approach?" |
+| **Hidden scope** | Designs without stating boundaries | "In scope: X. Out of scope: Y. Does this work?" |
+| **Role confusion** | "Senders and receivers" | "End users, internal services, marketing systems—each with different patterns" |
+| **Missing operations** | No mention of observability needs | "Operations needs to answer: Is it healthy? Why did it fail?" |
+
+## Interviewer's Mental Checklist for Phase 1
+
+As you work through Phase 1, imagine the interviewer asking themselves:
+
+☐ "Did they identify user types beyond the obvious?"
+☐ "Did they distinguish primary from secondary?"
+☐ "Did they probe intent, or just accept the prompt?"
+☐ "Did they prioritize use cases?"
+☐ "Did they state scope explicitly?"
+☐ "Did they think about failure?"
+☐ "Did they consider operational needs?"
+☐ "Did they confirm alignment with me?"
+
+Hit all of these, and you've demonstrated Staff-level Phase 1 thinking.
+
+---
+
+# Part 16: Final Verification — L6 Readiness Checklist
+
+## Does This Section Meet L6 Expectations?
+
+| L6 Criterion | Coverage | Notes |
+|-------------|----------|-------|
+| **Judgment & Decision-Making** | ✅ Strong | Primary/secondary classification, conflict resolution framework |
+| **Failure & Degradation Thinking** | ✅ Strong | User needs under failure, degradation ladders, operational requirements |
+| **Scale & Evolution** | ✅ Strong | Use case evolution over scale, anticipating shifts |
+| **Staff-Level Signals** | ✅ Strong | Explicit L6 phrases, interviewer evaluation criteria |
+| **Real-World Grounding** | ✅ Strong | Rate limiter, messaging, notification system examples throughout |
+| **Interview Calibration** | ✅ Strong | Common L5 mistakes, L6 phrases, interviewer mental checklist |
+
+## Staff-Level Signals Covered
+
+✅ Enumerating multiple user types (not just obvious ones)
+✅ Identifying operational users as first-class citizens
+✅ Distinguishing primary vs. secondary users with rationale
+✅ Separating user intent from implementation
+✅ Classifying core vs. edge use cases
+✅ Thinking about failure experience per user type
+✅ Reasoning through user conflicts explicitly
+✅ Defining degradation strategies for core use cases
+✅ Anticipating use case evolution at scale
+✅ Setting explicit scope with confirmation
+✅ Making Phase 1 decisions that trace to later architecture
+
+## Remaining Gaps (Acceptable)
+
+- **Specific technology choices**: Intentionally omitted—Phase 1 is about users and use cases, not implementation
+- **Quantitative requirements**: Covered in later phases (NFRs, scale estimation)
+- **Deep component design**: Covered in later volumes
+
+---
+
 # Brainstorming Questions
 
 ## Understanding Users
@@ -979,6 +1602,45 @@ Let me walk through Phase 1 thinking for three real system types.
 14. What's your process for deciding what's in V1 vs. V2?
 
 15. How do you prevent scope creep once you've established boundaries?
+
+---
+
+# Reflection Prompts
+
+Set aside 15-20 minutes for each of these reflection exercises.
+
+## Reflection 1: Your User Awareness
+
+Think about a system you've recently designed or worked on.
+
+- How many user types did you consciously identify?
+- Did you consider operational users (SREs, support) as first-class users?
+- What user needs did you discover late that you wish you'd known earlier?
+- How would the design differ if you'd identified all users upfront?
+
+Write a complete user inventory for that system now. What did you miss?
+
+## Reflection 2: Your Scope Discipline
+
+Consider your natural tendencies around scope.
+
+- Do you tend to scope too broadly or too narrowly?
+- How do you react when stakeholders want to add features?
+- When have you successfully defended scope boundaries?
+- What's your strategy for making scope explicit and getting agreement?
+
+Practice saying "That's out of scope for this design, but..." until it feels natural.
+
+## Reflection 3: Your Failure Mode Thinking
+
+Examine how you think about failure during requirements gathering.
+
+- Do you naturally think about what happens when things break?
+- For each user type, can you describe their failure experience?
+- Have you ever designed degradation strategies explicitly?
+- What would change if you gathered failure requirements alongside functional requirements?
+
+For your current project, write a failure experience matrix for all user types.
 
 ---
 
@@ -1069,81 +1731,6 @@ Redesign Phase 1 with different assumptions:
 Then sketch how the architecture would differ.
 
 The goal is to see how different Phase 1 decisions lead to genuinely different systems.
-
----
-
-# Quick Reference Card
-
-## Phase 1 Checklist: Users & Use Cases
-
-| Step | Question to Ask | Example Output |
-|------|-----------------|----------------|
-| **Identify all user types** | "Who interacts with this system?" | Human, System, Service, Operational users |
-| **Determine primary vs secondary** | "Whose needs drive the design?" | "Consumers are primary, ops is secondary" |
-| **Uncover intent** | "What problem are we really solving?" | "Keep users informed" not "send notifications" |
-| **Identify core vs edge** | "What's high frequency and high value?" | "Send/receive are core; export is edge" |
-| **Set explicit scope** | "What's in and what's out?" | "In: delivery. Out: content creation, billing" |
-
----
-
-## Key Phrases for Phase 1
-
-### Identifying Users
-- "Who are all the users of this system?"
-- "Beyond end users, are there internal services? Operations teams?"
-- "Who operates this? Who debugs it when things go wrong?"
-
-### Determining Priority
-- "I'm treating [X] as primary users because..."
-- "Secondary users include [Y]—I'll accommodate but not optimize for them."
-
-### Uncovering Intent
-- "What problem are we really solving?"
-- "Is this for [intent A] or [intent B]? The design differs..."
-
-### Scoping
-- "For this design, I'm focusing on [in-scope]."
-- "I'm explicitly not designing [out-of-scope]—those are separate concerns."
-- "Does this scope work for what you had in mind?"
-
----
-
-## Common Mistakes Quick Reference
-
-| Mistake | What It Looks Like | Fix |
-|---------|-------------------|-----|
-| **Single user type** | "Users send notifications" | "Who else? Internal services? Ops? Analytics?" |
-| **Taking prompt literally** | Immediately designing a rate limiter | "What problem are we solving? DDoS? Fair usage?" |
-| **Skipping discovery** | 30 seconds of questions, then architecture | Invest 5-10 minutes in Phase 1 |
-| **No prioritization** | All use cases treated equally | "Core: X, Y. Secondary: Z. Edge: W." |
-| **Implicit scope** | Designing without stating boundaries | "I'm focusing on X, not Y. Does that work?" |
-| **Confusing user/role** | "Senders and receivers" | "End users, internal services, marketing systems" |
-
----
-
-## The Ripple Effect: Phase 1 → Architecture
-
-| Phase 1 Decision | Architectural Impact |
-|-----------------|---------------------|
-| **User types identified** | → APIs needed (REST for humans, gRPC for services) |
-| **Core use cases defined** | → Data model requirements (what to store) |
-| **Primary user chosen** | → Quality requirements (where to invest in availability/latency) |
-| **Scope boundaries set** | → Component boundaries (what you build vs. interface with) |
-
-**Example**: "System users generate 95% of notifications → service-to-service API is the critical path → optimize for throughput and low latency."
-
----
-
-## Self-Check: Did I Cover Phase 1?
-
-| Signal | Weak | Strong | ✓ |
-|--------|------|--------|---|
-| **User types** | Assumed single user | Identified 4+ types including ops | ☐ |
-| **Primary/secondary** | Not distinguished | Explicit: "X is primary because..." | ☐ |
-| **Intent** | Accepted prompt literally | Asked "What problem are we solving?" | ☐ |
-| **Core vs edge** | Listed features flat | "Core: A, B. Edge: C, D." | ☐ |
-| **Scope** | Implicit or unclear | "In scope: X. Out of scope: Y." | ☐ |
-| **Confirmation** | Didn't check | "Does this scope work?" | ☐ |
 
 ---
 

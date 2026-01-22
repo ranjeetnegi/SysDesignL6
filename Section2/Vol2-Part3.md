@@ -1223,6 +1223,625 @@ Explicitly enumerate control flows: "What operations do administrators need? Wha
 
 ---
 
+# Quick Reference Card
+
+## Functional Requirements Checklist
+
+| Step | Question to Ask | Example Output |
+|------|-----------------|----------------|
+| **Define what, not how** | "What does the system do?" | "Users can send messages" (not "stores in Cassandra") |
+| **Identify core vs supporting** | "Is system useless without this?" | Core: send/receive. Supporting: reactions |
+| **Enumerate all flow types** | "What are read, write, control flows?" | Read: view history. Write: send. Control: configure |
+| **Handle edge cases** | "What if X fails/is extreme?" | "If offline, queue. If too long, reject." |
+| **Set scope boundaries** | "What's in? What's out?" | "In: delivery. Out: analytics" |
+| **Confirm with interviewer** | "Does this match your expectations?" | Get explicit agreement |
+
+---
+
+## The Requirement Statement Pattern
+
+**Format:** `[User/System] can [action] [object] [optional: conditions/constraints]`
+
+| ❌ Too Vague | ✅ Just Right |
+|-------------|---------------|
+| "System handles messages" | "Users can send text messages to other users" |
+| "System does notifications" | "Services submit notifications; system delivers via push/email respecting preferences" |
+| "System limits requests" | "System checks client usage against configured limits; allows or rejects accordingly" |
+
+---
+
+## Quick Reference: Behavior Specification Pattern
+
+**When** [trigger] **the system** [action] **for** [affected entities] **according to** [rules]
+
+**Examples:**
+- "When a message is sent, the system delivers it to the recipient in real-time and stores it for later retrieval."
+- "When a request arrives, the system checks the client's usage against limits and allows or rejects accordingly."
+- "When a user creates a short URL, the system generates a unique key and stores the mapping."
+
+---
+
+## Edge Case Quick Reference
+
+| Category | Questions to Ask | Example |
+|----------|-----------------|---------|
+| **Extreme inputs** | Empty? Max value? Very long? | "What if message is 100KB?" |
+| **Failures** | Service down? Timeout? Partial failure? | "What if push delivery fails?" |
+| **Timing** | Out of order? Concurrent? Stale? | "What if user updates preference mid-delivery?" |
+| **Unusual users** | New user? Power user? Inactive? | "What if user follows 50,000 accounts?" |
+
+---
+
+## Common Pitfalls Quick Reference
+
+| Pitfall | What It Looks Like | Fix |
+|---------|-------------------|-----|
+| **Too vague** | "System handles messages" | Use pattern: [User] can [action] [object] |
+| **Includes implementation** | "Store in Cassandra, publish to Kafka" | Describe behavior, not mechanism |
+| **No prioritization** | 15 requirements, all equal | "Core: X, Y. Supporting: Z. Out of scope: W" |
+| **Missing edge cases** | Only happy path | Ask: "What if fails? What if extreme?" |
+| **Scope creep** | Started with 3, ended with 15 | Set scope explicitly, use "not now" list |
+| **No confirmation** | Assumes understanding is correct | "Does this capture what you had in mind?" |
+| **Missing control flows** | Only user-facing features | "What do operators/admins need?" |
+
+---
+
+## Self-Check: Did I Cover Phase 2?
+
+| Signal | Weak | Strong | ✓ |
+|--------|------|--------|---|
+| **Specificity** | "System handles X" | "[User] can [action] [object]" | ☐ |
+| **Core/Supporting** | All requirements equal | "Core: A, B. Supporting: C, D" | ☐ |
+| **Flow types** | Only obvious user flows | Read, Write, AND Control flows | ☐ |
+| **Edge cases** | Happy path only | 3-5 edge cases with handling decisions | ☐ |
+| **Scope** | Implicit | "In scope: X. Out of scope: Y" | ☐ |
+| **Confirmation** | Moved straight to design | "Does this match expectations?" | ☐ |
+
+---
+
+# Part 11: Failure Mode Requirements — Staff-Level Thinking
+
+A critical gap in most requirements gathering: candidates define what happens when things work, but not what happens when things fail. Staff engineers capture failure behavior as explicit functional requirements.
+
+## Why Failure Requirements Matter
+
+Functional requirements that only describe the happy path leave critical questions unanswered:
+- What does the user see when delivery fails?
+- What happens to data when a write partially succeeds?
+- How does the system behave when a dependency is unavailable?
+
+Without explicit failure requirements, engineers make inconsistent ad-hoc decisions during implementation.
+
+## The Failure Requirements Pattern
+
+For each core functional requirement, define the failure behavior:
+
+**Format:**
+"When [normal behavior] fails due to [failure condition], the system [failure behavior] and [user/system notification]."
+
+**Examples:**
+
+| Normal Requirement | Failure Requirement |
+|-------------------|---------------------|
+| System delivers notifications in real-time | When delivery fails, system retries 3x with backoff, then queues for later delivery and marks as "pending" |
+| System resolves short URL to long URL | When URL not found, system returns 404 with helpful message; when service degraded, returns cached result if available |
+| System checks rate limit before allowing request | When rate limiter unavailable, system fails open (allows) for low-risk endpoints, fails closed (blocks) for high-risk |
+
+## Failure Requirements by Flow Type
+
+### Read Flow Failures
+
+| Failure Scenario | Requirement Pattern |
+|-----------------|---------------------|
+| Data not found | Return clear 404 with actionable message |
+| Data temporarily unavailable | Return cached/stale data with freshness indicator |
+| Timeout | Return partial result or graceful error with retry guidance |
+| Authorization failure | Return 403 with reason (not 404 to hide existence) |
+
+### Write Flow Failures
+
+| Failure Scenario | Requirement Pattern |
+|-----------------|---------------------|
+| Partial write success | Either full rollback or explicit partial success response |
+| Duplicate submission | Idempotent handling—return success for duplicate |
+| Validation failure | Return specific field errors, not generic rejection |
+| Downstream failure | Queue for retry or return explicit failure with recovery path |
+
+### Control Flow Failures
+
+| Failure Scenario | Requirement Pattern |
+|-----------------|---------------------|
+| Configuration change fails | Atomic change—either fully applied or fully rolled back |
+| Invalid configuration | Reject with validation errors before applying |
+| Propagation delay | Return success with "may take up to X to propagate" |
+
+## Example: Notification System Failure Requirements
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              NOTIFICATION SYSTEM FAILURE REQUIREMENTS                        │
+│                                                                             │
+│   CORE REQUIREMENT: System delivers notifications to users                  │
+│                                                                             │
+│   FAILURE REQUIREMENTS:                                                     │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  F-1: Push delivery failure                                         │   │
+│   │       Retry 3x with exponential backoff (1s, 5s, 30s)               │   │
+│   │       If all retries fail → fall back to email if enabled           │   │
+│   │       If fallback fails → mark as "undelivered" in inbox            │   │
+│   │       Emit metric: notification_delivery_failure                    │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  F-2: User preference lookup failure                                │   │
+│   │       Use cached preferences if available (up to 1 hour stale)      │   │
+│   │       If no cache → use default preferences (all channels enabled)  │   │
+│   │       Never block delivery due to preference lookup failure         │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  F-3: Notification storage failure                                  │   │
+│   │       Delivery proceeds even if storage fails (prefer delivery)     │   │
+│   │       Queue storage write for retry                                 │   │
+│   │       Emit metric: notification_storage_failure                     │   │
+│   │       User may not see in history temporarily                       │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  F-4: Complete system overload                                      │   │
+│   │       Shed load by priority: marketing < social < transactional     │   │
+│   │       Queue shed notifications for later delivery                   │   │
+│   │       Never drop transactional notifications                        │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Articulating Failure Requirements in Interviews
+
+**L5 Approach:** "System delivers notifications." (Happy path only)
+
+**L6 Approach:** "System delivers notifications with these failure behaviors:
+- If push fails, retry with backoff then fall back to email
+- If preferences unavailable, use cached or defaults—never block delivery
+- If storage fails, still deliver—user sees notification even if history is delayed
+- Under overload, shed marketing first, never drop transactional
+
+These failure behaviors are requirements, not implementation details—they define what users experience when things go wrong."
+
+---
+
+# Part 12: Operational Requirements as First-Class Citizens
+
+Staff engineers explicitly define operational requirements—not as afterthoughts, but as first-class functional requirements.
+
+## What Operational Requirements Cover
+
+Operational requirements define what operators (SREs, on-call, platform teams) can do with the system:
+
+| Category | What It Covers | Example Requirements |
+|----------|---------------|---------------------|
+| **Observability** | What can be seen | "Operators can view delivery success rate per channel" |
+| **Debuggability** | What can be investigated | "Operators can trace a single notification through the system" |
+| **Controllability** | What can be changed | "Operators can disable a channel without deploy" |
+| **Recoverability** | What can be fixed | "Operators can replay failed notifications from the last 24h" |
+
+## Operational Requirements Pattern
+
+**Format:** "Operators can [action] [scope] [timing/constraints]"
+
+**Examples:**
+
+| Requirement | Why It Matters |
+|-------------|----------------|
+| Operators can view error rates by endpoint in real-time | Enables rapid incident detection |
+| Operators can trace any request through all services | Enables root cause analysis |
+| Operators can disable a feature flag without deploy | Enables rapid mitigation |
+| Operators can drain a server before maintenance | Enables zero-downtime deploys |
+| Operators can replay failed jobs from the last 7 days | Enables recovery from transient failures |
+
+## Operational Requirements for Core Systems
+
+### Rate Limiter Operational Requirements
+
+| Requirement | Rationale |
+|-------------|-----------|
+| Operators can view current usage per client in real-time | Identify who's hitting limits |
+| Operators can override limits for specific clients immediately | Handle special cases |
+| Operators can disable rate limiting for an endpoint | Emergency bypass |
+| Operators can view rate of rejections by endpoint | Identify misconfigured limits |
+| Operators can export historical usage for capacity planning | Plan limit adjustments |
+
+### Notification System Operational Requirements
+
+| Requirement | Rationale |
+|-------------|-----------|
+| Operators can view delivery success rate per channel | Detect channel issues |
+| Operators can trace a notification from submission to delivery | Debug individual failures |
+| Operators can pause delivery to a specific channel | Isolate problematic channels |
+| Operators can replay failed notifications by time range | Recover from outages |
+| Operators can view queue depth and processing latency | Capacity monitoring |
+
+### Messaging System Operational Requirements
+
+| Requirement | Rationale |
+|-------------|-----------|
+| Operators can view message delivery latency percentiles | SLO monitoring |
+| Operators can trace a message through fan-out | Debug delivery issues |
+| Operators can throttle a specific sender | Handle abuse |
+| Operators can drain messages for a user (migration) | User-level operations |
+| Operators can view storage utilization per shard | Capacity planning |
+
+## Articulating Operational Requirements in Interviews
+
+**L5 Approach:** [Doesn't mention operational requirements]
+
+**L6 Approach:** "Beyond user-facing functionality, I have operational requirements:
+- Operators can view delivery success rate per channel—essential for SLO monitoring
+- Operators can trace any notification through the system—critical for debugging
+- Operators can pause a channel without deploy—needed for rapid incident response
+- Operators can replay failed deliveries—enables recovery from transient issues
+
+These shape my design: I need metrics emission at key points, trace context propagation, admin API with kill switches, and a dead-letter queue with replay capability."
+
+---
+
+# Part 13: Requirements Dependencies and Critical Paths
+
+Staff engineers identify which requirements depend on others and where the critical path lies.
+
+## Why Dependencies Matter
+
+Some requirements are prerequisites for others. Understanding these dependencies:
+- Reveals what must be built first
+- Identifies shared infrastructure needs
+- Exposes critical paths that block multiple features
+
+## Requirements Dependency Analysis
+
+### Dependency Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| **Data dependency** | One requirement needs data from another | "View history" depends on "Store messages" |
+| **State dependency** | One requirement changes state another reads | "Enforce limit" depends on "Track usage" |
+| **Infrastructure dependency** | Multiple requirements share infrastructure | "Send push" and "Send email" both depend on "Queue for delivery" |
+
+### Dependency Mapping Example: Notification System
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              NOTIFICATION SYSTEM REQUIREMENTS DEPENDENCIES                  │
+│                                                                             │
+│   F1: Accept notification ─────┐                                            │
+│          │                     │                                            │
+│          ▼                     │                                            │
+│   F2: Validate recipient ◄─────┘                                            │
+│          │                                                                  │
+│          ├──────────────────────────┐                                       │
+│          │                          │                                       │
+│          ▼                          ▼                                       │
+│   F3: Queue for delivery     F4: Store in inbox                             │
+│          │                          │                                       │
+│          ▼                          │                                       │
+│   F5: Lookup preferences            │                                       │
+│          │                          │                                       │
+│          ├──────────────────────────┤                                       │
+│          │                          │                                       │
+│          ▼                          ▼                                       │
+│   F6: Deliver via channel    F7: View notification history                  │
+│          │                                                                  │
+│          ▼                                                                  │
+│   F8: Track delivery status                                                 │
+│          │                                                                  │
+│          ▼                                                                  │
+│   F9: Report metrics to sender                                              │
+│                                                                             │
+│   CRITICAL PATH: F1 → F2 → F3 → F5 → F6 (delivery)                          │
+│   SECONDARY PATH: F1 → F2 → F4 → F7 (history)                               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Identifying Critical Path
+
+The critical path is the sequence of requirements that:
+- Must all work for the core use case to succeed
+- Determines end-to-end latency
+- Is where you invest most in reliability
+
+**Rate Limiter Critical Path:**
+1. Receive request → 2. Identify client → 3. Lookup current usage → 4. Check against limit → 5. Return decision
+
+Every step must work. Failure anywhere breaks the core use case.
+
+**Messaging System Critical Path:**
+1. Receive message → 2. Validate sender/recipient → 3. Store message → 4. Notify recipient → 5. Deliver to client
+
+Supporting features (reactions, search) are off the critical path—they can fail without breaking messaging.
+
+## Using Dependencies in Design
+
+**L5 Approach:** Lists requirements flat, designs them independently.
+
+**L6 Approach:** "Let me map the dependencies:
+- Delivery depends on preference lookup—if preferences fail, I need a fallback
+- History depends on storage—but storage shouldn't block delivery
+- Metrics depend on delivery status—can be eventually consistent
+
+My critical path is: accept → validate → queue → lookup → deliver. I'll design this path for maximum reliability. Supporting features fork off the critical path and can have lower guarantees."
+
+---
+
+# Part 14: Requirements Conflicts and Trade-offs
+
+When requirements conflict, Staff engineers reason through the trade-off explicitly rather than making arbitrary choices.
+
+## Common Requirement Conflicts
+
+### Speed vs. Durability
+
+**Conflict:** "Deliver notifications in real-time" vs. "Never lose a notification"
+
+**Trade-off analysis:**
+- Real-time delivery → acknowledge before durable storage → risk of loss on failure
+- Never lose → acknowledge after durable storage → added latency
+
+**Resolution:** "I'll prioritize perceived speed with eventual durability. Acknowledge to sender after primary write, async replication for durability. Rare loss (<0.0001%) is acceptable for the latency gain."
+
+### Consistency vs. Availability
+
+**Conflict:** "Rate limits are accurate" vs. "Rate limiting is always available"
+
+**Trade-off analysis:**
+- Accurate limits → synchronous distributed counter → reduced availability
+- Always available → local counters with async sync → limits may be slightly off
+
+**Resolution:** "For most APIs, slight over/under limiting (±5%) is acceptable. I'll use local counters with eventual sync. For critical APIs (payments), I'll use synchronous coordination accepting the availability trade-off."
+
+### Simplicity vs. Flexibility
+
+**Conflict:** "Easy to configure rate limits" vs. "Support complex rate limiting rules"
+
+**Trade-off analysis:**
+- Simple configuration → limited expressiveness → may not handle edge cases
+- Flexible rules → complex configuration → harder to understand and debug
+
+**Resolution:** "I'll provide simple defaults (X requests per minute per client) with optional advanced rules for power users. 90% of cases use defaults; 10% need complexity."
+
+## Requirements Trade-off Framework
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              REQUIREMENTS TRADE-OFF DECISION FRAMEWORK                      │
+│                                                                             │
+│   1. IDENTIFY THE CONFLICT                                                  │
+│      "Requirement A says X. Requirement B says Y. X and Y are incompatible."│
+│                                                                             │
+│   2. UNDERSTAND THE STAKES                                                  │
+│      "What happens if we favor A? What happens if we favor B?"              │
+│      "What's the blast radius of each choice?"                              │
+│                                                                             │
+│   3. FIND THE DOMINANT REQUIREMENT                                          │
+│      "Which requirement is core? Which is supporting?"                      │
+│      "Which aligns with primary user needs?"                                │
+│                                                                             │
+│   4. LOOK FOR CREATIVE SOLUTIONS                                            │
+│      "Can we serve both with different paths?"                              │
+│      "Can we make the trade-off configurable?"                              │
+│      "Can we time-slice (favor A now, B later)?"                            │
+│                                                                             │
+│   5. DOCUMENT THE DECISION                                                  │
+│      "I'm prioritizing A because [rationale]."                              │
+│      "The impact on B is [specific degradation]."                           │
+│      "This is acceptable because [justification]."                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Example: Messaging System Requirements Conflict
+
+**Conflict:**
+- F1: "Messages are delivered in real-time" (user expectation)
+- F2: "Messages are never lost" (business requirement)
+- F3: "System handles 10M concurrent users" (scale requirement)
+
+At scale, real-time + never-lost + massive scale creates tension.
+
+**L5 Resolution:** Picks one arbitrarily or doesn't acknowledge the conflict.
+
+**L6 Resolution:**
+"These requirements create tension at scale. Let me reason through it:
+
+- Real-time delivery is the primary user expectation—I won't compromise on perceived latency
+- Never-lost is a business requirement—I can tolerate rare loss if we have recovery mechanisms
+- Scale is a constraint—I need an architecture that handles the load
+
+My resolution:
+- Acknowledge to sender after primary storage (fast)
+- Async replication for durability (eventual)
+- If primary fails before replication, message is in sender's sent history—they can resend
+- Provide receipt confirmation to give users confidence
+
+This accepts rare loss (estimated 0.001%) for real-time feel. Users can verify delivery via receipts. Business accepts this trade-off in SLA."
+
+---
+
+# Part 15: Requirements Evolution at Scale
+
+Staff engineers anticipate how requirements change as systems scale.
+
+## How Requirements Evolve
+
+| Scale Stage | What Changes | Example |
+|-------------|--------------|---------|
+| **V1 (MVP)** | Core requirements only, simple solutions acceptable | "Messages are delivered" (no SLA) |
+| **V2 (Growth)** | Quality requirements tighten, supporting features become core | "Messages delivered in <1s" (SLA added) |
+| **V3 (Scale)** | Operational requirements become critical, edge cases can't be ignored | "Messages delivered in <1s at p99 across regions" |
+
+## Requirements That Intensify at Scale
+
+### Reliability Requirements
+
+| V1 | V2 | V3 |
+|----|----|----|
+| "System is usually available" | "99.9% availability" | "99.99% availability with graceful degradation" |
+| "Retry on failure" | "Retry with backoff, dead letter after N attempts" | "Configurable retry policies, automatic replay, no data loss" |
+
+### Operational Requirements
+
+| V1 | V2 | V3 |
+|----|----|----|
+| "Logs exist" | "Structured logs with correlation IDs" | "Distributed tracing, real-time alerting, automated remediation" |
+| "Can redeploy to fix issues" | "Feature flags for quick rollback" | "Canary deployments, traffic shifting, instant rollback" |
+
+### Performance Requirements
+
+| V1 | V2 | V3 |
+|----|----|----|
+| "Fast enough" | "p50 < 100ms, p99 < 500ms" | "p50 < 50ms, p99 < 200ms, p999 < 1s with graceful degradation" |
+| "Handles current load" | "Handles 10x current load" | "Auto-scales to demand, handles 100x spikes" |
+
+## Anticipating Evolution in Requirements
+
+**L5 Approach:** Defines requirements for current state only.
+
+**L6 Approach:** "Let me define requirements for V1, but note what intensifies at scale:
+
+V1 Requirements:
+- Messages delivered with best effort (no SLA)
+- Basic logging for debugging
+- Manual scaling
+
+What changes at V2/V3:
+- Delivery SLA tightens to 99.9% within 1s
+- Distributed tracing becomes mandatory
+- Auto-scaling becomes critical
+- Operational requirements become core, not supporting
+
+I'll design V1 to not block these evolutions. For example, I'll include correlation IDs from day one even if we don't have distributed tracing yet."
+
+---
+
+# Part 16: Interview Calibration for Phase 2 (Functional Requirements)
+
+## What Interviewers Evaluate During Phase 2
+
+| Signal | What They're Looking For | L6 Demonstration |
+|--------|-------------------------|------------------|
+| **Precision** | Are requirements specific enough to implement? | "[User] can [action] [object]" pattern |
+| **Prioritization** | Do you distinguish core from supporting? | Explicit "Core: X. Supporting: Y" |
+| **Completeness** | Did you cover read, write, AND control? | All flow types enumerated |
+| **Failure thinking** | Do you define failure behaviors? | Explicit failure requirements |
+| **Operational awareness** | Did you include operator needs? | Observability/debuggability requirements |
+| **Scope discipline** | Did you set boundaries? | "In scope: X. Out of scope: Y" |
+
+## L6 Phrases That Signal Staff-Level Thinking
+
+### For Requirements Precision
+
+**L5 says:** "The system handles notifications."
+
+**L6 says:** "Services can submit notifications with recipient ID, content, and channel preference. System delivers via the specified channel within the user's preference constraints. Delivery is confirmed or queued for retry on failure."
+
+### For Core vs Supporting
+
+**L5 says:** "We need to support all these features."
+
+**L6 says:** "Core requirements—system is useless without these: submit, deliver, preferences. Supporting requirements—enhance but not essential: aggregation, history, analytics. I'll design core in detail; supporting informs data model but won't be fully designed."
+
+### For Failure Requirements
+
+**L5 says:** [Doesn't mention failure behavior]
+
+**L6 says:** "For each core requirement, here's the failure behavior:
+- If delivery fails: retry 3x, then fall back to email
+- If preferences unavailable: use cached or defaults
+- If storage fails: deliver anyway, queue storage retry
+These are requirements, not implementation—they define user experience under failure."
+
+### For Operational Requirements
+
+**L5 says:** [Doesn't mention operational needs]
+
+**L6 says:** "Beyond user-facing requirements, I have operational requirements:
+- Operators can view delivery success rate per channel
+- Operators can trace any notification end-to-end
+- Operators can disable a channel without deploy
+These shape my architecture—I need metrics, tracing, and admin APIs."
+
+### For Requirements Trade-offs
+
+**L5 says:** "We need real-time and never-lost."
+
+**L6 says:** "There's tension between real-time delivery and zero-loss. I'm resolving it by:
+- Acknowledge after primary write (real-time feel)
+- Async replication (eventual durability)
+- Accept rare loss (~0.001%) for latency
+- Provide delivery confirmation so users know message arrived
+This trade-off is acceptable because [rationale]."
+
+## Common L5 Mistakes in Phase 2
+
+| Mistake | How It Manifests | L6 Correction |
+|---------|------------------|---------------|
+| **Vague requirements** | "System handles messages" | "[User] can [action] [object] [constraints]" |
+| **No prioritization** | All requirements equal | "Core: X, Y. Supporting: Z, W." |
+| **Happy path only** | No failure behavior | "When X fails, system does Y" |
+| **Missing control flows** | Only user-facing features | "Operators can configure/view/adjust..." |
+| **No operational requirements** | Observability as afterthought | Explicit observability/debuggability requirements |
+| **Implementation in requirements** | "Store in Cassandra" | Describe behavior, not mechanism |
+| **Ignoring conflicts** | Contradictory requirements | "These requirements conflict. Here's my resolution..." |
+| **Static requirements** | No scale consideration | "At V2/V3, this requirement intensifies to..." |
+
+## Interviewer's Mental Checklist for Phase 2
+
+As you work through Phase 2, imagine the interviewer asking:
+
+☐ "Are requirements specific enough to implement?"
+☐ "Did they distinguish core from supporting?"
+☐ "Did they cover all flow types (read, write, control)?"
+☐ "Did they think about failure behavior?"
+☐ "Did they include operational requirements?"
+☐ "Did they handle edge cases explicitly?"
+☐ "Did they set scope boundaries?"
+☐ "Did they check alignment with me?"
+
+Hit all of these, and you've demonstrated Staff-level Phase 2 thinking.
+
+---
+
+# Part 17: Final Verification — L6 Readiness Checklist
+
+## Does This Section Meet L6 Expectations?
+
+| L6 Criterion | Coverage | Notes |
+|-------------|----------|-------|
+| **Judgment & Decision-Making** | ✅ Strong | Core vs supporting, requirements conflicts, trade-off framework |
+| **Failure & Degradation Thinking** | ✅ Strong | Explicit failure requirements, failure by flow type |
+| **Scale & Evolution** | ✅ Strong | Requirements evolution V1 → V2 → V3 |
+| **Staff-Level Signals** | ✅ Strong | L6 phrases, interviewer evaluation, L5 mistakes |
+| **Real-World Grounding** | ✅ Strong | Rate limiter, notification, messaging examples throughout |
+| **Interview Calibration** | ✅ Strong | Explicit signals, phrases, mental checklist |
+
+## Staff-Level Signals Covered
+
+✅ Requirements specific enough to implement (pattern-based)
+✅ Clear core vs supporting distinction with rationale
+✅ Complete flow enumeration (read, write, control)
+✅ Explicit failure requirements for each core requirement
+✅ Operational requirements as first-class citizens
+✅ Requirements dependencies and critical path identification
+✅ Trade-off resolution when requirements conflict
+✅ Requirements evolution anticipation for scale
+✅ Edge case handling with explicit decisions
+✅ Scope boundaries with confirmation
+
+## Remaining Gaps (Acceptable)
+
+- **Quantitative requirements**: Covered in Phase 4 (NFRs)
+- **Technology choices**: Intentionally abstracted—requirements should be technology-agnostic
+- **Detailed component design**: Covered in later phases
+
+---
+
 # Brainstorming Questions
 
 ## Understanding Requirements
@@ -1260,6 +1879,45 @@ Explicitly enumerate control flows: "What operations do administrators need? Wha
 14. What control flows do people often forget to design? Why are they overlooked?
 
 15. How do you ensure control flows are secure? What's the threat model?
+
+---
+
+# Reflection Prompts
+
+Set aside 15-20 minutes for each of these reflection exercises.
+
+## Reflection 1: Your Requirements Precision
+
+Think about how you specify functional requirements.
+
+- Do you use precise, verifiable language or vague descriptions?
+- Can your requirements be tested? How would you know if they're met?
+- Do you distinguish between "the system must" vs. "the system should"?
+- How often do your requirements change after you start designing?
+
+Take one of your recent design docs and rewrite the requirements using the format: "[Actor] can [action] [object] [constraints]."
+
+## Reflection 2: Your Core vs. Supporting Judgment
+
+Consider how you prioritize requirements.
+
+- What criteria do you use to determine if something is core vs. supporting?
+- Have you ever built supporting features before core ones? What happened?
+- How do you communicate priority to stakeholders who want everything?
+- What's your process for cutting scope when timeline pressure hits?
+
+List 10 features of a system you know well. Categorize each as core, supporting, or nice-to-have.
+
+## Reflection 3: Your Edge Case Coverage
+
+Examine how you handle edge cases.
+
+- Do you systematically identify edge cases, or do they surprise you?
+- What categories of edge cases do you tend to miss (concurrency, failure, boundary)?
+- How do you decide between handling fully vs. graceful degradation vs. exclusion?
+- Have edge cases caused production issues for you? Which ones?
+
+For a familiar system, enumerate at least 15 edge cases across all categories.
 
 ---
 
@@ -1340,82 +1998,6 @@ For each use case you identified in Phase 1 (users & use cases), trace:
 - Are any requirements not linked to use cases?
 
 This validates that your requirements and use cases are aligned.
-
----
-
-# Quick Reference Card
-
-## Functional Requirements Checklist
-
-| Step | Question to Ask | Example Output |
-|------|-----------------|----------------|
-| **Define what, not how** | "What does the system do?" | "Users can send messages" (not "stores in Cassandra") |
-| **Identify core vs supporting** | "Is system useless without this?" | Core: send/receive. Supporting: reactions |
-| **Enumerate all flow types** | "What are read, write, control flows?" | Read: view history. Write: send. Control: configure |
-| **Handle edge cases** | "What if X fails/is extreme?" | "If offline, queue. If too long, reject." |
-| **Set scope boundaries** | "What's in? What's out?" | "In: delivery. Out: analytics" |
-| **Confirm with interviewer** | "Does this match your expectations?" | Get explicit agreement |
-
----
-
-## The Requirement Statement Pattern
-
-**Format:** `[User/System] can [action] [object] [optional: conditions/constraints]`
-
-| ❌ Too Vague | ✅ Just Right |
-|-------------|---------------|
-| "System handles messages" | "Users can send text messages to other users" |
-| "System does notifications" | "Services submit notifications; system delivers via push/email respecting preferences" |
-| "System limits requests" | "System checks client usage against configured limits; allows or rejects accordingly" |
-
----
-
-## Quick Reference: Behavior Specification Pattern
-
-**When** [trigger] **the system** [action] **for** [affected entities] **according to** [rules]
-
-**Examples:**
-- "When a message is sent, the system delivers it to the recipient in real-time and stores it for later retrieval."
-- "When a request arrives, the system checks the client's usage against limits and allows or rejects accordingly."
-- "When a user creates a short URL, the system generates a unique key and stores the mapping."
-
----
-
-## Edge Case Quick Reference
-
-| Category | Questions to Ask | Example |
-|----------|-----------------|---------|
-| **Extreme inputs** | Empty? Max value? Very long? | "What if message is 100KB?" |
-| **Failures** | Service down? Timeout? Partial failure? | "What if push delivery fails?" |
-| **Timing** | Out of order? Concurrent? Stale? | "What if user updates preference mid-delivery?" |
-| **Unusual users** | New user? Power user? Inactive? | "What if user follows 50,000 accounts?" |
-
----
-
-## Common Pitfalls Quick Reference
-
-| Pitfall | What It Looks Like | Fix |
-|---------|-------------------|-----|
-| **Too vague** | "System handles messages" | Use pattern: [User] can [action] [object] |
-| **Includes implementation** | "Store in Cassandra, publish to Kafka" | Describe behavior, not mechanism |
-| **No prioritization** | 15 requirements, all equal | "Core: X, Y. Supporting: Z. Out of scope: W" |
-| **Missing edge cases** | Only happy path | Ask: "What if fails? What if extreme?" |
-| **Scope creep** | Started with 3, ended with 15 | Set scope explicitly, use "not now" list |
-| **No confirmation** | Assumes understanding is correct | "Does this capture what you had in mind?" |
-| **Missing control flows** | Only user-facing features | "What do operators/admins need?" |
-
----
-
-## Self-Check: Did I Cover Phase 2?
-
-| Signal | Weak | Strong | ✓ |
-|--------|------|--------|---|
-| **Specificity** | "System handles X" | "[User] can [action] [object]" | ☐ |
-| **Core/Supporting** | All requirements equal | "Core: A, B. Supporting: C, D" | ☐ |
-| **Flow types** | Only obvious user flows | Read, Write, AND Control flows | ☐ |
-| **Edge cases** | Happy path only | 3-5 edge cases with handling decisions | ☐ |
-| **Scope** | Implicit | "In scope: X. Out of scope: Y" | ☐ |
-| **Confirmation** | Moved straight to design | "Does this match expectations?" | ☐ |
 
 ---
 

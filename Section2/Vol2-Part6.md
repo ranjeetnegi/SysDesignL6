@@ -916,6 +916,418 @@ Throughout this design, I've highlighted where a Staff engineer goes beyond Seni
 
 ---
 
+# Quick Reference Card
+
+## 5-Phase Summary: News Feed System
+
+| Phase | Key Question | Answer for Feed System |
+|-------|-------------|------------------------|
+| **Phase 1** | Who are the users? | Consumers (primary), creators, advertisers, ops |
+| **Phase 2** | What must it do? | Generate feed, serve pages, handle refresh |
+| **Phase 3** | How big is it? | 200M DAU, 50K feeds/sec, 10:1 read/write |
+| **Phase 4** | How well must it work? | <300ms P99, 99.9% availability, eventual consistency |
+| **Phase 5** | What are we assuming? | Existing services, cloud infra, single region |
+
+---
+
+## Key Numbers to Remember
+
+| Metric | Value | How Derived |
+|--------|-------|-------------|
+| **DAU** | 200 million | Given/assumed for major platform |
+| **Feed loads/day** | 1 billion | 200M DAU × 5 sessions |
+| **Feed loads/sec** | 12K avg, 50K peak | 1B / 86,400, × 4 for peak |
+| **Posts/day** | 100 million | 50% DAU posts once |
+| **Fan-out writes/day** | 50 billion | 100M posts × 500 avg followers |
+| **Storage (7 days)** | ~350 GB | 50B items × 100 bytes / 7 days |
+
+---
+
+## Trade-Offs Made
+
+| Trade-Off | Choice Made | Why |
+|-----------|------------|-----|
+| Freshness vs Latency | Latency (60s stale OK) | Users expect instant app launch |
+| Consistency vs Availability | Availability (eventual OK) | Feed doesn't need strong consistency |
+| Push vs Pull | Hybrid | Neither alone works at scale |
+| Personalization vs Simplicity | Moderate | Can iterate; start simpler |
+
+---
+
+## L5 vs L6: Quick Comparison
+
+| Aspect | L5 Says | L6 Says |
+|--------|---------|---------|
+| **Users** | "Users view feeds" | "8 user types: consumers, creators, ops..." |
+| **Scale** | "Large scale" | "200M DAU × 5 = 1B loads = 12K/sec" |
+| **NFRs** | "Fast and reliable" | "P99 <300ms, 99.9% availability" |
+| **Trade-offs** | Implicit | "Choosing X over Y because..." |
+| **Celebrities** | Not addressed | "Hybrid push-pull: threshold at 10K" |
+| **Failures** | Not addressed | "Redis down → latency increases to 200ms" |
+
+---
+
+## Failure Scenarios Quick Reference
+
+| Component | Impact | Degradation Strategy |
+|-----------|--------|---------------------|
+| **Feed Cache (Redis)** | Latency ↑ | Still within budget; auto-scale storage |
+| **Feed Storage (Shard)** | Users can't load | Return cached/trending; failover |
+| **Content Service** | No rich content | Basic metadata only |
+| **Fan-Out Service** | Feeds stale | Queue builds; catch up when restored |
+| **Ranking Service** | No personalization | Fall back to chronological |
+
+---
+
+## Key Phrases for This Design
+
+**Phase 1:**
+- "I see consumers as primary; creators and advertisers are secondary"
+- "The celebrity edge case drives a key architectural decision"
+
+**Phase 2:**
+- "I'm specifying what happens, not how"
+- "Content should appear within 60 seconds—this gives flexibility for async"
+
+**Phase 3:**
+- "200M DAU × 5 sessions = 1B loads/day = 12K/sec average"
+- "Celebrity with 50M followers → 50M writes per post is untenable"
+
+**Phase 4:**
+- "I'm prioritizing read latency over write latency"
+- "Eventual consistency is acceptable; users don't expect instant propagation"
+
+**Phase 5:**
+- "I'm assuming social graph and ranking services exist"
+- "Single region is a simplification; multi-region is an extension"
+
+---
+
+# Part 7: Blast Radius and Dependency Analysis — Staff-Level Depth
+
+Staff engineers don't just list failure scenarios—they quantify blast radius and trace dependency cascades. Let me extend the failure analysis.
+
+## Blast Radius Quantification
+
+For each failure scenario, Staff engineers calculate impact:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    BLAST RADIUS ANALYSIS: NEWS FEED                         │
+│                                                                             │
+│   Component              Users Affected    Duration    Revenue Impact       │
+│   ─────────────────────────────────────────────────────────────────────     │
+│                                                                             │
+│   Feed Cache (1 node)    ~5% of users     Until restart   Low               │
+│                          (shard affinity)  (~2 min)                         │
+│                                                                             │
+│   Feed Cache (cluster)   100% of users    Degraded,       Medium            │
+│                                           not down                          │
+│                                                                             │
+│   Feed Storage (1 shard) ~5% of users     Until failover  Low               │
+│                                           (~30 sec)                         │
+│                                                                             │
+│   Feed Storage (all)     100% of users    Major outage    Critical          │
+│                                                                             │
+│   Fan-Out Service        0% immediately   Freshness       Low               │
+│                          (feeds stale)    degrades                          │
+│                                                                             │
+│   Content Service        100% of users    Rich content    High              │
+│                                           missing                           │
+│                                                                             │
+│   Social Graph Service   100% of users    Can't compute   Critical          │
+│                                           new feeds                         │
+│                                                                             │
+│   Ranking Service        100% of users    No              Medium            │
+│                                           personalization                   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Dependency Cascade Analysis
+
+**What happens when the Social Graph Service fails?**
+
+This is a critical dependency often overlooked:
+
+```
+Social Graph Service DOWN
+         │
+         ├──► Feed Generation BLOCKED (can't get followee list)
+         │         │
+         │         └──► New feed requests CAN'T be served
+         │                    │
+         │                    └──► But cached feeds still work! 
+         │
+         ├──► Fan-Out BLOCKED (can't get follower list)
+         │         │
+         │         └──► New posts queued but not distributed
+         │
+         └──► Celebrity detection BLOCKED (can't count followers)
+                   │
+                   └──► Fall back to stored celebrity list
+```
+
+**Mitigation strategies:**
+
+| Dependency | Failure Mode | Mitigation |
+|------------|-------------|------------|
+| Social Graph | Complete outage | Cache follow relationships locally (1-hour TTL) |
+| Social Graph | Slow response | Timeout at 100ms, use cached data |
+| Social Graph | Partial data | Accept incomplete followee list, note in metrics |
+
+**Staff-Level Statement:**
+
+"The Social Graph Service is a critical dependency. If it's down, we can't compute new feeds or fan out posts. My mitigation: cache the social graph locally with 1-hour TTL. Stale follow relationships are acceptable—users don't frequently add/remove follows. For fan-out, we queue posts and replay when the service recovers."
+
+## Cascading Failure Prevention
+
+At Staff level, you design to prevent cascades:
+
+| Pattern | How Applied | Why |
+|---------|-------------|-----|
+| **Circuit breaker** | Each external service call | Prevent slow dependency from blocking all requests |
+| **Bulkhead** | Separate thread pools per dependency | Content Service issues don't affect Ranking Service |
+| **Timeout** | 100ms for all service calls | Bound worst-case latency |
+| **Fallback** | Every service call has fallback behavior | Degraded > down |
+| **Retry budget** | 10% of requests can retry | Prevent retry storms |
+
+---
+
+# Part 8: Operational Readiness — Built-In from Day One
+
+Staff engineers design for operability, not just functionality. Here's what's built into this design:
+
+## Observability Design
+
+**Metrics emission at every boundary:**
+
+| Component | Key Metrics | Alert Threshold |
+|-----------|-------------|-----------------|
+| API Gateway | Request rate, error rate, latency P50/P99 | Error rate > 1%, P99 > 500ms |
+| Feed Service | Cache hit rate, generation latency | Hit rate < 80%, latency > 250ms |
+| Feed Cache | Memory usage, eviction rate | Memory > 80%, evictions > 10K/min |
+| Feed Storage | Read latency, write latency, queue depth | P99 > 100ms, queue > 10K |
+| Fan-Out Service | Processing rate, lag, failure rate | Lag > 10min, failures > 1% |
+
+**Distributed tracing:**
+
+Every request includes trace context:
+- `trace_id`: Unique per user request
+- `span_id`: Unique per operation
+- `parent_span_id`: Links operations
+
+**Structured logging:**
+
+```json
+{
+  "timestamp": "2024-01-15T10:30:00Z",
+  "service": "feed-service",
+  "trace_id": "abc123",
+  "user_id": "user_456",
+  "operation": "generate_feed",
+  "duration_ms": 45,
+  "cache_hit": true,
+  "items_returned": 20,
+  "celebrity_items": 3
+}
+```
+
+## Deployment Safety
+
+| Requirement | Implementation |
+|-------------|----------------|
+| Zero-downtime deploys | Rolling deployment, connection draining |
+| Canary releases | 1% → 10% → 50% → 100% over 4 hours |
+| Instant rollback | Previous version retained, <1 min rollback |
+| Feature flags | New ranking algorithms behind flags |
+
+## Runbooks (On-Call Reference)
+
+**Runbook: Feed Latency Spike**
+
+```
+SYMPTOM: P99 latency > 300ms for 5+ minutes
+
+DIAGNOSIS:
+1. Check cache hit rate (Grafana: feed-cache-hits)
+   - If < 80%: Cache issue, go to step 2
+   - If > 80%: Backend issue, go to step 3
+
+2. Cache issue:
+   a. Check Redis cluster health
+   b. Check for hot keys (celebrity feeds)
+   c. Consider cache warm-up for affected users
+
+3. Backend issue:
+   a. Check Feed Storage latency
+   b. Check Content Service latency  
+   c. Check Ranking Service latency
+   d. Identify slowest component, check its metrics
+
+MITIGATION:
+- If cache: Add cache nodes or increase TTL
+- If Content Service: Enable basic-metadata-only mode
+- If Ranking Service: Enable chronological fallback
+- If Fan-Out backed up: Pause fan-out for low-priority users
+
+ESCALATION:
+- If not resolved in 15 min: Page secondary on-call
+- If availability < 99.5%: Initiate incident
+```
+
+---
+
+# Part 9: Multi-Region Evolution — Technical Deep Dive
+
+The architecture section mentioned multi-region as a future evolution. Here's the Staff-level technical detail:
+
+## What Changes for Multi-Region
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MULTI-REGION ARCHITECTURE EVOLUTION                       │
+│                                                                             │
+│   SINGLE REGION (Current)              MULTI-REGION (Year 1)                │
+│   ─────────────────────────            ─────────────────────                │
+│                                                                             │
+│   ┌─────────────────┐                  ┌─────────────────┐                  │
+│   │  US-West        │                  │  US-West        │  ◄─── Primary    │
+│   │  (All users)    │        →         │  (US users)     │       for US     │
+│   └─────────────────┘                  └────────┬────────┘                  │
+│                                                 │                           │
+│                                          Async replication                  │
+│                                                 │                           │
+│                                        ┌────────┴────────┐                  │
+│                                        │                 │                  │
+│                                   ┌────▼────┐       ┌────▼────┐             │
+│                                   │ EU      │       │ APAC    │             │
+│                                   │ (EU     │       │ (APAC   │             │
+│                                   │  users) │       │  users) │             │
+│                                   └─────────┘       └─────────┘             │
+│                                                                             │
+│   KEY CHANGES:                                                              │
+│   • Feed Storage replicated per region                                      │
+│   • Fan-Out writes to local region first, async to others                   │
+│   • User reads from nearest region                                          │
+│   • Cross-region follows require eventual consistency                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Technical Changes Required
+
+| Component | Single Region | Multi-Region Change |
+|-----------|---------------|---------------------|
+| **Feed Storage** | Single cluster | Per-region cluster + async replication |
+| **Feed Cache** | Single Redis cluster | Per-region Redis + cache invalidation |
+| **Fan-Out** | Single Kafka | Per-region Kafka + cross-region connectors |
+| **User routing** | N/A | GeoDNS + region-aware load balancing |
+| **Content IDs** | Simple UUIDs | Region-prefixed IDs for routing |
+
+## Cross-Region Consistency Challenges
+
+| Scenario | Challenge | Resolution |
+|----------|-----------|------------|
+| User follows account in different region | Follower list needs cross-region sync | Async sync with 30-second lag acceptable |
+| Celebrity posts to global audience | Fan-out must reach all regions | Post stored once per region, pulled at read time |
+| User travels to different region | Their feed needs to be accessible | Feed cache miss in new region, fetch from home region |
+
+## Migration Path
+
+| Phase | Action | Risk | Rollback |
+|-------|--------|------|----------|
+| 1 | Deploy read replicas in EU/APAC | Low | Remove replicas |
+| 2 | Route EU/APAC reads to local replicas | Medium | Route back to US |
+| 3 | Enable local writes for EU/APAC users | High | Route writes to US |
+| 4 | Enable cross-region fan-out | High | Disable, use pull-only |
+
+---
+
+# Part 10: Interview Calibration for End-to-End Design
+
+## Common Timing Mistakes
+
+| Mistake | What Happens | Fix |
+|---------|--------------|-----|
+| **Too long on Phase 1** | Run out of time for architecture | Cap at 7 min; scope early |
+| **Skip to architecture** | Design without foundation | "Let me establish requirements first" |
+| **Over-detail Phase 3** | Calculate everything | Pick 3-5 key numbers, derive rest |
+| **Shallow architecture** | Draw boxes without explaining | Trace a request through, explain decisions |
+| **No failure discussion** | Miss Staff-level signal | Proactively raise: "What if X fails?" |
+
+## Interviewer Signals Throughout the Design
+
+| Phase | Positive Signal | Concerning Signal |
+|-------|-----------------|-------------------|
+| **Phase 1** | Identifies celebrity edge case unprompted | "Users view feeds" (too simple) |
+| **Phase 2** | Specifies behavior, not implementation | "Store in Cassandra" (too early) |
+| **Phase 3** | Derives numbers from first principles | "It's large scale" (too vague) |
+| **Phase 4** | Quantifies and makes trade-offs | "Fast and reliable" (not quantified) |
+| **Phase 5** | States assumptions, invites correction | Implicit assumptions (risky) |
+| **Architecture** | Explains why, not just what | Draws boxes without reasoning |
+| **Failures** | Proactively discusses degradation | Only addresses when asked |
+
+## L6 Phrases for Each Phase
+
+| Phase | L6 Phrase |
+|-------|-----------|
+| **Opening** | "Let me work through this systematically—users, requirements, scale, NFRs, then architecture" |
+| **Phase 1** | "The celebrity edge case is interesting—it will drive a key architecture decision" |
+| **Phase 2** | "I'm specifying what happens, not how. That's an architecture decision for later" |
+| **Phase 3** | "Let me derive: 200M DAU × 5 sessions = 1B loads/day. That's 12K/sec average, 50K peak" |
+| **Phase 4** | "I'm prioritizing read latency over freshness because users wait for feed load" |
+| **Phase 5** | "I'm assuming social graph service exists. If not, that changes scope significantly" |
+| **Architecture** | "I considered pure push and pure pull. Here's why hybrid is the right choice" |
+| **Failures** | "Let me trace through what happens when each component fails" |
+| **Evolution** | "In year 1, we'd add multi-region. Here's the migration path" |
+
+## Self-Check: Did I Cover Everything?
+
+Before wrapping up, Staff engineers mentally check:
+
+☐ Did I identify multiple user types including ops?
+☐ Did I address the celebrity/hot key problem?
+☐ Did I derive scale numbers, not guess?
+☐ Did I quantify NFRs with specific targets?
+☐ Did I make trade-offs explicit?
+☐ Did I state assumptions and invite correction?
+☐ Did I explain why for each architecture decision?
+☐ Did I consider alternatives and explain why rejected?
+☐ Did I discuss failure scenarios and degradation?
+☐ Did I mention how the system evolves?
+
+---
+
+# Part 11: Final Verification — L6 Readiness Checklist
+
+## Does This End-to-End Walkthrough Meet L6 Expectations?
+
+| L6 Criterion | Coverage | Notes |
+|-------------|----------|-------|
+| **Judgment & Decision-Making** | ✅ Strong | Trade-offs explicit, alternatives considered, decisions justified |
+| **Failure & Degradation Thinking** | ✅ Strong | Blast radius, cascade analysis, degradation strategies |
+| **Scale & Evolution** | ✅ Strong | Derived numbers, multi-region evolution, migration path |
+| **Staff-Level Signals** | ✅ Strong | L5 vs L6 throughout, interview calibration |
+| **Real-World Grounding** | ✅ Strong | News Feed with concrete numbers and components |
+| **Interview Calibration** | ✅ Strong | Timing, phrases, interviewer signals, self-check |
+
+## Staff-Level Signals Demonstrated
+
+✅ Structured approach announced upfront
+✅ Multiple user types identified including operational
+✅ Celebrity edge case surfaced and addressed
+✅ Scale derived from first principles with math shown
+✅ NFRs quantified with specific targets
+✅ Trade-offs made explicit with reasoning
+✅ Assumptions stated and categorized
+✅ Architecture decisions explained with alternatives
+✅ Failure scenarios with blast radius and degradation
+✅ Evolution roadmap with technical migration path
+✅ Operational readiness (observability, deployment, runbooks)
+
+---
+
 # Brainstorming Questions
 
 ## Phase 1: Users & Use Cases
@@ -957,6 +1369,45 @@ Throughout this design, I've highlighted where a Staff engineer goes beyond Seni
 14. What if the ranking service had 1-second latency instead of 50ms?
 
 15. Which assumption, if wrong, would most invalidate this design?
+
+---
+
+# Reflection Prompts
+
+Set aside 15-20 minutes for each of these reflection exercises.
+
+## Reflection 1: Your End-to-End Coherence
+
+Think about how you connect phases in system design.
+
+- When you design, do you trace decisions back to requirements?
+- Can you explain why each component exists in terms of user needs or NFRs?
+- Do your later design decisions contradict earlier ones?
+- How do you ensure your design tells a coherent story?
+
+For a design you've done, trace 3 component choices back to the requirements that justified them.
+
+## Reflection 2: Your Failure Resilience Design
+
+Consider how you design for failure.
+
+- Do you explicitly design degradation strategies?
+- Can you describe what happens when each dependency fails?
+- Have you defined blast radius for failures in your systems?
+- Do you design recovery before you design happy paths?
+
+For your current system, write a failure mode matrix covering all dependencies.
+
+## Reflection 3: Your Interview Presentation
+
+Examine how you present designs in interviews.
+
+- Do you maintain a clear structure throughout?
+- How do you balance depth and breadth in 45 minutes?
+- Do you check in with the interviewer regularly?
+- Can you articulate why your design is Staff-level vs. Senior-level?
+
+Record yourself presenting a design for 35 minutes. Watch it and note three improvements.
 
 ---
 
@@ -1043,93 +1494,6 @@ Record yourself. Watch for:
 - Did you explain trade-offs?
 - Did you check in with the "interviewer"?
 - Was your pacing appropriate?
-
----
-
-# Quick Reference Card
-
-## 5-Phase Summary: News Feed System
-
-| Phase | Key Question | Answer for Feed System |
-|-------|-------------|------------------------|
-| **Phase 1** | Who are the users? | Consumers (primary), creators, advertisers, ops |
-| **Phase 2** | What must it do? | Generate feed, serve pages, handle refresh |
-| **Phase 3** | How big is it? | 200M DAU, 50K feeds/sec, 10:1 read/write |
-| **Phase 4** | How well must it work? | <300ms P99, 99.9% availability, eventual consistency |
-| **Phase 5** | What are we assuming? | Existing services, cloud infra, single region |
-
----
-
-## Key Numbers to Remember
-
-| Metric | Value | How Derived |
-|--------|-------|-------------|
-| **DAU** | 200 million | Given/assumed for major platform |
-| **Feed loads/day** | 1 billion | 200M DAU × 5 sessions |
-| **Feed loads/sec** | 12K avg, 50K peak | 1B / 86,400, × 4 for peak |
-| **Posts/day** | 100 million | 50% DAU posts once |
-| **Fan-out writes/day** | 50 billion | 100M posts × 500 avg followers |
-| **Storage (7 days)** | ~350 GB | 50B items × 100 bytes / 7 days |
-
----
-
-## Trade-Offs Made
-
-| Trade-Off | Choice Made | Why |
-|-----------|------------|-----|
-| Freshness vs Latency | Latency (60s stale OK) | Users expect instant app launch |
-| Consistency vs Availability | Availability (eventual OK) | Feed doesn't need strong consistency |
-| Push vs Pull | Hybrid | Neither alone works at scale |
-| Personalization vs Simplicity | Moderate | Can iterate; start simpler |
-
----
-
-## L5 vs L6: Quick Comparison
-
-| Aspect | L5 Says | L6 Says |
-|--------|---------|---------|
-| **Users** | "Users view feeds" | "8 user types: consumers, creators, ops..." |
-| **Scale** | "Large scale" | "200M DAU × 5 = 1B loads = 12K/sec" |
-| **NFRs** | "Fast and reliable" | "P99 <300ms, 99.9% availability" |
-| **Trade-offs** | Implicit | "Choosing X over Y because..." |
-| **Celebrities** | Not addressed | "Hybrid push-pull: threshold at 10K" |
-| **Failures** | Not addressed | "Redis down → latency increases to 200ms" |
-
----
-
-## Failure Scenarios Quick Reference
-
-| Component | Impact | Degradation Strategy |
-|-----------|--------|---------------------|
-| **Feed Cache (Redis)** | Latency ↑ | Still within budget; auto-scale storage |
-| **Feed Storage (Shard)** | Users can't load | Return cached/trending; failover |
-| **Content Service** | No rich content | Basic metadata only |
-| **Fan-Out Service** | Feeds stale | Queue builds; catch up when restored |
-| **Ranking Service** | No personalization | Fall back to chronological |
-
----
-
-## Key Phrases for This Design
-
-**Phase 1:**
-- "I see consumers as primary; creators and advertisers are secondary"
-- "The celebrity edge case drives a key architectural decision"
-
-**Phase 2:**
-- "I'm specifying what happens, not how"
-- "Content should appear within 60 seconds—this gives flexibility for async"
-
-**Phase 3:**
-- "200M DAU × 5 sessions = 1B loads/day = 12K/sec average"
-- "Celebrity with 50M followers → 50M writes per post is untenable"
-
-**Phase 4:**
-- "I'm prioritizing read latency over write latency"
-- "Eventual consistency is acceptable; users don't expect instant propagation"
-
-**Phase 5:**
-- "I'm assuming social graph and ranking services exist"
-- "Single region is a simplification; multi-region is an extension"
 
 ---
 
