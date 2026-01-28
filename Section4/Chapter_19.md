@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 4, Part 1: Databases at Staff Level — Choosing, Using, and Evolving Data Stores
+# Chapter 19: Databases at Staff Level — Choosing, Using, and Evolving Data Stores
 
 ---
 

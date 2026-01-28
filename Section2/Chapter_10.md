@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 2, Section 5: Phase 4 & Phase 5 — Non-Functional Requirements, Assumptions, and Constraints
+# Chapter 6: Phase 4 & Phase 5 — Non-Functional Requirements, Assumptions, and Constraints
 
 ---
 

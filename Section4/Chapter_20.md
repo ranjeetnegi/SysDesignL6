@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 4, Part 2: Caching at Scale — Redis, CDN, and Edge Systems
+# Chapter 20: Caching at Scale — Redis, CDN, and Edge Systems
 
 ---
 

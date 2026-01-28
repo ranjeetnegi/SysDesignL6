@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 4, Part 3: Event-Driven Architectures — Kafka, Streams, and Staff-Level Trade-offs
+# Chapter 21: Event-Driven Architectures — Kafka, Streams, and Staff-Level Trade-offs
 
 ---
 

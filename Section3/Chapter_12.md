@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 3, Part 1: Consistency Models — How Staff Engineers Choose the Right Guarantees
+# Chapter 12: Consistency Models — How Staff Engineers Choose the Right Guarantees
 
 ---
 

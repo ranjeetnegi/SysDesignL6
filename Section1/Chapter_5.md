@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 1, Section 5: Communication and Interview Leadership for Google Staff Engineers
+# Chapter 5: Communication and Interview Leadership for Google Staff Engineers
 
 ---
 

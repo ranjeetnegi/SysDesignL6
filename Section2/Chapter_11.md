@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 2, Section 6: End-to-End System Design Using the 5-Phase Framework
+# Chapter 11: End-to-End System Design Using the 5-Phase Framework
 
 ### A Staff-Level Walkthrough: The News Feed System
 

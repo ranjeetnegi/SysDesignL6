@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 3, Part 6: Failure Models and Partial Failures — Designing for Reality at Staff Level
+# Chapter 17: Failure Models and Partial Failures — Designing for Reality at Staff Level
 
 ---
 

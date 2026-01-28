@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 3, Part 7: CAP Theorem — Applied Case Studies and Staff-Level Trade-offs
+# Chapter 18: CAP Theorem — Applied Case Studies and Staff-Level Trade-offs
 
 ---
 

@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 1, Section 1: How Google Evaluates Staff Engineers in System Design Interviews
+# Chepter 1: How Google Evaluates Staff Engineers in System Design Interviews
 
 ---
 

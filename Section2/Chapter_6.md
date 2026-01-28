@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 2, Section 1: The Staff-Level System Design Framework
+# Chapter 6: The Staff-Level System Design Framework
 
 ---
 

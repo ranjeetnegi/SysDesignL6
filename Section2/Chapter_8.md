@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 2, Section 3: Phase 2 — Functional Requirements: Staff-Level Precision
+# Chapter 6: Phase 2 — Functional Requirements: Staff-Level Precision
 
 ---
 

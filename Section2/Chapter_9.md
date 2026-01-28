@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 2, Section 4: Phase 3 — Scale: Capacity Planning and Growth at Staff Level
+# Chapter 6: Phase 3 — Scale: Capacity Planning and Growth at Staff Level
 
 ---
 

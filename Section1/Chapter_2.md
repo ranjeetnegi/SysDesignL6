@@ -1,6 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
-
-## Volume 1, Section 2: Scope, Impact, and Ownership at Google Staff Engineer Level
+# Chapter 2: Scope, Impact, and Ownership at Google Staff Engineer Level
 
 ---
 
