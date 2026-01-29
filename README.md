@@ -187,7 +187,6 @@ Chapter 31. Real-time collaboration
 Chapter 32. Messaging platform
 Chapter 33. Metrics / observability system
 Chapter 34. Configuration, Feature Flags & Secrets Management
-
 Chapter 35. API Gateway / Edge Request Routing System
 Chapter 36. Search / Indexing System (Read-heavy, Latency-sensitive)
 Chapter 37. Recommendation / Ranking System (Simplified)
