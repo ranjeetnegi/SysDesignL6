@@ -167,7 +167,7 @@ Chapter 9: Phase 2 — Functional Requirements
 
 Chapter 10: Phase 3 — Scale: Capacity Planning and Growth
 
-Chapter 11: Cost, Efficiency, and Sustainable Design (NEW POSITION)  ← MOVED
+Chapter 11: Cost, Efficiency, and Sustainable Design
 
 Chapter 12: Phase 4 & Phase 5 — NFRs, Assumptions, Constraints
 
