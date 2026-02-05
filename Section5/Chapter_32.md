@@ -78,23 +78,23 @@ A messaging platform enables asynchronous communication between users through di
 │   POST OFFICE (message service) receives it                                 │
 │   ↓                                                                         │
 │   If RECIPIENT is home (online): Deliver immediately                        │
-│   If RECIPIENT is away (offline): Hold at post office, deliver on return   │
+│   If RECIPIENT is away (offline): Hold at post office, deliver on return    │
 │   ↓                                                                         │
 │   RECIPIENT receives letter, sends acknowledgment (read receipt)            │
 │                                                                             │
 │   COMPLICATIONS AT SCALE:                                                   │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  What if there are millions of post offices (distributed system)?  │   │
-│   │  → Need coordination for which office holds which letters          │   │
+│   │  What if there are millions of post offices (distributed system)?   │   │
+│   │  → Need coordination for which office holds which letters           │   │
 │   │                                                                     │   │
-│   │  What if recipient has multiple homes (multiple devices)?          │   │
-│   │  → Need to track delivery to ALL devices, not just one             │   │
+│   │  What if recipient has multiple homes (multiple devices)?           │   │
+│   │  → Need to track delivery to ALL devices, not just one              │   │
 │   │                                                                     │   │
 │   │  What if letters arrive out of order?                               │   │
-│   │  → Need sequence numbers to reorder at recipient                   │   │
+│   │  → Need sequence numbers to reorder at recipient                    │   │
 │   │                                                                     │   │
-│   │  What if sender sends to 1000 recipients (group chat)?             │   │
-│   │  → Need efficient fan-out, not 1000 individual deliveries          │   │
+│   │  What if sender sends to 1000 recipients (group chat)?              │   │
+│   │  → Need efficient fan-out, not 1000 individual deliveries           │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -191,44 +191,44 @@ Content types:
 │   │  User sends critical message → Message disappears → No notification │   │
 │   │  → User believes message was delivered → Relationship damaged       │   │
 │   │                                                                     │   │
-│   │  Real example: "I told you I couldn't make it!" / "I never got it" │   │
+│   │  Real example: "I told you I couldn't make it!" / "I never got it"  │   │
 │   │  This is THE cardinal sin of messaging platforms                    │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   FAILURE MODE 2: MESSAGE REORDERING                                        │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Messages arrive out of order → Conversation is confusing          │   │
+│   │  Messages arrive out of order → Conversation is confusing           │   │
 │   │                                                                     │   │
 │   │  Alice: "Should we go to dinner?"                                   │   │
 │   │  Bob: "Yes"                                                         │   │
 │   │  Alice: "Or maybe just drinks?"                                     │   │
 │   │                                                                     │   │
-│   │  Bob sees: "Or maybe just drinks?" then "Should we go to dinner?"  │   │
-│   │  Bob's "Yes" now makes no sense                                    │   │
+│   │  Bob sees: "Or maybe just drinks?" then "Should we go to dinner?"   │   │
+│   │  Bob's "Yes" now makes no sense                                     │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   FAILURE MODE 3: DUPLICATE MESSAGES                                        │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Same message delivered multiple times → User confusion/annoyance  │   │
+│   │  Same message delivered multiple times → User confusion/annoyance   │   │
 │   │                                                                     │   │
-│   │  Less severe than loss, but still breaks trust                     │   │
-│   │  "Why did you send that 5 times?"                                  │   │
+│   │  Less severe than loss, but still breaks trust                      │   │
+│   │  "Why did you send that 5 times?"                                   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   FAILURE MODE 4: PRESENCE LIES                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Shows "online" when offline or vice versa                         │   │
-│   │  → Social friction ("Why aren't you responding? You're online!")   │   │
+│   │  Shows "online" when offline or vice versa                          │   │
+│   │  → Social friction ("Why aren't you responding? You're online!")    │   │
 │   │                                                                     │   │
-│   │  Staff insight: This is why many apps show "last seen" instead     │   │
-│   │  of "online now"—it's more forgiving of staleness                  │   │
+│   │  Staff insight: This is why many apps show "last seen" instead      │   │
+│   │  of "online now"—it's more forgiving of staleness                   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   FAILURE MODE 5: SYNC DIVERGENCE                                           │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Different devices show different message history                  │   │
-│   │  → User confusion about what was actually said                     │   │
-│   │  → "I can see it on my phone but not my laptop"                    │   │
+│   │  Different devices show different message history                   │   │
+│   │  → User confusion about what was actually said                      │   │
+│   │  → "I can see it on my phone but not my laptop"                     │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -650,8 +650,8 @@ Staff approach:
 │   • Can drop indicators under load (cosmetic)                               │
 │                                                                             │
 │   STAFF INSIGHT:                                                            │
-│   Message send latency is sacred—it's the user's signal that the           │
-│   system is working. Everything else can degrade.                          │
+│   Message send latency is sacred—it's the user's signal that the            │
+│   system is working. Everything else can degrade.                           │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -698,8 +698,8 @@ Unacceptable during any outage:
 │   • Cross-device sync (seconds of delay OK)                                 │
 │                                                                             │
 │   THE FUNDAMENTAL TRADE-OFF:                                                │
-│   Global total ordering of messages is impossible at scale.                │
-│   We use conversation-local ordering with Lamport-style timestamps.        │
+│   Global total ordering of messages is impossible at scale.                 │
+│   We use conversation-local ordering with Lamport-style timestamps.         │
 │                                                                             │
 │   Within single conversation: Messages appear in consistent order           │
 │   Across conversations: No global ordering guarantee                        │
@@ -903,8 +903,8 @@ SCALING IMPLICATIONS:
 │                                                                             │
 │   2. MESSAGE FANOUT FOR LARGE GROUPS                                        │
 │      • 1000-member group = 1000 deliveries per message                      │
-│      • Active 1000-member group = 1M deliveries/day                        │
-│      • Solution: Read fanout for large groups, lazy delivery               │
+│      • Active 1000-member group = 1M deliveries/day                         │
+│      • Solution: Read fanout for large groups, lazy delivery                │
 │                                                                             │
 │   3. PRESENCE SERVICE                                                       │
 │      • 100M users each updating presence                                    │
@@ -3175,7 +3175,7 @@ TRADE-OFF:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    DATA LOCALITY STRATEGY                                   │
 │                                                                             │
-│   PRINCIPLE: Keep conversation data close to participants                  │
+│   PRINCIPLE: Keep conversation data close to participants                   │
 │                                                                             │
 │   USER DATA:                                                                │
 │   • Stored in user's home region                                            │
@@ -3183,14 +3183,14 @@ TRADE-OFF:
 │   • Can migrate if user moves (rare)                                        │
 │                                                                             │
 │   CONVERSATION DATA:                                                        │
-│   • 1:1: Stored in region of user with most activity                       │
+│   • 1:1: Stored in region of user with most activity                        │
 │   • Group: Stored in region with plurality of members                       │
-│   • Cross-region conversation: Replicate to both regions                   │
+│   • Cross-region conversation: Replicate to both regions                    │
 │                                                                             │
 │   EXAMPLE:                                                                  │
 │   Alice (US) and Bob (US): Data in US                                       │
-│   Alice (US) and Chen (Asia): Replicate US ↔ Asia                          │
-│   Group with 8 US, 2 EU: Data in US, async replicate to EU                 │
+│   Alice (US) and Chen (Asia): Replicate US ↔ Asia                           │
+│   Group with 8 US, 2 EU: Data in US, async replicate to EU                  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -4181,13 +4181,13 @@ L6 RESPONSE:  "Per-conversation sequence with Lamport timestamps for
 │                    MESSAGING PLATFORM ARCHITECTURE                          │
 │                                                                             │
 │   ┌────────────────────────────────────────────────────────────────────┐    │
-│   │                          CLIENTS                                    │    │
+│   │                          CLIENTS                                   │    │
 │   │          iOS    Android    Web    Desktop    Tablet                │    │
 │   └──────────────────────────┬─────────────────────────────────────────┘    │
 │                              │                                              │
 │                              ▼                                              │
 │   ┌────────────────────────────────────────────────────────────────────┐    │
-│   │                       EDGE LAYER                                    │    │
+│   │                       EDGE LAYER                                   │    │
 │   │   ┌──────────┐    ┌──────────┐    ┌──────────┐                     │    │
 │   │   │   API    │    │WebSocket │    │   Push   │                     │    │
 │   │   │ Gateway  │    │ Gateway  │    │ Gateway  │                     │    │
@@ -4196,13 +4196,13 @@ L6 RESPONSE:  "Per-conversation sequence with Lamport timestamps for
 │   └──────────────────────────┬─────────────────────────────────────────┘    │
 │                              │                                              │
 │   ┌──────────────────────────┴─────────────────────────────────────────┐    │
-│   │                      SERVICE LAYER                                  │    │
-│   │                                                                     │    │
+│   │                      SERVICE LAYER                                 │    │
+│   │                                                                    │    │
 │   │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐            │    │
 │   │  │ Message  │  │ Delivery │  │ Presence │  │  Sync    │            │    │
 │   │  │ Service  │  │ Service  │  │ Service  │  │ Service  │            │    │
 │   │  └──────────┘  └──────────┘  └──────────┘  └──────────┘            │    │
-│   │                                                                     │    │
+│   │                                                                    │    │
 │   │  ┌──────────┐  ┌──────────┐  ┌──────────┐                          │    │
 │   │  │  Group   │  │   User   │  │  Media   │                          │    │
 │   │  │ Service  │  │ Service  │  │ Service  │                          │    │
@@ -4210,19 +4210,19 @@ L6 RESPONSE:  "Per-conversation sequence with Lamport timestamps for
 │   └──────────────────────────┬─────────────────────────────────────────┘    │
 │                              │                                              │
 │   ┌──────────────────────────┴─────────────────────────────────────────┐    │
-│   │                       DATA LAYER                                    │    │
-│   │                                                                     │    │
+│   │                       DATA LAYER                                   │    │
+│   │                                                                    │    │
 │   │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐            │    │
 │   │  │ Message  │  │   User   │  │  Cache   │  │  Media   │            │    │
 │   │  │  Store   │  │  Store   │  │ (Redis)  │  │  (S3)    │            │    │
 │   │  │(Cassandra│  │ (MySQL)  │  │          │  │          │            │    │
 │   │  └──────────┘  └──────────┘  └──────────┘  └──────────┘            │    │
-│   │                                                                     │    │
+│   │                                                                    │    │
 │   │  ┌──────────────────────────────────────────┐                      │    │
-│   │  │           Message Queue (Kafka)           │                      │    │
-│   │  │     delivery-tasks | notifications        │                      │    │
+│   │  │           Message Queue (Kafka)          │                      │    │
+│   │  │     delivery-tasks | notifications       │                      │    │
 │   │  └──────────────────────────────────────────┘                      │    │
-│   └─────────────────────────────────────────────────────────────────────┘    │
+│   └────────────────────────────────────────────────────────────────────┘    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -4416,13 +4416,13 @@ L6 RESPONSE:  "Per-conversation sequence with Lamport timestamps for
 │   V4: MICROSERVICES (100M users)                                            │
 │   ────────────────────────────────────────────────────                      │
 │   ┌──────────────────────────────────────────────────────────────┐          │
-│   │                        Services                               │          │
-│   │  ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐ │          │
-│   │  │Message│ │Delivery│ │Presence│ │ Sync │ │ Group │ │ User │ │          │
-│   │  └───────┘ └───────┘ └───────┘ └───────┘ └───────┘ └───────┘ │          │
+│   │                       Services                               │          │
+│   │  ┌───────┐ ┌───-────┐ ┌──-─────┐ ┌───────┐ ┌──────┐ ┌──────┐ │          │
+│   │  │Message│ │Delivery│ │Presence│ │ Sync  │ │Group │ │ User │ │          │
+│   │  └───────┘ └────-───┘ └─-──────┘ └───────┘ └──────┘ └──────┘ │          │
 │   └──────────────────────────────────────────────────────────────┘          │
 │   ┌──────────────────────────────────────────────────────────────┐          │
-│   │                     Data Stores                               │          │
+│   │                     Data Stores                              │          │
 │   │  ┌─────────┐  ┌────────┐  ┌───────┐  ┌───────┐  ┌───────────┐│          │
 │   │  │Cassandra│  │ MySQL  │  │ Redis │  │  S3   │  │   Kafka   ││          │
 │   │  │(messages│  │(users) │  │(cache)│  │(media)│  │  (queue)  ││          │
