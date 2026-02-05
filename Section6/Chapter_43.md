@@ -1,4 +1,4 @@
-# Chapter 30. News feed
+# Chapter 43. News feed
 
 ---
 
@@ -4944,7 +4944,3 @@ The key insights for Staff Engineers:
 The news feed teaches that Staff Engineering isn't about building the most sophisticated system—it's about building the right system for the context, with awareness of how that context will evolve.
 
 ---
-
-*End of Chapter 30: News Feed*
-
-*Next: Chapter 31 — Real-Time Collaboration*

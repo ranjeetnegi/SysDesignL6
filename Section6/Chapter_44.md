@@ -1,4 +1,4 @@
-# Chapter 31: Real-Time Collaboration
+# Chapter 44: Real-Time Collaboration
 
 ---
 
@@ -4437,6 +4437,6 @@ Real-time collaboration teaches that Staff Engineering is about understanding th
 
 ---
 
-*End of Chapter 31: Real-Time Collaboration*
+*End of Chapter 44: Real-Time Collaboration*
 
-*Next: Chapter 32 — Messaging Platform*
+*Next: Chapter 45 — Messaging Platform*

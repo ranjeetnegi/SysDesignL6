@@ -207,38 +207,68 @@ Chapter 26: Cost, Efficiency, and Sustainable System Design
 Chapter 27: System Evolution, Migration, and Risk Management
 
 
-# Section 5 — Staff-Level Design Problems
 
-Chapter 28. Global rate limiter
+# Section 5 — Senior Software Engineer - Design Problems
 
-Chapter 29. Distributed cache
+Chapter 28: URL Shortener
 
-Chapter 30. News feed
+Chapter 29: Single-Region Rate Limiter
 
-Chapter 31. Real-time collaboration
+Chapter 30: Distributed Cache (Single Cluster)
 
-Chapter 32. Messaging platform
+Chapter 31: Object / File Storage System
 
-Chapter 33. Metrics / observability system
+Chapter 32: Basic Notification System
 
-Chapter 34. Configuration, Feature Flags & Secrets Management
+Chapter 33: Authentication System (AuthN)
 
-Chapter 35. API Gateway / Edge Request Routing System
+Chapter 34: Search System (Basic Indexing)
 
-Chapter 36. Search / Indexing System (Read-heavy, Latency-sensitive)
+Chapter 35: Metrics Collection System
 
-Chapter 37. Recommendation / Ranking System (Simplified)
+Chapter 36: Background Job Queue
 
-Chapter 38. Notification Delivery System (Fan-out at Scale)
+Chapter 37: Payment Flow 
 
-Chapter 39. Authentication & Authorization System
+Chapter 38: API Gateway
 
-Chapter 40. Distributed Scheduler / Job Orchestration System
+Chapter 39: Real-Time Chat
 
-Chapter 41. Feature Experimentation / A/B Testing Platform
+Chapter 40: Configuration Management
 
-Chapter 42. Log Aggregation & Query System
 
-Chapter 43. Payment / Transaction Processing System
+# Section 6 — Staff-Level Design Problems
 
-Chapter 44. Media upload & processing pipeline
+Chapter 41. Global rate limiter
+
+Chapter 42. Distributed cache
+
+Chapter 43. News feed
+
+Chapter 44. Real-time collaboration
+
+Chapter 45. Messaging platform
+
+Chapter 46. Metrics / observability system
+
+Chapter 47. Configuration, Feature Flags & Secrets Management
+
+Chapter 48. API Gateway / Edge Request Routing System
+
+Chapter 49. Search / Indexing System (Read-heavy, Latency-sensitive)
+
+Chapter 50. Recommendation / Ranking System (Simplified)
+
+Chapter 51. Notification Delivery System (Fan-out at Scale)
+
+Chapter 52. Authentication & Authorization System
+
+Chapter 53. Distributed Scheduler / Job Orchestration System
+
+Chapter 54. Feature Experimentation / A/B Testing Platform
+
+Chapter 55. Log Aggregation & Query System
+
+Chapter 56. Payment / Transaction Processing System
+
+Chapter 57. Media upload & processing pipeline

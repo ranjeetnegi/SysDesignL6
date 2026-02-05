@@ -1,4 +1,4 @@
-# Chapter 29: Distributed Cache
+# Chapter 42: Distributed Cache
 
 ---
 
@@ -4002,6 +4002,6 @@ DEBATE 5: Buy vs Build
 
 ---
 
-# End of Chapter 29
+# End of Chapter 42
 
 This chapter covered Distributed Caching at Staff Engineer depth—from foundational concepts through production-hardened architectures, failure handling, and evolution. The key insight: caching is powerful but dangerous. Used well, it makes systems fast and resilient. Used poorly, it introduces subtle bugs, inconsistency, and operational complexity. Staff Engineers understand these trade-offs and design accordingly.

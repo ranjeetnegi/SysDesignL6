@@ -1,4 +1,4 @@
-# Chapter 32. Messaging platform
+# Chapter 45. Messaging platform
 
 ---
 
