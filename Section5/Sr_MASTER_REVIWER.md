@@ -158,11 +158,6 @@ No abstract theory
 
 Focus on how a Senior engineer designs and owns this
 
-Example format:
-
-### Missing Topic: Handling Cache Stampede Under Load
-<new content>
-
 STEP 3: FAILURE-AWARENESS ENFORCEMENT (MANDATORY)
 
 If the chapter does NOT include ALL of the following, you MUST ADD them:
@@ -187,35 +182,33 @@ How a Senior engineer mitigates it
 
 What permanent fix is applied
 
-⚠️ Keep scope to one system, not cascading org-wide failures.
+⚠️ Scope must remain one system only.
 
-STEP 3.5: ROLLOUT, ROLLBACK & OPERATIONAL SAFETY (MANDATORY)
+STEP 4: ROLLOUT, ROLLBACK & OPERATIONAL SAFETY (MANDATORY)
 
 If missing, ADD content explaining:
 
 How changes are rolled out safely
 
-What happens during a partial or failed deployment
+What happens during partial or failed deployment
 
 How rollback is executed under live traffic
 
 Include one concrete scenario:
 
-A bad config or code change is deployed
+Bad config or code change
 
-What breaks immediately vs subtly
+Immediate vs subtle breakage
 
-How a Senior engineer detects the issue
+Detection signals
 
-How rollback is performed safely
+Safe rollback steps
 
-What guardrails prevent recurrence
+Guardrails added afterward
 
-⚠️ Keep scope to single-system deployment.
+STEP 5: SENIOR-LEVEL JUDGMENT INSERTION
 
-STEP 4: SENIOR-LEVEL JUDGMENT INSERTION
-
-If any design decision is stated without justification, ADD a subsection explaining:
+If any design decision lacks justification, ADD a subsection explaining:
 
 Alternatives considered
 
@@ -241,61 +234,49 @@ Also explain:
 
 Which risks are consciously accepted
 
-Why fixing them now would be worse than leaving them
+Why fixing them now would be worse
 
-STEP 5: SCALE REALITY INSERTION
+STEP 6: SCALE REALITY INSERTION
 
-If scale is vague or hand-wavy, ADD:
+If scale is vague, ADD:
 
-Order-of-magnitude estimates:
+Order-of-magnitude estimates (users, QPS, data growth)
 
-Users
+The most fragile assumption
 
-QPS
+What breaks first at 10× scale
 
-Data growth
+STEP 7: COST & OPERABILITY INSERTION
 
-The single most fragile assumption
-
-What component breaks first at 10× scale
-
-Focus on:
-
-Reasoning clarity
-
-Not perfect math
-
-STEP 6: COST & OPERABILITY INSERTION
-
-If cost is missing or shallow, ADD a subsection covering:
+If cost is shallow, ADD a subsection covering:
 
 Top 1–2 cost drivers
 
-How cost scales with traffic or data
+How cost scales
 
 Where over-engineering would occur
 
 What a Senior engineer intentionally does NOT build yet
 
-Tie cost decisions back to:
-
-Simplicity
+Tie cost to:
 
 Maintainability
 
+Simplicity
+
 On-call burden
 
-STEP 6.5: MISLEADING SIGNALS & DEBUGGING REALITY (MANDATORY)
+STEP 8: MISLEADING SIGNALS & DEBUGGING REALITY (MANDATORY)
 
 If missing, ADD content explaining:
 
-One metric or signal that appears healthy but is misleading
+One metric that looks healthy but is misleading
 
-One signal that actually indicates the real problem
+One signal that actually reveals the problem
 
 How a Senior engineer avoids false confidence
 
-Apply this to at least one system:
+Apply to at least one system:
 
 Cache
 
@@ -305,37 +286,9 @@ Notification system
 
 API gateway
 
-Focus on:
+STEP 9: REAL-WORLD APPLICATION (MANDATORY)
 
-Debugging behavior
-
-Signal prioritization
-
-Production realism
-
-STEP 7: REAL-WORLD APPLICATION (MANDATORY)
-
-For every major new concept added, apply it to at least ONE real system:
-
-Rate limiter
-
-Cache
-
-Job queue
-
-Notification system
-
-API gateway
-
-Explain:
-
-Concrete design choice
-
-Trade-offs
-
-Failure behavior
-
-Why a Senior engineer made that choice
+For every major new concept added, apply it to at least one real system.
 
 At least one example must include:
 
@@ -345,25 +298,17 @@ Why it was acceptable
 
 What technical debt it introduced
 
-Avoid abstract-only explanations.
+STEP 10: DIAGRAM AUGMENTATION (OPTIONAL)
 
-STEP 8: DIAGRAM AUGMENTATION (OPTIONAL BUT STRONGLY ENCOURAGED)
+If diagrams are missing, ADD 1–2 diagrams max:
 
-If diagrams are missing or unclear, ADD 1–2 diagrams max using text or Mermaid-style syntax:
+Architecture
 
-Architecture overview
+Data flow or failure flow
 
-Read/write flow or failure flow
+One idea per diagram.
 
-Rules:
-
-One idea per diagram
-
-Simple and interview-friendly
-
-No vendor-specific details
-
-STEP 9: GOOGLE L5 INTERVIEW CALIBRATION (MANDATORY)
+STEP 11: GOOGLE L5 INTERVIEW CALIBRATION (MANDATORY)
 
 ADD a final subsection:
 
@@ -371,17 +316,17 @@ Google L5 Interview Calibration
 
 Include:
 
-Example phrases a strong Senior engineer would say
+Example phrases a strong Senior engineer uses
 
-What the interviewer is evaluating
+What interviewers evaluate
 
 One common L4 mistake
 
-One common borderline L5 mistake
+One borderline L5 mistake
 
 What distinguishes a solid L5 answer
 
-STEP 10: FINAL VERIFICATION (MANDATORY)
+STEP 12: FINAL VERIFICATION (MANDATORY)
 
 Conclude with:
 
@@ -389,55 +334,63 @@ A clear statement:
 
 “This section now meets / still does not fully meet Google Senior Software Engineer (L5) expectations.”
 
-A short checklist of:
+A checklist of Senior-level signals covered
 
-Senior-level signals now covered
+Any unavoidable gaps
 
-Any remaining gaps (if unavoidable)
+🚨 STEP 13: BRAINSTORMING & DEEP EXERCISES (MANDATORY — MUST BE LAST)
 
-STEP 11: PRACTICE & THINKING EXERCISES (EXPANDED)
+ADD a final, standalone section at the very end:
 
-ADD a final section:
+Brainstorming Questions & Senior-Level Exercises
 
-Senior-Level Design Exercises
-
-Include exercises covering:
+Include multiple exercises across all dimensions:
 
 A. Scale & Load
 
-What if traffic doubles or increases 10×?
+What happens at 2×, 5×, 10× traffic?
 
-Which component fails first?
+Which component fails first and why?
 
 B. Failure Injection
 
 Slow dependency
 
-Retry storms
+Retry storm
 
-Partial outages
+Partial outage
+
+Cache unavailability
 
 C. Cost & Trade-offs
 
 Cost at 10× scale
 
-30% cost reduction request
+30% cost-cut request
 
-Reliability trade-offs introduced
+Reliability sacrificed?
 
 D. Ownership Under Pressure
 
 30-minute mitigation window
 
-What you touch first
+What do you touch first?
 
-What you explicitly avoid touching
+What do you explicitly avoid touching?
 
-Exercises must reinforce:
+E. Evolution & Safety
 
-Scale
+Backward-compatible change
 
-Failure handling
+Risky schema migration
+
+Safe rollout strategy
+
+These exercises must reinforce:
+
+Scale realism
+
+Failure thinking
 
 Cost awareness
 
@@ -445,9 +398,11 @@ Ownership mindset
 
 Tone & Depth Requirements
 
-Clear and structured
+Clear
 
-Practical and production-focused
+Surgical
+
+Production-focused
 
 Senior SWE depth
 
