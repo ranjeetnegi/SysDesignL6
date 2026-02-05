@@ -158,7 +158,7 @@ DATABASE COST VS CACHE COST:
 │   → Requests queue → Timeouts → Error cascade → Outage                      │
 │                                                                             │
 │   FAILURE MODE 2: SLOW RESPONSE TIMES                                       │
-│   Every request pays full database cost → P95 latency degrades             │
+│   Every request pays full database cost → P95 latency degrades              │
 │   → User experience suffers → Business metrics decline                      │
 │                                                                             │
 │   FAILURE MODE 3: COST EXPLOSION                                            │
@@ -1096,11 +1096,11 @@ RECOMMENDATION:
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                        APPLICATION TIER                             │   │
 │   │                                                                     │   │
-│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                │   │
-│   │   │  App Server │  │  App Server │  │  App Server │                │   │
-│   │   │  + Cache    │  │  + Cache    │  │  + Cache    │                │   │
-│   │   │   Client    │  │   Client    │  │   Client    │                │   │
-│   │   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                │   │
+│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │   │
+│   │   │  App Server │  │  App Server │  │  App Server │                 │   │
+│   │   │  + Cache    │  │  + Cache    │  │  + Cache    │                 │   │
+│   │   │   Client    │  │   Client    │  │   Client    │                 │   │
+│   │   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                 │   │
 │   │          │                │                │                        │   │
 │   └──────────┼────────────────┼────────────────┼────────────────────────┘   │
 │              │                │                │                            │
@@ -1110,17 +1110,17 @@ RECOMMENDATION:
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                        REDIS CLUSTER                                │   │
 │   │                                                                     │   │
-│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                │   │
-│   │   │  Shard 1    │  │  Shard 2    │  │  Shard 3    │                │   │
-│   │   │  (Primary)  │  │  (Primary)  │  │  (Primary)  │                │   │
-│   │   │             │  │             │  │             │                │   │
-│   │   │  Keys: A-K  │  │  Keys: L-R  │  │  Keys: S-Z  │                │   │
-│   │   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                │   │
+│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │   │
+│   │   │  Shard 1    │  │  Shard 2    │  │  Shard 3    │                 │   │
+│   │   │  (Primary)  │  │  (Primary)  │  │  (Primary)  │                 │   │
+│   │   │             │  │             │  │             │                 │   │
+│   │   │  Keys: A-K  │  │  Keys: L-R  │  │  Keys: S-Z  │                 │   │
+│   │   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                 │   │
 │   │          │                │                │                        │   │
 │   │          ▼                ▼                ▼                        │   │
-│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                │   │
-│   │   │  Replica 1  │  │  Replica 2  │  │  Replica 3  │                │   │
-│   │   └─────────────┘  └─────────────┘  └─────────────┘                │   │
+│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │   │
+│   │   │  Replica 1  │  │  Replica 2  │  │  Replica 3  │                 │   │
+│   │   └─────────────┘  └─────────────┘  └─────────────┘                 │   │
 │   │                                                                     │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                               │                                             │
@@ -2206,7 +2206,7 @@ SAFE MIGRATION PATH:
 │   │     - Latency should return to baseline                             │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
-│   ROLLBACK TIME TARGET: < 10 minutes from decision to recovered            │
+│   ROLLBACK TIME TARGET: < 10 minutes from decision to recovered             │
 │                                                                             │
 │   DECISION TREE:                                                            │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -2308,7 +2308,7 @@ SAFE MIGRATION PATH:
 │                                                                             │
 │   TOTAL: ~$1,050/month                                                      │
 │                                                                             │
-│   COST PER OPERATION: $1,050 / (100K × 86400 × 30) = $0.000004             │
+│   COST PER OPERATION: $1,050 / (100K × 86400 × 30) = $0.000004              │
 │                                                                             │
 │   COMPARISON TO DATABASE:                                                   │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -2471,8 +2471,8 @@ SENIOR AVOIDANCE:
 │                                                                             │
 │   WHY THIS IS ACCEPTABLE:                                                   │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  1. Prices don't change during Black Friday (sale prices fixed)    │   │
-│   │  2. 30-minute staleness is acceptable for product descriptions     │   │
+│   │  1. Prices don't change during Black Friday (sale prices fixed)     │   │
+│   │  2. 30-minute staleness is acceptable for product descriptions      │   │
 │   │  3. Inventory is NOT cached (real-time accuracy needed)             │   │
 │   │  4. Alternative is complete outage (unacceptable)                   │   │
 │   │  5. Can revert TTL after sale if needed                             │   │
@@ -2888,18 +2888,18 @@ SIGNALS OF SENIOR-LEVEL THINKING:
 │                                   │                                         │
 │          ┌────────────────────────┼────────────────────────┐                │
 │          ▼                        ▼                        ▼                │
-│   ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐    │
-│   │  App Server 1   │      │  App Server 2   │      │  App Server 3   │    │
-│   │  ┌───────────┐  │      │  ┌───────────┐  │      │  ┌───────────┐  │    │
-│   │  │ L1 Cache  │  │      │  │ L1 Cache  │  │      │  │ L1 Cache  │  │    │
-│   │  │ (local)   │  │      │  │ (local)   │  │      │  │ (local)   │  │    │
-│   │  └─────┬─────┘  │      │  └─────┬─────┘  │      │  └─────┬─────┘  │    │
-│   │        │        │      │        │        │      │        │        │    │
-│   │  ┌─────┴─────┐  │      │  ┌─────┴─────┐  │      │  ┌─────┴─────┐  │    │
-│   │  │  Cache    │  │      │  │  Cache    │  │      │  │  Cache    │  │    │
-│   │  │  Client   │  │      │  │  Client   │  │      │  │  Client   │  │    │
-│   │  └─────┬─────┘  │      │  └─────┬─────┘  │      │  └─────┬─────┘  │    │
-│   └────────┼────────┘      └────────┼────────┘      └────────┼────────┘    │
+│   ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐     │
+│   │  App Server 1   │      │  App Server 2   │      │  App Server 3   │     │
+│   │  ┌───────────┐  │      │  ┌───────────┐  │      │  ┌───────────┐  │     │
+│   │  │ L1 Cache  │  │      │  │ L1 Cache  │  │      │  │ L1 Cache  │  │     │
+│   │  │ (local)   │  │      │  │ (local)   │  │      │  │ (local)   │  │     │
+│   │  └─────┬─────┘  │      │  └─────┬─────┘  │      │  └─────┬─────┘  │     │
+│   │        │        │      │        │        │      │        │        │     │
+│   │  ┌─────┴─────┐  │      │  ┌─────┴─────┐  │      │  ┌─────┴─────┐  │     │
+│   │  │  Cache    │  │      │  │  Cache    │  │      │  │  Cache    │  │     │
+│   │  │  Client   │  │      │  │  Client   │  │      │  │  Client   │  │     │
+│   │  └─────┬─────┘  │      │  └─────┬─────┘  │      │  └─────┬─────┘  │     │
+│   └────────┼────────┘      └────────┼────────┘      └────────┼────────┘     │
 │            │                        │                        │              │
 │            └────────────────────────┼────────────────────────┘              │
 │                                     │                                       │
@@ -2907,13 +2907,13 @@ SIGNALS OF SENIOR-LEVEL THINKING:
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                        REDIS CLUSTER (L2)                           │   │
 │   │                                                                     │   │
-│   │   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐            │   │
-│   │   │  Shard 1    │    │  Shard 2    │    │  Shard 3    │            │   │
-│   │   │  Primary    │    │  Primary    │    │  Primary    │            │   │
-│   │   │      │      │    │      │      │    │      │      │            │   │
-│   │   │      ▼      │    │      ▼      │    │      ▼      │            │   │
-│   │   │  Replica    │    │  Replica    │    │  Replica    │            │   │
-│   │   └─────────────┘    └─────────────┘    └─────────────┘            │   │
+│   │   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐             │   │
+│   │   │  Shard 1    │    │  Shard 2    │    │  Shard 3    │             │   │
+│   │   │  Primary    │    │  Primary    │    │  Primary    │             │   │
+│   │   │      │      │    │      │      │    │      │      │             │   │
+│   │   │      ▼      │    │      ▼      │    │      ▼      │             │   │
+│   │   │  Replica    │    │  Replica    │    │  Replica    │             │   │
+│   │   └─────────────┘    └─────────────┘    └─────────────┘             │   │
 │   │                                                                     │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                     │                                       │

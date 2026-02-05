@@ -1762,7 +1762,7 @@ Rate limiting is in the critical path of every request. A bad deployment can eit
 │   │  - Brief window of reset limits (acceptable for protection limits)  │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
-│   ROLLBACK TIME TARGET: < 5 minutes from decision to recovered             │
+│   ROLLBACK TIME TARGET: < 5 minutes from decision to recovered              │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
