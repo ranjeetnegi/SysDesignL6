@@ -216,7 +216,7 @@ TOKEN LIFECYCLE:
 │   - Show boarding pass (present token)                                      │
 │   - Gate agent scans it (verify signature + expiry)                         │
 │   - No need to call passport control again                                  │
-│   - Fast: scan takes 1 second, not 10 minutes                              │
+│   - Fast: scan takes 1 second, not 10 minutes                               │
 │                                                                             │
 │   BOARDING PASS EXPIRY (Token Expiry):                                      │
 │   - Valid only for this flight (short-lived)                                │
@@ -834,8 +834,8 @@ SIGNING KEYS (most critical):
 │   • Average: ~5K refreshes/sec                                              │
 │                                                                             │
 │   STORAGE:                                                                  │
-│   • Credentials: 100M users × 500 bytes = 50 GB                            │
-│   • Sessions: 50M active × 300 bytes = 15 GB                               │
+│   • Credentials: 100M users × 500 bytes = 50 GB                             │
+│   • Sessions: 50M active × 300 bytes = 15 GB                                │
 │   • Blocklist: < 1 GB (in Redis, TTL-based cleanup)                         │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -939,12 +939,12 @@ COST ESTIMATE:
 │                                                                             │
 │   ┌───────────────────────────────────────────────────────────────────┐     │
 │   │                        CLIENT TIER                                │     │
-│   │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐              │     │
-│   │  │  Web    │  │  iOS    │  │ Android │  │  API    │              │     │
-│   │  │  App    │  │  App    │  │  App    │  │ Client  │              │     │
-│   │  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘              │     │
-│   └───────┼────────────┼───────────┼────────────┼─────────────────────┘     │
-│           └────────────┴───────────┴────────────┘                           │
+│   │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐               │     │
+│   │  │  Web    │  │  iOS    │  │ Android │  │  API    │               │     │
+│   │  │  App    │  │  App    │  │  App    │  │ Client  │               │     │
+│   │  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘               │     │
+│   └───────┼────────────┼───────────-┼────────────┼────────────────────┘     │
+│           └────────────┴──────────-─┴────────────┘                          │
 │                               │                                             │
 │                               ▼                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -954,33 +954,33 @@ COST ESTIMATE:
 │                                  │                                          │
 │                                  ▼                                          │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │                      AUTH API SERVICE                                │   │
-│   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │   │
-│   │  │   Login     │  │  Refresh    │  │  Logout     │                 │   │
-│   │  │  Handler    │  │  Handler    │  │  Handler    │                 │   │
-│   │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                 │   │
+│   │                      AUTH API SERVICE                               │   │
+│   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                  │   │
+│   │  │   Login     │  │  Refresh    │  │  Logout     │                  │   │
+│   │  │  Handler    │  │  Handler    │  │  Handler    │                  │   │
+│   │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                  │   │
 │   └─────────┼────────────────┼────────────────┼─────────────────────────┘   │
-│             │                │                │                              │
+│             │                │                │                             │
 │     ┌───────┼────────────────┼────────────────┼───────┐                     │
 │     │       │                │                │       │                     │
 │     ▼       ▼                ▼                ▼       ▼                     │
-│  ┌──────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐             │
-│  │Redis │ │Credential│ │ Session  │ │  Token   │ │ bcrypt   │             │
-│  │      │ │  Store   │ │  Store   │ │  Signer  │ │ Worker   │             │
-│  │- Rate│ │(Postgres)│ │(Postgres)│ │ (RSA Key)│ │  Pool    │             │
-│  │  Lim │ │          │ │          │ │          │ │          │             │
-│  │- Block│ │          │ │          │ │          │ │          │             │
-│  │  list│ │          │ │          │ │          │ │          │             │
-│  └──────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘             │
+│  ┌────-──┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐              │
+│  │Redis  │ │Credential│ │ Session  │ │  Token   │ │ bcrypt   │              │
+│  │       │ │  Store   │ │  Store   │ │  Signer  │ │ Worker   │              │
+│  │- Rate │ │(Postgres)│ │(Postgres)│ │ (RSA Key)│ │  Pool    │              │
+│  │  Lim  │ │          │ │          │ │          │ │          │              │
+│  │- Block│ │          │ │          │ │          │ │          │              │
+│  │  list │ │          │ │          │ │          │ │          │              │
+│  └──────-┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘              │
 │                                                                             │
-│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─      │
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─             │
 │                                                                             │
 │   DOWNSTREAM SERVICES (Token validation is LOCAL, no auth call)             │
-│   ┌─────────┐  ┌─────────┐  ┌─────────┐                                    │
+│   ┌─────────┐  ┌─────────┐  ┌─────────┐                                     │
 │   │Service A│  │Service B│  │Service C│  ← Each has auth service            │
 │   │+ JWT    │  │+ JWT    │  │+ JWT    │    public key for local             │
 │   │  verify │  │  verify │  │  verify │    validation                       │
-│   └─────────┘  └─────────┘  └─────────┘                                    │
+│   └─────────┘  └─────────┘  └─────────┘                                     │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1003,36 +1003,36 @@ COST ESTIMATE:
 │                          LOGIN FLOW                                         │
 │                                                                             │
 │  Client           LB            Auth API         Redis         Database     │
-│    │               │               │               │              │        │
-│    │ POST /login   │               │               │              │        │
-│    │──────────────▶│               │               │              │        │
-│    │               │               │               │              │        │
-│    │               │  1. Forward   │               │              │        │
-│    │               │──────────────▶│               │              │        │
-│    │               │               │               │              │        │
-│    │               │               │ 2. Rate limit │              │        │
-│    │               │               │──────────────▶│              │        │
-│    │               │               │   ALLOWED     │              │        │
-│    │               │               │◀──────────────│              │        │
-│    │               │               │               │              │        │
-│    │               │               │ 3. Get credentials           │        │
-│    │               │               │─────────────────────────────▶│        │
-│    │               │               │   user record               │        │
-│    │               │               │◀─────────────────────────────│        │
-│    │               │               │               │              │        │
-│    │               │               │ 4. bcrypt verify             │        │
-│    │               │               │ (CPU-bound, ~200ms)          │        │
-│    │               │               │               │              │        │
-│    │               │               │ 5. Sign JWT                  │        │
-│    │               │               │ (RSA256, ~1ms)               │        │
-│    │               │               │               │              │        │
-│    │               │               │ 6. Store session             │        │
-│    │               │               │─────────────────────────────▶│        │
-│    │               │               │               │              │        │
-│    │  200 OK       │               │               │              │        │
-│    │  {tokens}     │               │               │              │        │
-│    │◀──────────────│◀──────────────│               │              │        │
-│    │               │               │               │              │        │
+│    │               │               │               │              │         │
+│    │ POST /login   │               │               │              │         │
+│    │──────────────▶│               │               │              │         │
+│    │               │               │               │              │         │
+│    │               │  1. Forward   │               │              │         │
+│    │               │──────────────▶│               │              │         │
+│    │               │               │               │              │         │
+│    │               │               │ 2. Rate limit │              │         │
+│    │               │               │──────────────▶│              │         │
+│    │               │               │   ALLOWED     │              │         │
+│    │               │               │◀──────────────│              │         │
+│    │               │               │               │              │         │
+│    │               │               │ 3. Get credentials           │         │
+│    │               │               │─────────────────────────────▶│         │
+│    │               │               │   user record                │         │
+│    │               │               │◀─────────────────────────────│         │
+│    │               │               │               │              │         │
+│    │               │               │ 4. bcrypt verify             │         │
+│    │               │               │ (CPU-bound, ~200ms)          │         │
+│    │               │               │               │              │         │
+│    │               │               │ 5. Sign JWT                  │         │
+│    │               │               │ (RSA256, ~1ms)               │         │
+│    │               │               │               │              │         │
+│    │               │               │ 6. Store session             │         │
+│    │               │               │─────────────────────────────▶│         │
+│    │               │               │               │              │         │
+│    │  200 OK       │               │               │              │         │
+│    │  {tokens}     │               │               │              │         │
+│    │◀──────────────│◀──────────────│               │              │         │
+│    │               │               │               │              │         │
 │                                                                             │
 │   TIMING:                                                                   │
 │     Step 2: ~1ms (Redis)                                                    │
@@ -1355,12 +1355,12 @@ SESSION CLEANUP:
 │   REDIS STRUCTURES:                                                         │
 │                                                                             │
 │   Rate Limiting:                                                            │
-│     Key: "ratelimit:login_email:{email}"   Value: counter   TTL: 15min     │
-│     Key: "ratelimit:login_ip:{ip}"         Value: counter   TTL: 1min      │
-│     Key: "lockout:login_email:{email}"     Value: "1"       TTL: 15min     │
+│     Key: "ratelimit:login_email:{email}"   Value: counter   TTL: 15min      │
+│     Key: "ratelimit:login_ip:{ip}"         Value: counter   TTL: 1min       │
+│     Key: "lockout:login_email:{email}"     Value: "1"       TTL: 15min      │
 │                                                                             │
 │   Token Blocklist:                                                          │
-│     Key: "blocklist:{jti}"                 Value: "1"       TTL: token_exp │
+│     Key: "blocklist:{jti}"                 Value: "1"       TTL: token_exp  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1652,22 +1652,22 @@ FUNCTION load_signing_key():
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│   FAILURE SCENARIO: CREDENTIAL STUFFING ATTACK DURING PRODUCT LAUNCH       │
+│   FAILURE SCENARIO: CREDENTIAL STUFFING ATTACK DURING PRODUCT LAUNCH        │
 │                                                                             │
 │   TRIGGER:                                                                  │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │  Product launch generates press coverage.                           │   │
 │   │  Attackers target the login endpoint.                               │   │
 │   │  50,000 credential-stuffing attempts/minute (800/sec).              │   │
-│   │  Legitimate traffic also spiking: 5× normal (1,200/sec).           │   │
-│   │  Total login traffic: 2,000/sec (vs normal 230/sec)                │   │
+│   │  Legitimate traffic also spiking: 5× normal (1,200/sec).            │   │
+│   │  Total login traffic: 2,000/sec (vs normal 230/sec)                 │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   WHAT BREAKS:                                                              │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │  T+0:    Attack starts                                              │   │
 │   │  T+2min: Login latency increasing (bcrypt CPU saturation)           │   │
-│   │  T+5min: P99 login latency: 5 seconds (vs normal 500ms)            │   │
+│   │  T+5min: P99 login latency: 5 seconds (vs normal 500ms)             │   │
 │   │  T+8min: Some legitimate login timeouts                             │   │
 │   │  T+10min: Alert fires: "Login error rate > 5%"                      │   │
 │   │                                                                     │   │
@@ -1691,7 +1691,7 @@ FUNCTION load_signing_key():
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │  IMMEDIATE (0-5 min):                                               │   │
 │   │  1. Confirm credential stuffing (not legitimate spike)              │   │
-│   │  2. Check: Are existing users affected? (Token validation = fine)  │   │
+│   │  2. Check: Are existing users affected? (Token validation = fine)   │   │
 │   │  3. Impact: Only new logins affected                                │   │
 │   │                                                                     │   │
 │   │  MITIGATION (5-15 min):                                             │   │
@@ -1709,7 +1709,7 @@ FUNCTION load_signing_key():
 │                                                                             │
 │   PERMANENT FIX:                                                            │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  1. Rate limiting at edge (WAF, load balancer) before reaching app │   │
+│   │  1. Rate limiting at edge (WAF, load balancer) before reaching app  │   │
 │   │  2. CAPTCHA integration for suspicious login patterns               │   │
 │   │  3. IP reputation database (block known bad actors)                 │   │
 │   │  4. Breached password detection (check against known leaks)         │   │
@@ -1914,7 +1914,7 @@ DEFERRED OPTIMIZATIONS:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                     AUTH SYSTEM COST BREAKDOWN                               │
+│                     AUTH SYSTEM COST BREAKDOWN                              │
 │                                                                             │
 │   For 100M users, 20M logins/day:                                           │
 │                                                                             │
@@ -1950,7 +1950,7 @@ DEFERRED OPTIMIZATIONS:
 │   TOTAL MONTHLY COST: ~$26,000                                              │
 │   COST PER 1000 LOGINS: $0.04                                               │
 │                                                                             │
-│   KEY INSIGHT: Half the compute cost is defending against attacks.           │
+│   KEY INSIGHT: Half the compute cost is defending against attacks.          │
 │   Better edge-level rate limiting (WAF) could cut costs 30%.                │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -2559,11 +2559,11 @@ L5 Approach:
 │                                                                             │
 │   ┌───────────────────────────────────────────────────────────────────┐     │
 │   │                        CLIENTS                                    │     │
-│   │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐              │     │
-│   │  │  Web    │  │  iOS    │  │ Android │  │ Service │              │     │
-│   │  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘              │     │
-│   └───────┼────────────┼───────────┼────────────┼─────────────────────┘     │
-│           └────────────┴───────────┴────────────┘                           │
+│   │  ┌─────────┐  ┌─────────┐   ┌─────────┐  ┌─────────┐              │     │
+│   │  │  Web    │  │  iOS    │   │ Android │  │ Service │              │     │
+│   │  └────┬────┘  └────┬────┘   └────┬────┘  └────┬────┘              │     │
+│   └───────┼────────────┼─────────--──┼────────────┼───────────────────┘     │
+│           └────────────┴──────────--─┴────────────┘                         │
 │                               │                                             │
 │                               ▼                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -2573,32 +2573,32 @@ L5 Approach:
 │                                  │                                          │
 │                                  ▼                                          │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │                      AUTH API SERVICE                                │   │
-│   │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐        │   │
-│   │  │  Login    │  │ Refresh   │  │  Logout   │  │  JWKS     │        │   │
-│   │  │ /login    │  │ /refresh  │  │ /logout   │  │ /.well-   │        │   │
-│   │  │           │  │           │  │           │  │ known/jwks│        │   │
-│   │  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └───────────┘        │   │
+│   │                      AUTH API SERVICE                               │   │
+│   │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐         │   │
+│   │  │  Login    │  │ Refresh   │  │  Logout   │  │  JWKS     │         │   │
+│   │  │ /login    │  │ /refresh  │  │ /logout   │  │ /.well-   │         │   │
+│   │  │           │  │           │  │           │  │ known/jwks│         │   │
+│   │  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └───────────┘         │   │
 │   └────────┼──────────────┼──────────────┼──────────────────────────────┘   │
-│            │              │              │                                   │
+│            │              │              │                                  │
 │    ┌───────┼──────────────┼──────────────┼───────┐                          │
 │    ▼       ▼              ▼              ▼       ▼                          │
-│ ┌──────┐ ┌────────┐ ┌──────────┐ ┌──────────┐ ┌──────┐                    │
-│ │Redis │ │bcrypt  │ │Credential│ │ Session  │ │ KMS  │                    │
-│ │      │ │Workers │ │  Store   │ │  Store   │ │      │                    │
-│ │-Rate │ │        │ │(Postgres)│ │(Postgres)│ │-Sign │                    │
-│ │ Limit│ │-CPU    │ │-email    │ │-refresh  │ │ Key  │                    │
-│ │-Block│ │ pool   │ │-password │ │-sessions │ │      │                    │
-│ │ list │ │        │ │-mfa      │ │-audit    │ │      │                    │
-│ └──────┘ └────────┘ └──────────┘ └──────────┘ └──────┘                    │
+│ ┌──────┐ ┌────────┐ ┌──────────┐ ┌──────────┐ ┌──────┐                      │
+│ │Redis │ │bcrypt  │ │Credential│ │ Session  │ │ KMS  │                      │
+│ │      │ │Workers │ │  Store   │ │  Store   │ │      │                      │
+│ │-Rate │ │        │ │(Postgres)│ │(Postgres)│ │-Sign │                      │
+│ │ Limit│ │-CPU    │ │-email    │ │-refresh  │ │ Key  │                      │
+│ │-Block│ │ pool   │ │-password │ │-sessions │ │      │                      │
+│ │ list │ │        │ │-mfa      │ │-audit    │ │      │                      │
+│ └──────┘ └────────┘ └──────────┘ └──────────┘ └──────┘                      │
 │                                                                             │
-│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─                 │
-│   DOWNSTREAM SERVICES (validate JWT locally, no auth call)                 │
-│   ┌──────────┐  ┌──────────┐  ┌──────────┐                                │
-│   │Service A │  │Service B │  │Service C │                                │
-│   │+pub key  │  │+pub key  │  │+pub key  │                                │
-│   │+JWT lib  │  │+JWT lib  │  │+JWT lib  │                                │
-│   └──────────┘  └──────────┘  └──────────┘                                │
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─                       │
+│   DOWNSTREAM SERVICES (validate JWT locally, no auth call)                  │
+│   ┌──────────┐  ┌──────────┐  ┌──────────┐                                  │
+│   │Service A │  │Service B │  │Service C │                                  │
+│   │+pub key  │  │+pub key  │  │+pub key  │                                  │
+│   │+JWT lib  │  │+JWT lib  │  │+JWT lib  │                                  │
+│   └──────────┘  └──────────┘  └──────────┘                                  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2609,19 +2609,19 @@ L5 Approach:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │              LOGIN → USE TOKEN → REFRESH LIFECYCLE                          │
 │                                                                             │
-│  Client         Auth Service      Service A      Redis        Database     │
+│  Client         Auth Service      Service A      Redis        Database      │
 │    │                │                │              │              │        │
 │    │ 1. LOGIN       │                │              │              │        │
 │    │ (email+pass)   │                │              │              │        │
 │    │───────────────▶│                │              │              │        │
 │    │                │ rate check     │              │              │        │
-│    │                │───────────────────────────────▶│              │        │
+│    │                │──────────────────────────────▶│              │        │
 │    │                │ credentials    │              │              │        │
-│    │                │──────────────────────────────────────────────▶│        │
+│    │                │─────────────────────────────────────────────▶│        │
 │    │                │ bcrypt verify  │              │              │        │
 │    │                │ sign JWT       │              │              │        │
 │    │                │ store session  │              │              │        │
-│    │                │──────────────────────────────────────────────▶│        │
+│    │                │─────────────────────────────────────────────▶│        │
 │    │◀───────────────│                │              │              │        │
 │    │ access + refresh tokens         │              │              │        │
 │    │                │                │              │              │        │
@@ -2635,19 +2635,19 @@ L5 Approach:
 │    │ response       │                │              │              │        │
 │    │                │                │              │              │        │
 │    │ 3. TOKEN EXPIRED (15 min later) │              │              │        │
-│    │ REFRESH         │                │              │              │        │
-│    │ (refresh token) │                │              │              │        │
+│    │ REFRESH        │                │              │              │        │
+│    │ (refresh token)│                │              │              │        │
 │    │───────────────▶│                │              │              │        │
 │    │                │ lookup session │              │              │        │
-│    │                │──────────────────────────────────────────────▶│        │
+│    │                │─────────────────────────────────────────────▶│        │
 │    │                │ rotate token   │              │              │        │
-│    │                │──────────────────────────────────────────────▶│        │
+│    │                │─────────────────────────────────────────────▶│        │
 │    │◀───────────────│                │              │              │        │
 │    │ new access + refresh tokens     │              │              │        │
 │    │                │                │              │              │        │
 │                                                                             │
 │   KEY INSIGHT:                                                              │
-│   Step 2 (the most frequent operation) has ZERO dependency on auth service │
+│   Step 2 (the most frequent operation) has ZERO dependency on auth service  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
