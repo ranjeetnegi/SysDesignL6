@@ -67,7 +67,7 @@ Object storage exists because traditional file systems don't scale to cloud-leve
 │                                                                             │
 │   KEY INSIGHT:                                                              │
 │   Object storage trades POSIX complexity for massive scale.                 │
-│   No directory traversal, no file locking, no append operations.           │
+│   No directory traversal, no file locking, no append operations.            │
 │   This simplicity enables planetary-scale storage.                          │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -160,7 +160,7 @@ STORAGE COST COMPARISON:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    SYSTEMS WITHOUT OBJECT STORAGE                            │
+│                    SYSTEMS WITHOUT OBJECT STORAGE                           │
 │                                                                             │
 │   FAILURE MODE 1: SINGLE MACHINE LIMITS                                     │
 │   File server fills up → Manual expansion → Downtime → User frustration     │
@@ -879,7 +879,7 @@ FUNCTION get_object_resilient(bucket, key):
 │   │  Expected loss: < 1 object per year                                 │   │
 │   │                                                                     │   │
 │   │  Or equivalently:                                                   │   │
-│   │  1 object stored for 10 billion years → likely to survive          │   │
+│   │  1 object stored for 10 billion years → likely to survive           │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   HOW ACHIEVED:                                                             │
@@ -893,7 +893,7 @@ FUNCTION get_object_resilient(bucket, key):
 │   ✓ Single node failure                                                     │
 │   ✓ Single rack failure                                                     │
 │   ✓ Bit rot (silent data corruption)                                        │
-│   ✗ Entire datacenter loss (out of scope for single cluster)               │
+│   ✗ Entire datacenter loss (out of scope for single cluster)                │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1139,10 +1139,10 @@ RECOMMENDATION:
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                        CLIENT TIER                                  │   │
 │   │                                                                     │   │
-│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                │   │
-│   │   │  App Server │  │  App Server │  │  ETL Job    │                │   │
-│   │   │  (SDK)      │  │  (SDK)      │  │  (SDK)      │                │   │
-│   │   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                │   │
+│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │   │
+│   │   │  App Server │  │  App Server │  │  ETL Job    │                 │   │
+│   │   │  (SDK)      │  │  (SDK)      │  │  (SDK)      │                 │   │
+│   │   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                 │   │
 │   │          │                │                │                        │   │
 │   └──────────┼────────────────┼────────────────┼────────────────────────┘   │
 │              │                │                │                            │
@@ -1157,11 +1157,11 @@ RECOMMENDATION:
 │                                   ▼                                         │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                     FRONTEND SERVICE                                │   │
-│   │                                                                     │
-│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                │   │
-│   │   │  Frontend   │  │  Frontend   │  │  Frontend   │                │   │
-│   │   │  Server 1   │  │  Server 2   │  │  Server 3   │                │   │
-│   │   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                │   │
+│   │                                                                     │   |
+│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │   │
+│   │   │  Frontend   │  │  Frontend   │  │  Frontend   │                 │   │
+│   │   │  Server 1   │  │  Server 2   │  │  Server 3   │                 │   │
+│   │   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                 │   │
 │   │          │                │                │                        │   │
 │   └──────────┼────────────────┼────────────────┼────────────────────────┘   │
 │              │                │                │                            │
@@ -1170,21 +1170,21 @@ RECOMMENDATION:
 │          ┌────────────────────┼────────────────────┐                        │
 │          │                    │                    │                        │
 │          ▼                    ▼                    ▼                        │
-│   ┌─────────────┐     ┌─────────────┐     ┌─────────────────────────┐      │
-│   │  METADATA   │     │   STORAGE   │     │   BACKGROUND            │      │
-│   │   SERVICE   │     │   SERVICE   │     │   WORKERS               │      │
-│   │             │     │             │     │                         │      │
-│   │ ┌─────────┐ │     │ ┌─────────┐ │     │ ┌───────────────────┐   │      │
-│   │ │ Metadata│ │     │ │ Storage │ │     │ │ Replication       │   │      │
-│   │ │ Store   │ │     │ │ Node 1  │ │     │ │ Repair Worker     │   │      │
-│   │ │ (KV DB) │ │     │ ├─────────┤ │     │ ├───────────────────┤   │      │
-│   │ │         │ │     │ │ Storage │ │     │ │ Garbage           │   │      │
-│   │ └─────────┘ │     │ │ Node 2  │ │     │ │ Collection        │   │      │
-│   │             │     │ ├─────────┤ │     │ ├───────────────────┤   │      │
-│   │             │     │ │ Storage │ │     │ │ Integrity         │   │      │
-│   │             │     │ │ Node N  │ │     │ │ Scrubber          │   │      │
-│   │             │     │ └─────────┘ │     │ └───────────────────┘   │      │
-│   └─────────────┘     └─────────────┘     └─────────────────────────┘      │
+│   ┌─────────────┐     ┌─────────────┐     ┌─────────────────────────┐       │
+│   │  METADATA   │     │   STORAGE   │     │   BACKGROUND            │       │
+│   │   SERVICE   │     │   SERVICE   │     │   WORKERS               │       │
+│   │             │     │             │     │                         │       │
+│   │ ┌─────────┐ │     │ ┌─────────┐ │     │ ┌───────────────────┐   │       │
+│   │ │ Metadata│ │     │ │ Storage │ │     │ │ Replication       │   │       │
+│   │ │ Store   │ │     │ │ Node 1  │ │     │ │ Repair Worker     │   │       │
+│   │ │ (KV DB) │ │     │ ├─────────┤ │     │ ├───────────────────┤   │       │
+│   │ │         │ │     │ │ Storage │ │     │ │ Garbage           │   │       │
+│   │ └─────────┘ │     │ │ Node 2  │ │     │ │ Collection        │   │       │
+│   │             │     │ ├─────────┤ │     │ ├───────────────────┤   │       │
+│   │             │     │ │ Storage │ │     │ │ Integrity         │   │       │
+│   │             │     │ │ Node N  │ │     │ │ Scrubber          │   │       │
+│   │             │     │ └─────────┘ │     │ └───────────────────┘   │       │
+│   └─────────────┘     └─────────────┘     └─────────────────────────┘       │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2073,75 +2073,75 @@ OPERATOR ACTIONS:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│      FAILURE SCENARIO: RACK POWER FAILURE DURING PEAK TRAFFIC              │
+│      FAILURE SCENARIO: RACK POWER FAILURE DURING PEAK TRAFFIC               │
 │                                                                             │
 │   TRIGGER:                                                                  │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Rack A loses power unexpectedly. 10 storage nodes go offline.     │   │
-│   │  This is 1/3 of the cluster capacity.                              │   │
-│   │  Occurs during peak traffic hours (10x normal write load).         │   │
+│   │  Rack A loses power unexpectedly. 10 storage nodes go offline.      │   │
+│   │  This is 1/3 of the cluster capacity.                               │   │
+│   │  Occurs during peak traffic hours (10x normal write load).          │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   WHAT BREAKS:                                                              │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  T+0s:    Rack A power fails, 10 nodes instantly unavailable       │   │
-│   │  T+5s:    Health checker detects first failures                    │   │
-│   │  T+15s:   Nodes marked unhealthy, removed from placement           │   │
-│   │  T+30s:   PagerDuty alert fires                                    │   │
+│   │  T+0s:    Rack A power fails, 10 nodes instantly unavailable        │   │
+│   │  T+5s:    Health checker detects first failures                     │   │
+│   │  T+15s:   Nodes marked unhealthy, removed from placement            │   │
+│   │  T+30s:   PagerDuty alert fires                                     │   │
 │   │                                                                     │   │
-│   │  READS:                                                            │   │
-│   │  - 30% of objects have one replica on Rack A (out of 3)           │   │
-│   │  - These objects still readable from 2 remaining replicas          │   │
-│   │  - 0.1% of objects had all 3 replicas on Rack A (placement bug!)  │   │
-│   │  - These objects temporarily unavailable                           │   │
+│   │  READS:                                                             │   │
+│   │  - 30% of objects have one replica on Rack A (out of 3)             │   │
+│   │  - These objects still readable from 2 remaining replicas           │   │
+│   │  - 0.1% of objects had all 3 replicas on Rack A (placement bug!)    │   │
+│   │  - These objects temporarily unavailable                            │   │
 │   │                                                                     │   │
-│   │  WRITES:                                                           │   │
-│   │  - Placement excludes Rack A                                       │   │
-│   │  - 20 remaining nodes handle all writes                            │   │
-│   │  - Increased load per node: 1.5× normal                            │   │
-│   │  - Write latency P99: 100ms → 300ms                                │   │
+│   │  WRITES:                                                            │   │
+│   │  - Placement excludes Rack A                                        │   │
+│   │  - 20 remaining nodes handle all writes                             │   │
+│   │  - Increased load per node: 1.5× normal                             │   │
+│   │  - Write latency P99: 100ms → 300ms                                 │   │
 │   │                                                                     │   │
-│   │  T+2min:  Repair worker starts detecting under-replicated objects │   │
-│   │  T+10min: Repair in progress, ~1% of objects repaired              │   │
-│   │  T+1hour: 50% of affected objects repaired                         │   │
+│   │  T+2min:  Repair worker starts detecting under-replicated objects   │   │
+│   │  T+10min: Repair in progress, ~1% of objects repaired               │   │
+│   │  T+1hour: 50% of affected objects repaired                          │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   USER IMPACT:                                                              │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  - Most reads: Unaffected (served from healthy replicas)           │   │
-│   │  - Writes: Slower (300ms vs 100ms) but succeeding                  │   │
-│   │  - 0.1% of objects: 503 errors (all replicas on failed rack)       │   │
+│   │  - Most reads: Unaffected (served from healthy replicas)            │   │
+│   │  - Writes: Slower (300ms vs 100ms) but succeeding                   │   │
+│   │  - 0.1% of objects: 503 errors (all replicas on failed rack)        │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   DETECTION:                                                                │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  - Alert: "10 storage nodes unreachable"                           │   │
-│   │  - Alert: "Under-replicated objects > 30%"                         │   │
-│   │  - Alert: "Write latency P99 > 200ms"                              │   │
-│   │  - Dashboard: Cluster capacity at 66%                              │   │
+│   │  - Alert: "10 storage nodes unreachable"                            │   │
+│   │  - Alert: "Under-replicated objects > 30%"                          │   │
+│   │  - Alert: "Write latency P99 > 200ms"                               │   │
+│   │  - Dashboard: Cluster capacity at 66%                               │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   SENIOR ENGINEER RESPONSE:                                                 │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  IMMEDIATE (0-5 min):                                              │   │
-│   │  1. Acknowledge alert, join incident channel                       │   │
-│   │  2. Verify this is rack failure, not wider issue                   │   │
-│   │  3. Check if repair worker is running (should be automatic)        │   │
-│   │  4. Monitor for cascading failures (remaining nodes overloaded?)  │   │
+│   │  IMMEDIATE (0-5 min):                                               │   │
+│   │  1. Acknowledge alert, join incident channel                        │   │
+│   │  2. Verify this is rack failure, not wider issue                    │   │
+│   │  3. Check if repair worker is running (should be automatic)         │   │
+│   │  4. Monitor for cascading failures (remaining nodes overloaded?)    │   │
 │   │                                                                     │   │
-│   │  IF OVERLOAD DETECTED:                                             │   │
-│   │  5. Reduce repair worker concurrency (prioritize serving traffic) │   │
-│   │  6. Enable request shedding if needed                              │   │
+│   │  IF OVERLOAD DETECTED:                                              │   │
+│   │  5. Reduce repair worker concurrency (prioritize serving traffic)   │   │
+│   │  6. Enable request shedding if needed                               │   │
 │   │                                                                     │   │
-│   │  COMMUNICATION:                                                    │   │
-│   │  7. Post status update: "Investigating storage degradation"       │   │
-│   │  8. Update stakeholders on impact scope                            │   │
+│   │  COMMUNICATION:                                                     │   │
+│   │  7. Post status update: "Investigating storage degradation"         │   │
+│   │  8. Update stakeholders on impact scope                             │   │
 │   │                                                                     │   │
-│   │  POST-INCIDENT:                                                    │   │
-│   │  1. Root cause: Why did placement allow 3 replicas on one rack?   │   │
-│   │  2. Fix placement algorithm to enforce rack diversity              │   │
-│   │  3. Add monitoring for placement constraint violations             │   │
-│   │  4. Consider 4th replica for critical data                         │   │
+│   │  POST-INCIDENT:                                                     │   │
+│   │  1. Root cause: Why did placement allow 3 replicas on one rack?     │   │
+│   │  2. Fix placement algorithm to enforce rack diversity               │   │
+│   │  3. Add monitoring for placement constraint violations              │   │
+│   │  4. Consider 4th replica for critical data                          │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -2214,15 +2214,15 @@ FUNCTION retry_with_backoff(operation, config):
 │   Every GET follows this path. Each step must be optimized.                 │
 │                                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  1. Parse request, validate bucket/key         ~0.1ms              │   │
-│   │  2. Authenticate/authorize request             ~0.5ms (cached)     │   │
-│   │  3. Look up metadata from KV store             ~2ms                │   │
-│   │  4. Select healthy replica                     ~0.1ms              │   │
-│   │  5. Read data from storage node                ~5-10ms (disk)      │   │
-│   │  6. Verify checksum                            ~1ms (1MB object)   │   │
-│   │  7. Send response to client                    ~variable           │   │
+│   │  1. Parse request, validate bucket/key         ~0.1ms               │   │
+│   │  2. Authenticate/authorize request             ~0.5ms (cached)      │   │
+│   │  3. Look up metadata from KV store             ~2ms                 │   │
+│   │  4. Select healthy replica                     ~0.1ms               │   │
+│   │  5. Read data from storage node                ~5-10ms (disk)       │   │
+│   │  6. Verify checksum                            ~1ms (1MB object)    │   │
+│   │  7. Send response to client                    ~variable            │   │
 │   │  ─────────────────────────────────────────────────────              │   │
-│   │  TOTAL: ~10-15ms for 1MB object (disk read dominated)              │   │
+│   │  TOTAL: ~10-15ms for 1MB object (disk read dominated)               │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   BIGGEST FACTORS:                                                          │
@@ -2405,7 +2405,7 @@ WHY DEFER:
 │   │                                                                     │   │
 │   │  Actually: Internal DC traffic usually free or very cheap           │   │
 │   │  Internet egress: Depends on how much data leaves DC                │   │
-│   │  Assume 1% egress: 260 TB/month × $0.08/GB = ~$21,000/month        │   │
+│   │  Assume 1% egress: 260 TB/month × $0.08/GB = ~$21,000/month         │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   4. OPERATIONS (5% of cost)                                                │
@@ -2422,13 +2422,13 @@ WHY DEFER:
 │   │  Plus request costs: $0.0004/1K requests                            │   │
 │   │  Plus egress: $0.09/GB                                              │   │
 │   │                                                                     │   │
-│   │  At our scale (10K reads/sec, 1% egress):                          │   │
+│   │  At our scale (10K reads/sec, 1% egress):                           │   │
 │   │  - Storage: $23,000                                                 │   │
 │   │  - Requests: ~$10,000/month                                         │   │
 │   │  - Egress: ~$23,000/month                                           │   │
 │   │  - Total: ~$56,000/month                                            │   │
 │   │                                                                     │   │
-│   │  S3 is cheaper for us until we hit ~2-3 PB, then own infra wins.   │   │
+│   │  S3 is cheaper for us until we hit ~2-3 PB, then own infra wins.    │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -3064,11 +3064,11 @@ SIGNALS OF SENIOR-LEVEL THINKING:
 │                                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                           CLIENTS                                   │   │
-│   │    ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐              │   │
-│   │    │ App SDK │  │ CLI Tool│  │ Web UI  │  │ ETL Job │              │   │
-│   │    └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘              │   │
-│   └─────────┼────────────┼───────────┼────────────┼─────────────────────┘   │
-│             └────────────┴───────────┴────────────┘                         │
+│   │    ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐               │   │
+│   │    │ App SDK │  │ CLI Tool│  │ Web UI  │  │ ETL Job │               │   │
+│   │    └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘               │   │
+│   └─────────┼────────────┼───────────-┼────────────┼────────────────────┘   │
+│             └────────────┴──────────-─┴────────────┘                        │
 │                                 │                                           │
 │                                 ▼                                           │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -3080,23 +3080,23 @@ SIGNALS OF SENIOR-LEVEL THINKING:
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                      FRONTEND SERVICE (Stateless)                   │   │
 │   │                                                                     │   │
-│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                │   │
-│   │   │  Frontend 1 │  │  Frontend 2 │  │  Frontend N │                │   │
-│   │   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                │   │
+│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │   │
+│   │   │  Frontend 1 │  │  Frontend 2 │  │  Frontend N │                 │   │
+│   │   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                 │   │
 │   └──────────┼────────────────┼────────────────┼────────────────────────┘   │
 │              │                │                │                            │
 │     ┌────────┴────────────────┴────────────────┴────────┐                   │
-│     │                                                    │                   │
-│     ▼                                                    ▼                   │
+│     │                                                   │                   │
+│     ▼                                                   ▼                   │
 │ ┌───────────────────┐                    ┌───────────────────────────────┐  │
 │ │   METADATA STORE  │                    │      STORAGE SERVICE          │  │
 │ │                   │                    │                               │  │
 │ │  ┌─────────────┐  │                    │  Rack A    Rack B    Rack C   │  │
-│ │  │ FoundationDB│  │                    │  ┌─────┐  ┌─────┐  ┌─────┐   │  │
-│ │  │   Cluster   │  │                    │  │Node1│  │Node4│  │Node7│   │  │
-│ │  │   (5 nodes) │  │                    │  │Node2│  │Node5│  │Node8│   │  │
-│ │  └─────────────┘  │                    │  │Node3│  │Node6│  │Node9│   │  │
-│ │                   │                    │  └─────┘  └─────┘  └─────┘   │  │
+│ │  │ FoundationDB│  │                    │  ┌─────┐  ┌─────┐  ┌─────┐    │  │
+│ │  │   Cluster   │  │                    │  │Node1│  │Node4│  │Node7│    │  │
+│ │  │   (5 nodes) │  │                    │  │Node2│  │Node5│  │Node8│    │  │
+│ │  └─────────────┘  │                    │  │Node3│  │Node6│  │Node9│    │  │
+│ │                   │                    │  └─────┘  └─────┘  └─────┘    │  │
 │ │  - Object index   │                    │                               │  │
 │ │  - Bucket config  │                    │  - Object data on HDD         │  │
 │ │  - ACLs           │                    │  - 3× replication             │  │
@@ -3107,12 +3107,12 @@ SIGNALS OF SENIOR-LEVEL THINKING:
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                    BACKGROUND WORKERS                               │   │
 │   │                                                                     │   │
-│   │   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐    │   │
-│   │   │ Repair Worker   │  │ Integrity       │  │ Garbage         │    │   │
-│   │   │ (re-replicate   │  │ Scrubber        │  │ Collector       │    │   │
-│   │   │  lost data)     │  │ (verify         │  │ (reclaim        │    │   │
-│   │   │                 │  │  checksums)     │  │  deleted space) │    │   │
-│   │   └─────────────────┘  └─────────────────┘  └─────────────────┘    │   │
+│   │   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐     │   │
+│   │   │ Repair Worker   │  │ Integrity       │  │ Garbage         │     │   │
+│   │   │ (re-replicate   │  │ Scrubber        │  │ Collector       │     │   │
+│   │   │  lost data)     │  │ (verify         │  │ (reclaim        │     │   │
+│   │   │                 │  │  checksums)     │  │  deleted space) │     │   │
+│   │   └─────────────────┘  └─────────────────┘  └─────────────────┘     │   │
 │   │                                                                     │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
@@ -3142,14 +3142,14 @@ SIGNALS OF SENIOR-LEVEL THINKING:
 │    │                    │                  │              │    │    │       │
 │    │                    │ 3. Write data    │              │    │    │       │
 │    │                    │    (parallel)    │              │    │    │       │
-│    │                    │─────────────────────────────────▶│    │    │       │
-│    │                    │──────────────────────────────────────▶│    │       │
-│    │                    │───────────────────────────────────────────▶│       │
+│    │                    │────────────────────────────────▶│    │    │       │
+│    │                    │─────────────────────────────────────▶│    │       │
+│    │                    │──────────────────────────────────────────▶│       │
 │    │                    │                  │              │    │    │       │
 │    │                    │ 4. Wait for      │              │    │    │       │
 │    │                    │    quorum (2/3)  │              │    │    │       │
-│    │                    │◀─────────────────────────────────│ ACK│    │       │
-│    │                    │◀──────────────────────────────────────│ ACK│       │
+│    │                    │◀────────────────────────────────│ ACK│    │       │
+│    │                    │◀─────────────────────────────────────│ ACK│       │
 │    │                    │                  │              │    │    │       │
 │    │                    │ 5. Write         │              │    │    │       │
 │    │                    │    metadata      │              │    │    │       │
@@ -3163,7 +3163,7 @@ SIGNALS OF SENIOR-LEVEL THINKING:
 │    │                    │                  │              │    │    │       │
 │    │                    │ 6. 3rd replica   │              │    │    │       │
 │    │                    │    acks (async)  │              │    │    │       │
-│    │                    │◀───────────────────────────────────────────│ ACK   │
+│    │                    │◀──────────────────────────────────────────│ ACK   │
 │    │                    │                  │              │    │    │       │
 └─────────────────────────────────────────────────────────────────────────────┘
 
