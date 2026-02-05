@@ -197,7 +197,7 @@ NEAR-REAL-TIME (NRT) INDEXING (chosen):
 │   CATALOGING (Indexing):                                                    │
 │   - Librarian reads each book                                               │
 │   - Creates index cards: one per keyword                                    │
-│   - Card says: "Running" → Shelf 3, Book 42; Shelf 7, Book 87              │
+│   - Card says: "Running" → Shelf 3, Book 42; Shelf 7, Book 87               │
 │   - This is the INVERTED INDEX                                              │
 │                                                                             │
 │   SEARCHING (Query):                                                        │
@@ -205,13 +205,13 @@ NEAR-REAL-TIME (NRT) INDEXING (chosen):
 │   - Librarian pulls "running" card → Books 42, 87, 193                      │
 │   - Librarian pulls "shoes" card → Books 42, 150, 193                       │
 │   - Intersection: Books 42 and 193 (match BOTH)                             │
-│   - Rank: Book 42 has "running shoes" in the title → rank #1               │
+│   - Rank: Book 42 has "running shoes" in the title → rank #1                │
 │                                                                             │
 │   KEY INSIGHTS:                                                             │
 │   1. Index is built ONCE (or incrementally), queried MANY times             │
 │   2. Query time depends on RESULT SET SIZE, not total books                 │
 │   3. Ranking decides which results the patron sees first                    │
-│   4. Typo tolerance = "runnning" → "Did you mean: running?"                │
+│   4. Typo tolerance = "runnning" → "Did you mean: running?"                 │
 │   5. Synonyms = "sneakers" card points to "shoes" card                      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -659,7 +659,7 @@ TRANSACTION LOG:
 │   • Shards: Horizontal partitioning of index                                │
 │   • Replicas: Copies of each shard for read throughput                      │
 │   • Shard size target: 10-30 GB per shard                                   │
-│   • Shards needed: 100 GB / 20 GB = 5 primary shards                       │
+│   • Shards needed: 100 GB / 20 GB = 5 primary shards                        │
 │   • Replicas: 2 per shard (for availability + read throughput)              │
 │   • Total shard instances: 5 × 3 = 15                                       │
 │                                                                             │
@@ -778,22 +778,22 @@ COST ESTIMATE:
 │                                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                        DATA SOURCES                                 │   │
-│   │  ┌──────────┐  ┌──────────┐  ┌──────────┐                          │   │
-│   │  │ Product  │  │  CMS     │  │  User    │                          │   │
-│   │  │   DB     │  │  DB      │  │  DB      │                          │   │
-│   │  └────┬─────┘  └────┬─────┘  └────┬─────┘                          │   │
+│   │  ┌──────────┐  ┌──────────┐    ┌──────────┐                         │   │
+│   │  │ Product  │  │  CMS     │    │  User    │                         │   │
+│   │  │   DB     │  │  DB      │    │  DB      │                         │   │
+│   │  └────┬─────┘  └────┬─────┘    └────┬─────┘                         │   │
 │   └───────┼──────────────┼──────────────┼───────────────────────────────┘   │
-│           │              │              │                                    │
+│           │              │              │                                   │
 │           └──────────────┼──────────────┘                                   │
 │                          │ (CDC / Change Events)                            │
 │                          ▼                                                  │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │                    INDEXING PIPELINE                                 │   │
-│   │  ┌──────────┐  ┌──────────┐  ┌──────────┐                          │   │
-│   │  │  Event   │  │  Doc     │  │  Index   │                          │   │
-│   │  │  Queue   │→ │Transform │→ │  Writer  │                          │   │
-│   │  │ (Kafka)  │  │          │  │          │                          │   │
-│   │  └──────────┘  └──────────┘  └──────────┘                          │   │
+│   │                    INDEXING PIPELINE                                │   │
+│   │  ┌──────────┐  ┌──────────┐  ┌──────────┐                           │   │
+│   │  │  Event   │  │  Doc     │  │  Index   │                           │   │
+│   │  │  Queue   │→ │Transform │→ │  Writer  │                           │   │
+│   │  │ (Kafka)  │  │          │  │          │                           │   │
+│   │  └──────────┘  └──────────┘  └──────────┘                           │   │
 │   └────────────────────────────────┬────────────────────────────────────┘   │
 │                                    │                                        │
 │                                    ▼                                        │
@@ -807,30 +807,30 @@ COST ESTIMATE:
 │   │                         │                                           │   │
 │   │         ┌───────────────┼───────────────┐                           │   │
 │   │         ▼               ▼               ▼                           │   │
-│   │  ┌────────────┐ ┌────────────┐ ┌────────────┐                      │   │
-│   │  │  Shard 0   │ │  Shard 1   │ │  Shard 2   │  ...                 │   │
-│   │  │ (Primary)  │ │ (Primary)  │ │ (Primary)  │                      │   │
-│   │  │ + Replica  │ │ + Replica  │ │ + Replica  │                      │   │
-│   │  │ + Replica  │ │ + Replica  │ │ + Replica  │                      │   │
-│   │  └────────────┘ └────────────┘ └────────────┘                      │   │
+│   │  ┌────────────┐ ┌────────────┐ ┌────────────┐                       │   │
+│   │  │  Shard 0   │ │  Shard 1   │ │  Shard 2   │  ...                  │   │
+│   │  │ (Primary)  │ │ (Primary)  │ │ (Primary)  │                       │   │
+│   │  │ + Replica  │ │ + Replica  │ │ + Replica  │                       │   │
+│   │  │ + Replica  │ │ + Replica  │ │ + Replica  │                       │   │
+│   │  └────────────┘ └────────────┘ └────────────┘                       │   │
 │   │                                                                     │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                    SEARCH API                                       │   │
 │   │  (Rate limiting, authentication, query routing)                     │   │
-│   │  ┌──────────┐  ┌──────────┐  ┌──────────┐                          │   │
-│   │  │  API     │  │  API     │  │  API     │                          │   │
-│   │  │  Node 1  │  │  Node 2  │  │  Node N  │                          │   │
-│   │  └──────────┘  └──────────┘  └──────────┘                          │   │
+│   │  ┌──────────┐  ┌──────────┐  ┌──────────┐                           │   │
+│   │  │  API     │  │  API     │  │  API     │                           │   │
+│   │  │  Node 1  │  │  Node 2  │  │  Node N  │                           │   │
+│   │  └──────────┘  └──────────┘  └──────────┘                           │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                          ▲                                                  │
 │                          │                                                  │
 │   ┌──────────────────────┴──────────────────────────────────────────────┐   │
 │   │                    CLIENTS                                          │   │
-│   │  ┌──────────┐  ┌──────────┐  ┌──────────┐                          │   │
-│   │  │  Web     │  │ Mobile   │  │  API     │                          │   │
-│   │  └──────────┘  └──────────┘  └──────────┘                          │   │
+│   │  ┌──────────┐  ┌──────────┐  ┌──────────┐                           │   │
+│   │  │  Web     │  │ Mobile   │  │  API     │                           │   │
+│   │  └──────────┘  └──────────┘  └──────────┘                           │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -853,7 +853,7 @@ COST ESTIMATE:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        SEARCH QUERY FLOW                                    │
 │                                                                             │
-│  Client        API         Coordinator      Shard 0      Shard 1    Shard 2│
+│  Client        API         Coordinator      Shard 0      Shard 1    Shard 2 │
 │    │            │              │               │            │           │   │
 │    │ GET /search│              │               │            │           │   │
 │    │───────────▶│              │               │            │           │   │
@@ -863,18 +863,18 @@ COST ESTIMATE:
 │    │            │              │               │            │           │   │
 │    │            │              │ 3. Scatter    │            │           │   │
 │    │            │              │──────────────▶│            │           │   │
-│    │            │              │──────────────────────────▶│           │   │
-│    │            │              │──────────────────────────────────────▶│   │
+│    │            │              │────────────────────-──────▶│           │   │
+│    │            │              │─────────────────────────────-─────────▶│   │
 │    │            │              │               │            │           │   │
-│    │            │              │  4. Each shard: search local index    │   │
+│    │            │              │  4. Each shard: search local index     │   │
 │    │            │              │     - Lookup inverted index            │   │
 │    │            │              │     - Score with BM25                  │   │
 │    │            │              │     - Return top K results             │   │
 │    │            │              │               │            │           │   │
 │    │            │              │ 5. Gather     │            │           │   │
 │    │            │              │◀──────────────│            │           │   │
-│    │            │              │◀──────────────────────────│           │   │
-│    │            │              │◀──────────────────────────────────────│   │
+│    │            │              │◀──────────────────────────│            │   │
+│    │            │              │◀────────────────────────────────────-──│   │
 │    │            │              │               │            │           │   │
 │    │            │              │ 6. Merge + re-rank                     │   │
 │    │            │              │ 7. Top N global                        │   │
@@ -1121,17 +1121,17 @@ CLASS Coordinator:
 │                                                                             │
 │   FIELD TYPES:                                                              │
 │   TEXT:    Analyzed (tokenized, stemmed) → inverted index                   │
-│   KEYWORD: Not analyzed → exact match, aggregation, filtering              │
-│   FLOAT/INT: Numeric → range queries, sorting                              │
+│   KEYWORD: Not analyzed → exact match, aggregation, filtering               │
+│   FLOAT/INT: Numeric → range queries, sorting                               │
 │   BOOLEAN: Binary filter                                                    │
 │   TIMESTAMP: Date → range queries, sorting                                  │
 │                                                                             │
 │   INVERTED INDEX STRUCTURE (per shard):                                     │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │  Term Dictionary:  "run" → segment_offset                           │   │
-│   │  Posting List:     [doc_3(tf=2,pos=[1,5]), doc_42(tf=1,pos=[3])]   │   │
-│   │  Doc Values:       doc_3 → {price: 99.99, brand: "Nike"}           │   │
-│   │  Stored Fields:    doc_3 → {title: "Running Shoes", image: "..."}  │   │
+│   │  Posting List:     [doc_3(tf=2,pos=[1,5]), doc_42(tf=1,pos=[3])]    │   │
+│   │  Doc Values:       doc_3 → {price: 99.99, brand: "Nike"}            │   │
+│   │  Stored Fields:    doc_3 → {title: "Running Shoes", image: "..."}   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   SEGMENTS:                                                                 │
@@ -1386,12 +1386,12 @@ MITIGATION:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│   FAILURE SCENARIO: BAD SYNONYM CONFIG TANKS SEARCH RELEVANCE              │
+│   FAILURE SCENARIO: BAD SYNONYM CONFIG TANKS SEARCH RELEVANCE               │
 │                                                                             │
 │   TRIGGER:                                                                  │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │  Engineer deploys updated synonym file for product search.          │   │
-│   │  Synonym: "phone" → "case" (intended: "phone" → "mobile")          │   │
+│   │  Synonym: "phone" → "case" (intended: "phone" → "mobile")           │   │
 │   │  Typo in synonym mapping.                                           │   │
 │   │  All queries containing "phone" now match "case" documents.         │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
@@ -1414,7 +1414,7 @@ MITIGATION:
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │  - Alert: CTR drop > 20% on high-volume queries                     │   │
 │   │  - Dashboard: Top query "phone" relevance score degraded            │   │
-│   │  - Qualitative: Manual spot check of top 10 queries                │   │
+│   │  - Qualitative: Manual spot check of top 10 queries                 │   │
 │   │  - Correlation: Recent config deployment                            │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
@@ -1491,9 +1491,9 @@ Indexing (server-side):
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   BIGGEST FACTORS:                                                          │
-│   - Posting list intersection (depends on query cardinality)               │
-│   - BM25 scoring (proportional to candidate set size)                      │
-│   - OS page cache: Index in memory = 30ms; on disk = 200ms                 │
+│   - Posting list intersection (depends on query cardinality)                │
+│   - BM25 scoring (proportional to candidate set size)                       │
+│   - OS page cache: Index in memory = 30ms; on disk = 200ms                  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1632,8 +1632,8 @@ DEFERRED OPTIMIZATIONS:
 │                                                                             │
 │   2. STORAGE (20% of cost)                                                  │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  SSD: 300 GB (index + replicas) × $0.10/GB = $30/month             │   │
-│   │  Kafka: 100 GB × $0.10/GB = $10/month                              │   │
+│   │  SSD: 300 GB (index + replicas) × $0.10/GB = $30/month              │   │
+│   │  Kafka: 100 GB × $0.10/GB = $10/month                               │   │
 │   │  Total storage: ~$40/month                                          │   │
 │   │  (Storage is cheap; compute dominates)                              │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
@@ -1653,6 +1653,22 @@ DEFERRED OPTIMIZATIONS:
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+## Cost Analysis Table (L5 Checklist)
+
+| Cost Driver | Current | At Scale (10×) | Optimization |
+|-------------|---------|----------------|--------------|
+| Compute (search nodes + API + indexers) | ~$6,000/mo | ~$60,000/mo | Right-size instances; spot for replicas; query result cache to reduce QPS per node |
+| Storage (SSD + Kafka) | ~$40/mo | ~$400/mo | Tiered storage for old segments; Kafka retention tuned to recovery needs |
+| Infrastructure (Kafka cluster, monitoring) | ~$700/mo | ~$4,000/mo | Shared Kafka cluster; sampling for logs |
+
+**Senior cost discipline:** Intentionally not building ML ranking, personalization, or cross-datacenter search in V1. Premature optimization (e.g. custom compression) wastes time; cost-cutting is safe on replicas (spot) and indexing pipeline (smaller instances), dangerous on primaries or cache size.
+
+| Decision | Cost Impact | Operability Impact | On-Call Impact |
+|----------|-------------|---------------------|----------------|
+| More replicas | +$X | Better availability | Fewer partial-failure pages |
+| Query result cache | -$Y | Fewer nodes for same QPS | Fewer latency spikes |
+| Spot instances for replicas only | -$1.5K/mo | Replica can be preempted | Acceptable; promote another replica |
 
 ## On-Call Burden Analysis
 
@@ -1817,6 +1833,31 @@ SCENARIO: New analyzer strips numeric tokens (breaking model number search)
    - Relevance test suite: Known query → expected results
    - Run before every analyzer/synonym change
    - Automated: If test fails, block deployment
+```
+
+## Rushed Decision Scenario
+
+```
+RUSHED DECISION SCENARIO
+
+CONTEXT:
+- Peak launch: New product line goes live in 6 hours. Search must support new
+  "model number" field for filtering. Ideal: New analyzer, synonym list for
+  model aliases, regression tests, canary rollout.
+
+DECISION MADE:
+- Ship with stored field + filter only: no new analyzer, no tokenization of
+  model numbers. Exact match filter (e.g. model: "iPhone 15 Pro") works;
+  free-text search "iPhone 15" still uses existing title/description only.
+- Why acceptable: Unblocks launch; filter covers primary use case; no index
+  schema change = no full reindex, no rollout risk.
+
+TECHNICAL DEBT INTRODUCED:
+- Queries like "15 Pro" don't match model field; users must use filter.
+- When we add proper model tokenization later: reindex required, analyzer
+  change, relevance tests. Cost: ~1 sprint to do right + 83 min full reindex.
+- Carrying debt: Support tickets ("search doesn't find by model"); documented
+  as known limitation; fix scheduled for next quarter.
 ```
 
 ---
@@ -2137,6 +2178,14 @@ WHY IT'S BORDERLINE: Shows ambition but not pragmatism.
 Problem: ML ranking requires training data, feature engineering, model serving; premature for V1.
 
 L5 FIX: BM25 + boost factors for V1. Collect click data. Add ML ranking when you have enough signal.
+
+
+BORDERLINE L5 MISTAKE: Good design (sharding, BM25, NRT) but no failure mode discussion
+
+WHY IT'S BORDERLINE: Shows skill but not ownership mentality.
+Problem: Interviewer infers candidate wouldn't think about partial failures, rollback, or on-call.
+
+L5 FIX: Proactively discuss "what happens when one shard is slow," "how we roll back a bad config," and "how we detect relevance regression."
 ```
 
 ---
@@ -2150,10 +2199,10 @@ L5 FIX: BM25 + boost factors for V1. Collect click data. Add ML ranking when you
 │                        SEARCH SYSTEM ARCHITECTURE                           │
 │                                                                             │
 │   DATA SOURCES                                                              │
-│   ┌──────────┐   ┌──────────┐   ┌──────────┐                               │
-│   │ Product  │   │  CMS     │   │  User    │                               │
-│   │   DB     │   │  DB      │   │  DB      │                               │
-│   └────┬─────┘   └────┬─────┘   └────┬─────┘                               │
+│   ┌──────────┐   ┌──────────┐     ┌──────────┐                              │
+│   │ Product  │   │  CMS     │     │  User    │                              │
+│   │   DB     │   │  DB      │     │  DB      │                              │
+│   └────┬─────┘   └────┬─────┘     └────┬─────┘                              │
 │        └───────────────┼───────────────┘                                    │
 │                        │ CDC events                                         │
 │                        ▼                                                    │
@@ -2176,23 +2225,23 @@ L5 FIX: BM25 + boost factors for V1. Collect click data. Add ML ranking when you
 │   │                              │                                      │   │
 │   │          ┌───────────────────┼───────────────────┐                  │   │
 │   │          ▼                   ▼                   ▼                  │   │
-│   │   ┌────────────┐     ┌────────────┐     ┌────────────┐             │   │
-│   │   │  Shard 0   │     │  Shard 1   │     │  Shard 2   │  ...        │   │
-│   │   │ P + 2R     │     │ P + 2R     │     │ P + 2R     │             │   │
-│   │   └────────────┘     └────────────┘     └────────────┘             │   │
+│   │   ┌────────────┐     ┌────────────┐     ┌────────────┐              │   │
+│   │   │  Shard 0   │     │  Shard 1   │     │  Shard 2   │  ...         │   │
+│   │   │ P + 2R     │     │ P + 2R     │     │ P + 2R     │              │   │
+│   │   └────────────┘     └────────────┘     └────────────┘              │   │
 │   │                                                                     │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                        ▲                                                    │
 │                        │                                                    │
 │   ┌─────────────────────────────────────────┐                               │
-│   │          SEARCH API (stateless)          │                              │
+│   │          SEARCH API (stateless)         │                               │
 │   └────────────────────┬────────────────────┘                               │
 │                        ▲                                                    │
 │              ┌─────────┼─────────┐                                          │
 │              │         │         │                                          │
-│           ┌──┴──┐  ┌──┴──┐  ┌──┴──┐                                       │
-│           │ Web │  │Mobil│  │ API │                                        │
-│           └─────┘  └─────┘  └─────┘                                        │
+│           ┌──┴──┐   ┌──┴──┐   ┌──┴──┐                                       │
+│           │ Web │   │Mobil│   │ API │                                       │
+│           └─────┘   └─────┘   └─────┘                                       │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2251,6 +2300,18 @@ L5 FIX: BM25 + boost factors for V1. Collect click data. Add ML ranking when you
 | 2× | 100M | 4K | 10 | More shards + replicas | Scatter-gather latency |
 | 5× | 250M | 10K | 25 | Many more replicas | Coordinator fan-out |
 | 10× | 500M | 20K | 50 | Architecture change needed | P99 tail latency |
+
+#### Scale Estimates Table (L5 Checklist)
+
+| Metric | Current | 10× Scale | Breaking Point |
+|--------|---------|-----------|----------------|
+| Documents | 50M | 500M | When index exceeds page cache per node |
+| QPS | 2K | 20K | When coordinator fan-out or single-node CPU saturates |
+| Search nodes | 10 | 100 | When operational burden (shards, rebalancing) becomes unsustainable |
+| Index size | 100 GB | 1 TB | When single node can't hold shard in RAM/cache |
+| Shards | 5 | 50 | When scatter-gather P99 dominates (slowest shard wins) |
+
+**Scale analysis:** The most fragile assumption is *index fits in OS page cache*. At 10×, the first thing that breaks is P99 latency (tail shard + coordinator merge). Back-of-envelope: 50 shards × 50ms P99 per shard → coordinator waits on slowest; one 500ms shard makes whole query 500ms+.
 
 ```
 AT 2× (100M docs, 4K QPS):
@@ -2399,6 +2460,57 @@ MITIGATION:
 3. Rolling restarts: One node at a time, wait for warm
 
 PERMANENT FIX: Pre-warm script; health check includes cache readiness
+```
+
+### Scenario B5: Database Failover (Document Store / Source DB)
+
+```
+SITUATION: Primary DB (source of truth for documents) fails; failover to secondary.
+
+IMMEDIATE BEHAVIOR:
+- CDC/Kafka may have brief gap or duplicate events during failover
+- Indexing pipeline: Consumer may see out-of-order or repeated events
+- Search cluster: Unaffected (serves from existing index)
+- Document enrichment (fetch full body from doc store): If doc store is same DB, reads go to new primary after failover
+
+USER SYMPTOMS:
+- Short window (seconds to 1–2 min): Possible stale or missing docs if indexing lagged
+- Once consumer catches up: Search and doc store both consistent with new primary
+
+DETECTION:
+- DB failover alerts; Kafka consumer lag spike; brief indexing lag
+
+MITIGATION:
+1. Idempotent indexing: Replayed events overwrite same doc; no duplicates in index
+2. Document store: Read from secondary if available during failover to avoid overloading new primary
+3. After failover: Let consumer drain lag; verify index freshness metric
+
+PERMANENT FIX: Document store read replica for enrichment; indexing pipeline tolerates brief event gap (at-least-once + idempotent write).
+```
+
+### Scenario B6: Retry Storm (Client Retries on Timeout)
+
+```
+SITUATION: One shard slow → search P99 rises → clients timeout and retry → effective QPS 2×–3× → coordinator and shards overload.
+
+IMMEDIATE BEHAVIOR:
+- Latency spike causes more timeouts → more retries → more load → more latency
+- Cascade: Healthy shards start missing SLA; partial results increase
+
+USER SYMPTOMS:
+- Search intermittently very slow or "no results"
+- Errors or timeouts in UI/API
+
+DETECTION:
+- QPS spike (retries) with error rate or timeout rate increasing
+- Per-shard latency: One shard slow first, then others degrade
+
+MITIGATION:
+1. Client: Strict retry policy (e.g. 1 retry, backoff 100ms); no retry on timeout for search (return partial results instead)
+2. Server: Per-shard timeout (500ms) so coordinator doesn't wait forever; return partial results + shards_failed
+3. Circuit breaker: If error rate > threshold, fail fast to avoid cascading load
+
+PERMANENT FIX: Limit retries; prefer partial results over retry storm; alert on retry rate and per-shard P99.
 ```
 
 ---
@@ -2609,11 +2721,13 @@ C. Failure Handling & Reliability:
 
 D. Scale & Performance:
 ✓ Concrete numbers (50M docs, 2K QPS, 100 GB index)
+✓ Scale Estimates Table (Current / 10× / Breaking Point)
 ✓ 10× scale analysis (scatter-gather bottleneck)
 ✓ Page cache as most fragile assumption
 
 E. Cost & Operability:
 ✓ $7K/month breakdown
+✓ Cost Analysis Table (Current / At Scale / Optimization)
 ✓ Misleading signals section (QPS normal but results irrelevant)
 ✓ On-call burden analysis
 
@@ -2626,11 +2740,17 @@ G. Rollout & Operational Safety:
 ✓ Deployment strategy (rolling, canary for config)
 ✓ Zero-downtime index migration (alias swap)
 ✓ Bad analyzer deployment scenario
+✓ Rushed Decision scenario (shipping filter-only for model field)
 
 H. Interview Calibration:
 ✓ L4 vs L5 mistakes with WHY IT'S L4 / L5 FIX
+✓ Borderline L5 mistake (no failure discussion) with L5 FIX
 ✓ Strong L5 signals and phrases
 ✓ Clarifying questions and non-goals
+
+Brainstorming (Part 18):
+✓ Failure scenarios: Slow shard, full rebuild, Kafka down, cache stampede, database failover (B5), retry storm (B6)
+✓ Ownership Under Pressure: 30-minute mitigation scenario
 ```
 
 ---
