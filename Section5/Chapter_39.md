@@ -1671,6 +1671,98 @@ GRACEFUL SHUTDOWN (Connection Server):
     overloaded. Cascading. 5-minute outage instead of smooth deploy.
 ```
 
+## Timeout Budget & Retry Behavior
+
+```
+TIMEOUT BUDGET (CRITICAL PATH):
+
+    Every network call on the hot path needs an explicit timeout.
+    Without timeouts: One slow dependency → thread blocked indefinitely →
+    thread pool exhaustion → all message sends fail. Timeouts are circuit
+    breakers for individual requests.
+
+    ┌──────────────────────────────┬──────────┬────────────────────────────────┐
+    │ Operation                    │ Timeout  │ Justification                   │
+    ├──────────────────────────────┼──────────┼────────────────────────────────┤
+    │ Redis GET (idempotency)      │ 50ms     │ Normal: < 1ms. If > 50ms,      │
+    │                              │          │ Redis is under extreme load.    │
+    │                              │          │ Fall back to DB idempotency.    │
+    ├──────────────────────────────┼──────────┼────────────────────────────────┤
+    │ Redis INCR (sequence number) │ 50ms     │ Normal: < 1ms. If > 50ms,      │
+    │                              │          │ fall back to DB sequence.       │
+    ├──────────────────────────────┼──────────┼────────────────────────────────┤
+    │ PostgreSQL INSERT (message)  │ 2s       │ Normal: ~5ms. If > 2s, DB is   │
+    │                              │          │ severely degraded. Return 503.  │
+    │                              │          │ Client retries (idempotent).    │
+    ├──────────────────────────────┼──────────┼────────────────────────────────┤
+    │ Kafka publish (delivery)     │ 500ms    │ Normal: ~2ms. If > 500ms,      │
+    │                              │          │ Kafka partition is unavailable. │
+    │                              │          │ Retry up to 3 times.           │
+    │                              │          │ After 3 failures: Message is    │
+    │                              │          │ persisted. Log error. Fan-out   │
+    │                              │          │ recovers via poll catch-up.     │
+    ├──────────────────────────────┼──────────┼────────────────────────────────┤
+    │ gRPC to connection server    │ 1s       │ Normal: ~2ms. If > 1s,         │
+    │ (delivery push)              │          │ connection server overloaded.   │
+    │                              │          │ Mark delivery as failed.        │
+    │                              │          │ Fall back to push notification. │
+    ├──────────────────────────────┼──────────┼────────────────────────────────┤
+    │ DB SELECT (membership check) │ 500ms    │ Normal: ~5ms. If > 500ms,      │
+    │                              │          │ DB under load. Reject message   │
+    │                              │          │ send with 503. Client retries.  │
+    ├──────────────────────────────┼──────────┼────────────────────────────────┤
+    │ WebSocket heartbeat pong     │ 10s      │ After server sends ping, client│
+    │                              │          │ has 10s to respond. If not:     │
+    │                              │          │ connection is dead. Clean up.   │
+    └──────────────────────────────┴──────────┴────────────────────────────────┘
+
+    TOTAL TIMEOUT BUDGET (message send):
+    Redis (50ms) + DB INSERT (2s) + Kafka (500ms) = 2.55s worst case
+    Normal case: 0.1ms + 5ms + 2ms = ~8ms
+    The gap between normal and worst case is 300×.
+    If timeouts fire frequently: The system is in trouble.
+    Alert: If > 1% of any operation hits timeout → P1 alert.
+
+    RETRY STRATEGY FOR MESSAGE SEND:
+
+    CLIENT-SIDE RETRY (on send failure or timeout):
+        delay = MIN(base_delay × 2^attempt + random_jitter, max_delay)
+        base_delay = 500ms
+        max_delay = 10s
+        max_retries = 5
+        jitter = random(0, 250ms)
+
+        Attempt 1: 500-750ms
+        Attempt 2: 1-1.25s
+        Attempt 3: 2-2.25s
+        Attempt 4: 4-4.25s
+        Attempt 5: 8-8.25s (then give up, show error)
+
+        IDEMPOTENT: Same client_msg_id on every retry. Server deduplicates.
+
+    SERVER-SIDE RETRY (Kafka publish failure):
+        Retry inline up to 3 times with 100ms delay.
+        If all 3 fail: Message is persisted (safe). Log Kafka publish failure.
+        Recovery: Separate reconciliation job runs every 60 seconds:
+        → SELECT messages WHERE msg_id NOT IN kafka_published_ids
+           AND created_at > NOW() - INTERVAL 5 minutes
+        → Re-publish to Kafka.
+        → Belt-and-suspenders: Even if Kafka publish is lost, message
+          reaches recipient on next sync (app open or reconnect).
+
+    FAN-OUT WORKER RETRY (delivery failure):
+        If gRPC to connection server fails:
+        → Retry once after 500ms.
+        → If still fails: Mark connection as dead, clean registry, try push.
+        → DO NOT retry indefinitely. Push notification is the fallback.
+
+    WHY THIS MATTERS FOR L5:
+    A mid-level engineer adds timeouts "somewhere around 5 seconds" without
+    reasoning. A Senior engineer sizes each timeout relative to normal
+    operation (e.g., 50ms timeout for 1ms operation = 50× headroom) and
+    defines explicit fallback behavior for EACH timeout.
+```
+
 ## Production Failure Scenario: The Silent Message Backlog
 
 ```
@@ -2973,9 +3065,219 @@ ON-CALL SCENARIOS:
        is processed. ETA: [lag / processing_rate] seconds."
 ```
 
-## G. Interview-Oriented Thought Prompts
+## G. Rollout, Rollback & Deployment Safety
 
-### Prompt G1: Clarifying Questions to Ask First
+### Rollout Strategy
+
+```
+ROLLOUT STAGES (CHAT SERVICE / FAN-OUT WORKER CODE CHANGES):
+
+    STAGE 1: Canary (1 instance, ~14% of chat service traffic)
+    → Deploy new code to 1 of 7 chat service instances
+    → Observe for 15 minutes (bake time)
+    → CANARY CRITERIA (must all pass):
+      - Message send success rate ≥ 99.5% (same as other instances)
+      - Message send latency P99 ≤ 1.5× baseline
+      - Kafka publish failure rate < 0.1%
+      - No new error log patterns
+      - Sequence gap rate not elevated
+    → If any criterion fails: Rollback immediately.
+
+    STAGE 2: Partial (3 instances, ~43% of traffic)
+    → Deploy to 3 of 7 instances
+    → Observe for 15 minutes
+    → Same criteria, plus:
+      - End-to-end delivery latency P99 ≤ 1.5× baseline
+      - Kafka consumer lag not growing (fan-out worker deploy)
+    → If any criterion fails: Rollback to 1 canary, investigate.
+
+    STAGE 3: Full (7 instances, 100%)
+    → Deploy to remaining instances
+    → Observe for 30 minutes (longer bake: full traffic exposure)
+    → Monitor through at least one peak period (evening)
+
+    TOTAL ROLLOUT TIME: ~60-90 minutes (not instant, by design).
+    WHY 15-MINUTE BAKE TIMES:
+    - Some bugs are rate-dependent (only trigger at certain QPS)
+    - 15 minutes × 10K msg/sec = 9M messages processed. Sufficient sample.
+    - Shorter: Risk missing rare bugs. Longer: Delays deploy velocity.
+
+    CONNECTION SERVER ROLLOUT:
+    Different strategy because connection servers are STATEFUL.
+    → One server at a time (see Graceful Shutdown section).
+    → Each drain + restart: ~2 minutes.
+    → 12 servers × 2 min = 24 minutes minimum.
+    → NEVER parallel. Always sequential.
+```
+
+### Rollback Triggers & Mechanism
+
+```
+ROLLBACK TRIGGERS (AUTOMATIC):
+
+    ANY of these conditions → automated rollback within 2 minutes:
+
+    1. Message send success rate < 98% for 3 consecutive minutes
+       (normal: > 99.5%)
+
+    2. Message send latency P99 > 5s for 2 consecutive minutes
+       (normal: < 1s)
+
+    3. Kafka consumer lag > 100K and growing for 5 minutes
+       (normal: < 1K)
+
+    4. Connection server crash rate > 0 during deploy window
+       (normal: 0)
+
+    5. Unhandled exception rate > 10× baseline for 2 minutes
+
+ROLLBACK MECHANISM:
+
+    Chat service / fan-out worker (STATELESS):
+    → Kubernetes rolling update to previous image tag.
+    → All instances replaced within 2 minutes.
+    → Zero downtime (old instances serve until new instances healthy).
+    → Rollback time: ~2 minutes (fast—stateless, no drain needed).
+
+    Connection server (STATEFUL):
+    → Same graceful drain procedure as forward deploy.
+    → 12 servers × 2 min = 24 minutes to fully roll back.
+    → During rollback: Mix of old and new code running.
+    → CRITICAL: Old and new code MUST be compatible.
+
+DATA COMPATIBILITY:
+
+    Forward compatibility: New code must read data written by old code.
+    Backward compatibility: Old code must read data written by new code.
+
+    EXAMPLE: Adding a new field to Kafka delivery events.
+    → New code publishes: {msg_id, conversation_id, ..., NEW_FIELD: value}
+    → Old fan-out worker consumes: Ignores unknown field (if well-written).
+    → RISK: If old code CRASHES on unknown field → broken during mixed deploy.
+    → RULE: All Kafka message consumers MUST ignore unknown fields.
+      This is a DAY 1 coding standard. Same as client ignoring unknown
+      WebSocket message types.
+
+    SCHEMA CHANGES: Additive only.
+    → ALTER TABLE ADD COLUMN: Safe. Old code ignores new column.
+    → ALTER TABLE DROP COLUMN: UNSAFE during rollback. Old code may SELECT it.
+    → DROP after 2 deploy cycles (current deploy + next deploy confirmed stable).
+```
+
+### Bad Code Deployment Scenario
+
+```
+SCENARIO: BAD DEPLOY — SEQUENCE NUMBER REGRESSION
+
+1. CHANGE DEPLOYED:
+   New chat service code refactors sequence number assignment.
+   Developer accidentally changes Redis key from "seq:{conversation_id}"
+   to "sequence:{conversation_id}". New key namespace.
+
+   Expected: Sequence numbers continue incrementing from where they left off.
+   Actual: New key starts at 1 for every conversation. Redis INCR on new
+   key returns 1, 2, 3, ... — colliding with existing sequence numbers.
+
+2. BREAKAGE TYPE:
+   SUBTLE. Not an immediate crash. Messages are being sent and persisted.
+   BUT: DB INSERT fails with unique constraint violation
+   (conversation_id, sequence_num UNIQUE). Existing seq 1 already exists.
+   Some conversations fail. Others (new conversations) work fine.
+
+   Error rate: Rises slowly. First 10 minutes: ~15% of message sends
+   fail (conversations with existing messages). Conversations with no
+   messages: Work fine (no collision). Mix: Error rate looks "elevated
+   but not critical" initially.
+
+3. DETECTION SIGNALS:
+   - Message send success rate drops from 99.5% to ~85% (15% failures)
+   - DB unique constraint violation errors spike in logs
+   - Users report: "Some messages fail to send, others work"
+   - CANARY SHOULD CATCH THIS: 15% error rate on canary instance
+     vs 0.1% on other instances → automatic rollback triggered at
+     "success rate < 98%" threshold.
+
+4. ROLLBACK STEPS:
+   - Automated rollback triggered (success rate < 98% for 3 minutes)
+   - Old chat service image deployed within 2 minutes
+   - Old code uses "seq:{conversation_id}" key → correct counters
+   - Messages that failed during bad deploy: Clients retry with
+     same client_msg_id → succeed on old code. No duplicates.
+   - Sequence numbers assigned during bad deploy (1, 2, 3, ...) on
+     the WRONG key: Orphaned in Redis. No data corruption (DB rejected
+     the inserts).
+
+5. GUARDRAILS ADDED:
+   - Integration test: Deploy canary → send message to existing
+     conversation → verify sequence number > previous max.
+   - Redis key namespace: Defined as constant, not inline string.
+     Code review catches namespace changes.
+   - Pre-deploy check: Compare Redis key patterns between old and
+     new code. Flag any changes to sequence/idempotency key patterns.
+   - Canary success rate threshold lowered from 98% to 99% (catch
+     subtle regressions faster).
+```
+
+### Rushed Decision Scenario
+
+```
+RUSHED DECISION SCENARIO:
+
+CONTEXT:
+    Product launch in 2 weeks. Chat system V1 is almost ready.
+    Product team requests: "We need read receipts for launch.
+    Without them, users don't know if their messages were seen."
+    Timeline: 2 weeks. Read receipts not yet implemented.
+
+IDEAL SOLUTION:
+    Per-conversation read pointer (last_read_sequence_num) stored in
+    conversation_members table. Read receipt events propagated to
+    all conversation members via fan-out. Batch multiple read updates
+    (user reads 10 messages, send ONE receipt for the highest seq).
+    Estimated: 3-4 weeks.
+
+DECISION MADE (SHORTCUT):
+    Simplified V1 read receipts:
+    1. Store last_read_sequence_num in conversation_members (as planned).
+    2. Propagate read receipt ONLY to 1:1 conversations (skip groups).
+    3. Propagate via direct WebSocket push (not Kafka fan-out).
+    4. No batching. Each read sends one receipt event.
+
+    WHY THIS IS ACCEPTABLE:
+    - 1:1 is 80% of conversations. Group read receipts less critical.
+    - Direct push (not Kafka) adds coupling but works for 1:1 (only
+      one recipient to notify). Group would need fan-out (N recipients).
+    - No batching: For 1:1, user reads one message at a time. Batching
+      optimization is for groups (many messages arriving simultaneously).
+    - Ships in 1 week. Meets launch deadline.
+
+TECHNICAL DEBT INTRODUCED:
+    - Group read receipts: Not visible. Group members can't see who read.
+      → User expectation gap: "Why can I see read receipts in DMs but not groups?"
+    - No batching: If added to groups later, each message read in a 50-member
+      group = 50 fan-out events. Without batching: 10 messages read = 500 events.
+      → Performance risk when group receipts are added.
+    - Direct push (no Kafka): Read receipt delivery not retry-safe. If connection
+      drops, receipt lost. Sender doesn't see ✓✓.
+      → Acceptable for V1: Read receipts are informational, not critical.
+
+    PAYDOWN PLAN:
+    - Month 2: Migrate read receipts to Kafka fan-out (consistent with messages)
+    - Month 3: Add group read receipts (with batching)
+    - Month 4: Add "read by N of M members" UI for groups
+
+    COST OF CARRYING DEBT:
+    - User complaints about missing group read receipts: Moderate (expected)
+    - Occasional missed 1:1 receipts (connection drop): Low (informational)
+    - Code complexity: Two delivery paths (messages via Kafka, receipts via
+      direct push). Engineers confused about which path to use for new features.
+    - Acceptable for 2-3 months. Must fix before adding more features on
+      the delivery path.
+```
+
+## H. Interview-Oriented Thought Prompts
+
+### Prompt H1: Clarifying Questions to Ask First
 
 ```
 1. "Is this 1:1 chat, group chat, or both?"
@@ -3005,7 +3307,7 @@ ON-CALL SCENARIOS:
      for web and mobile), push notification services needed.
 ```
 
-### Prompt G2: What You Explicitly Don't Build
+### Prompt H2: What You Explicitly Don't Build
 
 ```
 1. VOICE / VIDEO CALLS (V1)
@@ -3033,7 +3335,7 @@ ON-CALL SCENARIOS:
    per bot, message format validation. Separate system layered on top."
 ```
 
-### Prompt G3: Pushing Back on Scope Creep
+### Prompt H3: Pushing Back on Scope Creep
 
 ```
 INTERVIEWER: "Can you add end-to-end encryption?"
@@ -3094,6 +3396,9 @@ C. Failure Handling & Reliability:
 ✓ Load shedding with priority tiers (messages > receipts > typing)
 ✓ Graceful shutdown with controlled client reconnection
 ✓ Network partition (multi-region) handling
+✓ Explicit timeout budget for every hot path operation (Redis, DB, Kafka, gRPC)
+✓ Retry strategy: Client-side (exponential backoff + jitter), server-side (Kafka republish)
+✓ Fan-out worker retry with push notification fallback
 
 D. Scale & Performance:
 ✓ Concrete numbers (500K concurrent, 200M msg/day, 10K msg/sec peak)
@@ -3119,6 +3424,11 @@ F. Ownership & On-Call Reality:
 ✓ Reconnection storm as worse-than-original-failure insight
 ✓ Connection server OOM scenario (detection, mitigation, permanent fix)
 ✓ Rolling deploy with graceful drain procedure
+✓ Rollout stages with canary criteria (success rate, latency, consumer lag)
+✓ Automatic rollback triggers and mechanism
+✓ Bad deploy scenario: Sequence number key regression (full walkthrough)
+✓ Rushed decision scenario: V1 read receipts shortcut (debt + paydown plan)
+✓ Data compatibility rules (forward/backward during mixed deploys)
 
 G. Concurrency & Consistency:
 ✓ Sequence number atomicity (Redis INCR)
@@ -3135,6 +3445,15 @@ H. Interview Calibration:
 ✓ Clarifying questions and non-goals
 ✓ Scope creep pushback (E2E encryption)
 
+I. Rollout & Operational Safety:
+✓ Canary deployment stages (1 instance → 3 → 7) with bake times
+✓ Canary criteria: success rate, latency P99, consumer lag, error patterns
+✓ Connection server rollout (sequential, graceful drain)
+✓ Automatic rollback triggers (5 specific conditions)
+✓ Rollback mechanism (stateless: 2 min, stateful: 24 min)
+✓ Data compatibility rules (additive schema changes, ignore unknown fields)
+✓ Bad deploy scenario: Sequence number regression (detection + recovery)
+
 Brainstorming (Part 18):
 ✓ Scale: 2×/5×/10× analysis with specific bottleneck identification
 ✓ Failure: Slow DB, OOM, Redis down, network partition, Kafka broker failure
@@ -3142,12 +3461,13 @@ Brainstorming (Part 18):
 ✓ Correctness: Idempotency layers, duplicate handling, partial failure corruption
 ✓ Evolution: Message reactions (2-week), backward compatibility, schema migration
 ✓ On-Call: Connection drop, Kafka lag (full triage)
+✓ Deployment: Rollout stages, bad deploy (sequence key), rushed decision (read receipts)
 ✓ Interview: Clarifying questions, explicit non-goals, scope creep pushback
 
 UNAVOIDABLE GAPS:
-- None. All Senior-level signals covered.
+- None. All Senior-level signals covered after enrichment.
 ```
 
 ---
 
-*This chapter provides the foundation for confidently designing and owning a real-time chat system as a Senior Software Engineer. The core insight: the hard problem isn't delivering messages fast—it's delivering them reliably, in order, to every device, under every failure condition. Every design decision flows from this: persist before deliver (messages survive any downstream failure), per-conversation sequence numbers (ordering without a global bottleneck), at-least-once delivery with client-side dedup (effectively exactly-once), Kafka-decoupled fan-out (chat service never blocked by delivery), reconnection backoff with jitter (one server crash doesn't cascade into total outage), priority-based load shedding (messages survive even when typing indicators don't), and graceful connection draining (deploys are invisible to users). The system handles 500K concurrent connections, delivers 200M messages per day at sub-second latency, and degrades gracefully when any component fails—because in chat, a delayed message is acceptable, but a lost message is not. Master the ordering invariant (sequence numbers, not timestamps), the delivery guarantee (persist → deliver → push → sync), the fan-out multiplier (group size is the throughput multiplier), and the reconnection storm (jitter saves the system), and you can design, own, and operate a chat system at any scale.*
+*This chapter provides the foundation for confidently designing and owning a real-time chat system as a Senior Software Engineer. The core insight: the hard problem isn't delivering messages fast—it's delivering them reliably, in order, to every device, under every failure condition. Every design decision flows from this: persist before deliver (messages survive any downstream failure), per-conversation sequence numbers (ordering without a global bottleneck), at-least-once delivery with client-side dedup (effectively exactly-once), Kafka-decoupled fan-out (chat service never blocked by delivery), reconnection backoff with jitter (one server crash doesn't cascade into total outage), priority-based load shedding (messages survive even when typing indicators don't), graceful connection draining (deploys are invisible to users), explicit timeout budgets on every hot path operation (no unbounded waits), and canary-gated rollouts with automatic rollback (bad deploys caught in minutes, not hours). The system handles 500K concurrent connections, delivers 200M messages per day at sub-second latency, and degrades gracefully when any component fails—because in chat, a delayed message is acceptable, but a lost message is not. Master the ordering invariant (sequence numbers, not timestamps), the delivery guarantee (persist → deliver → push → sync), the fan-out multiplier (group size is the throughput multiplier), and the reconnection storm (jitter saves the system), and you can design, own, and operate a chat system at any scale.*
