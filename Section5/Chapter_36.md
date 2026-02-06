@@ -1446,7 +1446,7 @@ COST ESTIMATE (V1: 500 jobs/sec, AWS us-east-1):
 ```
 COST AT SCALE:
 
-| Scale | Jobs/sec | Workers | DB           | Monthly Cost| Cost/M jobs|
+| Scale | Jobs/sec | Workers | DB           | Monthly Cost| Cost/M jobs |
 |-------|----------|---------|--------------|-------------|-------------|
 | 1×    | 500      | 10      | r5.large     | $1,150      | $0.89       |
 | 3×    | 1,500    | 30      | r5.xlarge    | $2,600      | $0.67       |
