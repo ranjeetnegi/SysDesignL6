@@ -3865,115 +3865,7 @@ DEBATE 5: Metric names vs structured labels for organization
 
 ---
 
-# Summary
-
-Metrics and observability systems are the foundation upon which all operational excellence is built. The core challenge isn't collecting numbers—it's doing it at massive scale, with ruthless cost efficiency, while guaranteeing the system remains available during the exact moments when everything else is failing.
-
-**Key Staff-Level Insights:**
-
-1. **Cardinality is the existential threat.** Every other scaling concern is solvable with more hardware. Cardinality explosion kills the system regardless of how much hardware you throw at it. Enforce limits at every layer.
-
-2. **The alert path is sacred.** Design the alerting infrastructure as if it's the last thing standing during an outage—because it should be. Isolate it from everything else.
-
-3. **Not all metrics are equal.** Classify metrics into tiers. Apply differentiated retention, resolution, replication, and query priority. This is how you get 10× cost efficiency without sacrificing reliability where it matters.
-
-4. **Design for the worst day.** The observability system experiences peak load during incidents—exactly when it's most critical. Over-provision ingestion and query paths. Buffer aggressively. Shed load gracefully.
-
-5. **Compression makes or breaks feasibility.** Without Gorilla-style compression (12× reduction), storing 200M samples/second is economically impossible. Understand why time-series-specific compression exists.
-
-6. **Downsampling is the long-term cost strategy.** Raw data for hours, minute-aggregates for weeks, hour-aggregates for months. This saves >99% of long-term storage cost with minimal information loss.
-
-**The Staff Engineer Difference:**
-
-An L5 might design a working metrics collection system. An L6 designs a metrics platform that enforces cardinality boundaries, isolates the alert path from the query path, tiers storage for cost efficiency, degrades gracefully under load, monitors itself with external systems, and evolves without downtime. The difference is understanding that the observability system isn't just another service—it's the service that makes every other service operable.
-
----
-
-### Topic Coverage in Exercises:
-
-| Topic | Questions/Exercises |
-|-------|---------------------|
-| **Cardinality & Labels** | Q1, Q3, Exercise 4, Debate 5 |
-| **Alerting & Reliability** | Q4, Exercise 3, Debate 3 |
-| **Storage & Retention** | Q2, Redesign 1, Debate 4 |
-| **Scale Stress** | Q3, Redesign 2, Exercise 1 |
-| **Cost Optimization** | Redesign 1, Debate 4 |
-| **Multi-Region** | Q5, Redesign 3 |
-| **Collection Model** | Q1, Debate 1, Exercise 2 |
-| **Failure & Resilience** | Exercise 1-4 |
-| **Full Trade-Off Debates** | Debates 1-5 |
-
-### Remaining Considerations (Not Gaps):
-
-1. **Distributed tracing** is explicitly out of scope (separate system, different data model)
-2. **Log aggregation** is out of scope (referenced where it intersects with metrics)
-3. **APM / code profiling** is out of scope (different granularity and purpose)
-4. **Synthetic monitoring** is out of scope (separate probing infrastructure)
-
-These are intentional scope boundaries, not gaps. Each could be a separate chapter.
-
-### Pseudo-Code Convention:
-
-All code examples in this chapter use language-agnostic pseudo-code:
-- `FUNCTION` keyword for function definitions
-- `IF/ELSE/FOR/WHILE` for control flow
-- Descriptive variable names in snake_case
-- No language-specific syntax (no `def`, `public void`, `func`, etc.)
-- Comments explain intent, not syntax
-
-### How to Use This Chapter in Interview:
-
-1. Start with the "L5 vs L6 Decisions" table to frame your approach
-2. Lead with cardinality as the primary design constraint—this signals Staff-level awareness
-3. Discuss tiered retention and cost before the interviewer asks—this shows proactive thinking
-4. Use the failure timeline to demonstrate operational maturity
-5. Reference the alert isolation principle when discussing reliability
-6. Practice the brainstorming questions to anticipate follow-ups
-7. Study the common L5 mistakes section to avoid interview pitfalls
-
----
-
-# MASTER REVIEWER: L6 ENRICHMENT
-
-## STEP 1: Google L6 Coverage Audit
-
-Gaps identified (grouped by category):
-
-**Failure handling:**
-- Slow dependency behavior (object store latency spike, network degradation) as distinct from total failure
-- Retry storms when partial collector fleet goes down (agents stampede remaining collectors)
-- TSDB shard rebalancing failures during scaling operations
-
-**Scale assumptions:**
-- Service discovery at scale for the pull model (how does the system know about 10M scrape targets?)
-- Shard rebalancing / resharding when adding or removing TSDB nodes (data migration, split-brain)
-- Tenant isolation guarantees under shared multi-tenant infrastructure
-
-**Cost & efficiency:**
-- Chargeback / showback model for multi-tenant metrics platforms (per-team cost attribution mechanism)
-- Metric usage tracking (unused metrics detection and automated cleanup)
-
-**Data model & consistency:**
-- Cross-tier query stitching (merging 15s hot data with 1min warm data in a single query seamlessly)
-- Histogram bucket boundary selection as a permanent design decision with long-term accuracy implications
-
-**Evolution & migration:**
-- Concrete migration path from V1 → V2 → V3 without data loss or downtime
-- TSDB shard resharding (hash ring changes, data redistribution)
-- Alert and dashboard migration during platform upgrades
-
-**Organizational / operational realities:**
-- Multi-team governance model for a shared metrics platform
-- On-call runbook design for the metrics platform itself
-- Developer self-service vs platform team gatekeeping (metric onboarding flow)
-- Alert quality management at organizational scale (preventing alert fatigue across 500 teams)
-- Canary deployment strategy for the metrics platform itself
-
----
-
-## STEP 2: Mandatory Enrichments
-
-### Missing Topic: Slow Dependency Behavior (Distinct from Total Failure)
+### Slow Dependency Behavior (Distinct from Total Failure)
 
 ```
 SCENARIO: Object store (warm tier) experiences 10× latency increase
@@ -4030,7 +3922,7 @@ Staff insight: Partial answers fast are ALWAYS better than complete answers slow
 during an incident. The on-call engineer cares about the last hour, not last week.
 ```
 
-### Missing Topic: Retry Storms Under Partial Collector Failure
+### Retry Storms Under Partial Collector Failure
 
 ```
 SCENARIO: 30% of collector fleet goes down → Agents retry to remaining 70%
@@ -4140,7 +4032,7 @@ service discovery for pull doesn't scale gracefully beyond ~100K targets.
 Push with per-node agents makes the discovery problem trivially local."
 ```
 
-### Missing Topic: TSDB Shard Rebalancing (Resharding)
+### TSDB Shard Rebalancing (Resharding)
 
 ```
 PROBLEM: The system starts with 200 TSDB shards. Growth requires 300 shards.
@@ -4203,7 +4095,7 @@ REAL-WORLD COST:
   The fix: Pre-built resharding automation triggered by capacity alerts.
 ```
 
-### Missing Topic: Cross-Tier Query Stitching
+### Cross-Tier Query Stitching
 
 ```
 PROBLEM: A dashboard shows "error rate over 7 days."
@@ -4283,7 +4175,7 @@ STAFF TRADE-OFF:
   "The graph shows what we actually measured, at the resolution we stored it."
 ```
 
-### Missing Topic: Histogram Bucket Boundary Selection
+### Histogram Bucket Boundary Selection
 
 ```
 PROBLEM: Histogram bucket boundaries are chosen at metric definition time
@@ -4347,7 +4239,7 @@ REAL-WORLD APPLICATION (Notification Delivery System):
   SMS: [500ms, 1s, 2s, 5s, 10s, 15s, 30s]
 ```
 
-### Missing Topic: Multi-Team Governance and Platform Ownership
+### Multi-Team Governance and Platform Ownership
 
 ```
 PROBLEM: A metrics platform serving 500 teams needs clear governance.
@@ -4449,7 +4341,7 @@ WHY THIS MATTERS AT L6:
   Staff engineers design SYSTEMS that include people and processes, not just code.
 ```
 
-### Missing Topic: On-Call Runbooks for the Metrics Platform Itself
+### On-Call Runbooks for the Metrics Platform Itself
 
 ```
 THE IRONY: The system designed to help on-call engineers IS a system
@@ -4537,7 +4429,7 @@ META-MONITORING (who watches the watchers):
      alert engine that might be the thing that's broken.
 ```
 
-### Missing Topic: Canary Deployment for the Metrics Platform
+### Canary Deployment for the Metrics Platform
 
 ```
 PROBLEM: A bad deploy to the metrics platform can take down ALL
@@ -4616,7 +4508,7 @@ STAFF PRINCIPLE:
   of any system in the organization. Move deliberately, not fast."
 ```
 
-### Missing Topic: Chargeback / Showback Cost Attribution Mechanism
+### Chargeback / Showback Cost Attribution Mechanism
 
 ```
 PROBLEM: At 5B time series costing $20M/year, someone must pay.
@@ -4696,7 +4588,7 @@ The chapter already includes:
 
 Adding one additional cascading failure scenario not covered:
 
-### Missing: Cascading Failure — Platform Deploy Causes Self-Monitoring Blindness
+### Cascading Failure — Platform Deploy Causes Self-Monitoring Blindness
 
 ```
 SCENARIO: Bad collector deploy breaks metric ingestion → 
@@ -4892,33 +4784,6 @@ MISTAKE 7: Treating the metrics platform as "just another service"
   testing of any system in the organization. "We deploy weekly,
   not hourly, and that's intentional."
 ```
-
----
-
-## STEP 10: Final Verification
-
-**This section now meets Google Staff Engineer (L6) expectations.**
-
-Staff-level signals now covered:
-- [x] Judgment & decision-making: Explicit WHY for all major decisions
-- [x] Failure & degradation: 5+ failure modes, cascading timeline, slow dependency, retry storms
-- [x] Scale & evolution: V1 → V2 → V3 with incident-driven redesign, resharding strategy
-- [x] Cost & sustainability: Tiered cost model, showback/chargeback, unused metric cleanup
-- [x] Organizational reality: Multi-team governance, on-call runbooks, canary deployment
-- [x] Cardinality as existential threat: Covered at every layer
-- [x] Alert isolation principle: Covered with dedicated infrastructure
-- [x] Self-monitoring: Dead-man's switch, external heartbeat, alternate notification
-- [x] Cross-tier query stitching: Resolution mismatch and boundary artifacts addressed
-- [x] Histogram bucket selection: Permanent design decision with real-world examples
-- [x] Platform deploy safety: Canary strategy specific to metrics platform
-- [x] Service discovery at scale: Hierarchical model, push vs pull implications
-
-Unavoidable remaining gaps (scope boundaries, not oversights):
-- Distributed tracing integration depth (separate system)
-- Log-to-metric derivation pipeline details (separate chapter)
-- ML-based anomaly detection at scale (mentioned as over-engineering, could be separate chapter)
-
----
 
 ## STEP 11: Expanded Brainstorming Questions & Exercises
 
@@ -5125,3 +4990,72 @@ DEBATE 8: Real-time streaming alerts vs periodic batch evaluation
   (e.g., "payment processing completely stopped"). The cost of
   streaming everything is 10× for a benefit that matters rarely.
 ```
+
+
+# Summary
+
+Metrics and observability systems are the foundation upon which all operational excellence is built. The core challenge isn't collecting numbers—it's doing it at massive scale, with ruthless cost efficiency, while guaranteeing the system remains available during the exact moments when everything else is failing.
+
+**Key Staff-Level Insights:**
+
+1. **Cardinality is the existential threat.** Every other scaling concern is solvable with more hardware. Cardinality explosion kills the system regardless of how much hardware you throw at it. Enforce limits at every layer.
+
+2. **The alert path is sacred.** Design the alerting infrastructure as if it's the last thing standing during an outage—because it should be. Isolate it from everything else.
+
+3. **Not all metrics are equal.** Classify metrics into tiers. Apply differentiated retention, resolution, replication, and query priority. This is how you get 10× cost efficiency without sacrificing reliability where it matters.
+
+4. **Design for the worst day.** The observability system experiences peak load during incidents—exactly when it's most critical. Over-provision ingestion and query paths. Buffer aggressively. Shed load gracefully.
+
+5. **Compression makes or breaks feasibility.** Without Gorilla-style compression (12× reduction), storing 200M samples/second is economically impossible. Understand why time-series-specific compression exists.
+
+6. **Downsampling is the long-term cost strategy.** Raw data for hours, minute-aggregates for weeks, hour-aggregates for months. This saves >99% of long-term storage cost with minimal information loss.
+
+**The Staff Engineer Difference:**
+
+An L5 might design a working metrics collection system. An L6 designs a metrics platform that enforces cardinality boundaries, isolates the alert path from the query path, tiers storage for cost efficiency, degrades gracefully under load, monitors itself with external systems, and evolves without downtime. The difference is understanding that the observability system isn't just another service—it's the service that makes every other service operable.
+
+---
+
+### Topic Coverage in Exercises:
+
+| Topic | Questions/Exercises |
+|-------|---------------------|
+| **Cardinality & Labels** | Q1, Q3, Exercise 4, Debate 5 |
+| **Alerting & Reliability** | Q4, Exercise 3, Debate 3 |
+| **Storage & Retention** | Q2, Redesign 1, Debate 4 |
+| **Scale Stress** | Q3, Redesign 2, Exercise 1 |
+| **Cost Optimization** | Redesign 1, Debate 4 |
+| **Multi-Region** | Q5, Redesign 3 |
+| **Collection Model** | Q1, Debate 1, Exercise 2 |
+| **Failure & Resilience** | Exercise 1-4 |
+| **Full Trade-Off Debates** | Debates 1-5 |
+
+### Remaining Considerations (Not Gaps):
+
+1. **Distributed tracing** is explicitly out of scope (separate system, different data model)
+2. **Log aggregation** is out of scope (referenced where it intersects with metrics)
+3. **APM / code profiling** is out of scope (different granularity and purpose)
+4. **Synthetic monitoring** is out of scope (separate probing infrastructure)
+
+These are intentional scope boundaries, not gaps. Each could be a separate chapter.
+
+### Pseudo-Code Convention:
+
+All code examples in this chapter use language-agnostic pseudo-code:
+- `FUNCTION` keyword for function definitions
+- `IF/ELSE/FOR/WHILE` for control flow
+- Descriptive variable names in snake_case
+- No language-specific syntax (no `def`, `public void`, `func`, etc.)
+- Comments explain intent, not syntax
+
+### How to Use This Chapter in Interview:
+
+1. Start with the "L5 vs L6 Decisions" table to frame your approach
+2. Lead with cardinality as the primary design constraint—this signals Staff-level awareness
+3. Discuss tiered retention and cost before the interviewer asks—this shows proactive thinking
+4. Use the failure timeline to demonstrate operational maturity
+5. Reference the alert isolation principle when discussing reliability
+6. Practice the brainstorming questions to anticipate follow-ups
+7. Study the common L5 mistakes section to avoid interview pitfalls
+
+---
