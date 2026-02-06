@@ -1,4 +1,4 @@
-# System Design Interview Preparation for Google Staff Engineer (L6)
+# System Design Interview Preparation for Google Staff Engineer
 
 A comprehensive, structured guide for experienced backend engineers preparing for Staff Engineer (L6) system design interviews at Google and equivalent roles at top technology companies.
 
@@ -44,7 +44,7 @@ You are not learning system design from scratch. You are learning how to **demon
 ## Repository Structure
 
 ```
-SysDesignL6/
+System-Design/
 ├── README.md                  ← You are here
 ├── Section1/                  ← Staff Engineer Mindset & Evaluation (Ch. 1–6)
 │   ├── README.md
