@@ -2048,7 +2048,7 @@ STRONG L5 SIGNALS:
 │   └────┬─────┘                                                              │
 │        │                                                                    │
 │        ├── Processor: authorized ──→ ┌────────────┐                         │
-│        │                             │ authorized  │                        │
+│        │                             │ authorized │                         │
 │        │                             └──────┬─────┘                         │
 │        │                                    │                               │
 │        │                    ┌───────────────┼───────────────┐               │
@@ -2071,11 +2071,11 @@ STRONG L5 SIGNALS:
 │        │                                        (terminal)                  │
 │        │                                                                    │
 │        ├── Processor: declined ──→ ┌──────────┐                             │
-│        │                           │ declined  │  (terminal)                │
+│        │                           │ declined │  (terminal)                 │
 │        │                           └──────────┘                             │
 │        │                                                                    │
 │        └── Timeout exhausted ──→ ┌───────────────────────┐                  │
-│                                  │ authorization_failed   │  (terminal)     │
+│                                  │ authorization_failed  │  (terminal)      │
 │                                  └───────────────────────┘                  │
 │                                                                             │
 │   INVARIANTS:                                                               │
