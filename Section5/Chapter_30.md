@@ -3607,6 +3607,3 @@ REMAINING GAPS:
 None - chapter is complete for Senior SWE (L5) scope.
 ```
 
----
-
-*This chapter provides the foundation for confidently designing and owning a distributed cache as a Senior Software Engineer. The concepts—cache-aside pattern, TTL strategy, invalidation approaches, and graceful degradation—apply to virtually every high-performance system you'll build. Remember: there are only two hard things in computer science, and cache invalidation is one of them.*

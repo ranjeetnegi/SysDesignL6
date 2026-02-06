@@ -3841,7 +3841,3 @@ CHAPTER COMPLETENESS:
 ✓ Architecture and flow diagrams
 ✓ Part 18 Brainstorming exercises fully implemented
 ```
-
----
-
-*This chapter provides the foundation for confidently designing and owning a notification system as a Senior Software Engineer. The concepts—idempotency, multi-channel fallback, preference management, and rate limiting—apply to any system that communicates with users at scale. Remember: users trust notifications to be timely, relevant, and not duplicated. Violate any of these, and they disable notifications entirely.*

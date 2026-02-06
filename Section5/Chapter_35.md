@@ -2691,7 +2691,3 @@ Brainstorming (Part 18):
 ✓ Correctness: Idempotency, corruption prevention, silent data loss detection
 ✓ Evolution: Recording rules, schema migration, push gateway
 ```
-
----
-
-*This chapter provides the foundation for confidently designing and owning a metrics collection system as a Senior Software Engineer. The core insight: metrics are write-heavy, append-only, bounded-cardinality numerical data—and that shapes every design decision from compression (gorilla encoding) to storage (time-series blocks) to the #1 operational risk (cardinality explosion). Master the ingestion pipeline, enforce cardinality discipline, and you can observe any system at scale.*

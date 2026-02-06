@@ -2905,7 +2905,3 @@ Brainstorming (Part 18):
 ✓ Deployment: Rollout stages, bad code scenario, rushed decision
 ✓ Interview: Clarifying questions, explicit non-goals, scope creep pushback
 ```
-
----
-
-*This chapter provides the foundation for confidently designing and owning a payment flow as a Senior Software Engineer. The core insight: payments are correctness-bound, not throughput-bound. The hard problem isn't handling 10,000 transactions per second—it's ensuring that every one of those transactions moves money exactly once, is recorded in a balanced ledger, and is verifiable against an external processor. Every design decision flows from this: two-layer idempotency (client + processor), a state machine that rejects invalid transitions, double-entry bookkeeping with daily reconciliation, and conservative defaults (unknown = don't charge). Master the ambiguous timeout problem, enforce the ledger invariant, and you can process payments reliably at any scale.*

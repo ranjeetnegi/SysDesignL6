@@ -3273,7 +3273,3 @@ H. Interview Calibration:
 I. Real-World Application (Step 9):
 ✓ Rushed Decision scenario (defer MFA for launch → technical debt and when to fix)
 ```
-
----
-
-*This chapter provides the foundation for confidently designing and owning an authentication system as a Senior Software Engineer. The core insight: verify identity once (expensive bcrypt), issue a self-contained token (JWT), and let every downstream service validate cheaply without calling auth. Master this pattern and you've mastered the most critical system in any architecture—the front door.*

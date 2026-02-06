@@ -2950,7 +2950,3 @@ Brainstorming (Part 18):
 ✓ Deployment: Rollout stages, bake time, canary criteria; bad config/code scenario; rollback
 ✓ Interview: Clarifying questions, explicit non-goals, scope creep pushback
 ```
-
----
-
-*This chapter provides the foundation for confidently designing and owning a background job queue as a Senior Software Engineer. The core insight: a job queue's primary contract is durability—once a job is acknowledged as enqueued, it must eventually complete or be visibly failed in the DLQ. Every design decision flows from this: PostgreSQL over Redis for persistence, at-least-once delivery with idempotent handlers, lease-based dispatch for crash recovery, and the DLQ as the safety net that turns invisible failures into visible, actionable ones. Master the enqueue-persist-dispatch-retry lifecycle, enforce idempotency in every handler, and you can reliably process background work at any scale.*

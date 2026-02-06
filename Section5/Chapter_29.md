@@ -3100,7 +3100,3 @@ CHAPTER COMPLETENESS:
 REMAINING GAPS:
 None - chapter is complete for Senior SWE (L5) scope.
 ```
-
----
-
-*This chapter provides the foundation for confidently designing and owning a single-region rate limiter as a Senior Software Engineer. The concepts—algorithm selection, fail-open behavior, accuracy vs. latency trade-offs, and operational awareness—apply broadly to any protection system you'll build.*

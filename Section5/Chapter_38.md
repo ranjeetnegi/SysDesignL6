@@ -3469,7 +3469,3 @@ Brainstorming (Part 18):
 UNAVOIDABLE GAPS:
 - None. All Senior-level signals covered after enrichment.
 ```
-
----
-
-*This chapter provides the foundation for confidently designing and owning an API gateway as a Senior Software Engineer. The core insight: the gateway is the single most critical piece of shared infrastructure—if it goes down, everything behind it is unreachable. Every design decision flows from this: stateless instances for resilience, N+2 redundancy for availability, per-backend circuit breakers for failure isolation, fail-open rate limiting to avoid self-inflicted outages, priority-based load shedding to survive scaling gaps, and header stripping as a non-negotiable security boundary. The gateway adds < 5ms to every request, authenticates every caller, protects every backend, drains connections gracefully during deploys, and provides a single dashboard for observability. Master the failure isolation (one backend can't take down the gateway), the auth boundary (strip and re-inject identity headers), the load shedding discipline (payments survive even when recommendations don't), and the build-vs-buy judgment (start with off-the-shelf, go custom when justified), and you can design, own, and operate a gateway at any scale.*

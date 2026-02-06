@@ -2752,7 +2752,3 @@ Brainstorming (Part 18):
 ✓ Failure scenarios: Slow shard, full rebuild, Kafka down, cache stampede, database failover (B5), retry storm (B6)
 ✓ Ownership Under Pressure: 30-minute mitigation scenario
 ```
-
----
-
-*This chapter provides the foundation for confidently designing and owning a search system as a Senior Software Engineer. The core insight: an inverted index makes query time proportional to result set size, not corpus size—and that single data structure decision is what makes search possible at scale. Master the index, the ranking, and the scatter-gather pattern, and you can build search for any domain.*
