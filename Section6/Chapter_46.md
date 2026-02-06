@@ -3930,3 +3930,1198 @@ All code examples in this chapter use language-agnostic pseudo-code:
 5. Reference the alert isolation principle when discussing reliability
 6. Practice the brainstorming questions to anticipate follow-ups
 7. Study the common L5 mistakes section to avoid interview pitfalls
+
+---
+
+# MASTER REVIEWER: L6 ENRICHMENT
+
+## STEP 1: Google L6 Coverage Audit
+
+Gaps identified (grouped by category):
+
+**Failure handling:**
+- Slow dependency behavior (object store latency spike, network degradation) as distinct from total failure
+- Retry storms when partial collector fleet goes down (agents stampede remaining collectors)
+- TSDB shard rebalancing failures during scaling operations
+
+**Scale assumptions:**
+- Service discovery at scale for the pull model (how does the system know about 10M scrape targets?)
+- Shard rebalancing / resharding when adding or removing TSDB nodes (data migration, split-brain)
+- Tenant isolation guarantees under shared multi-tenant infrastructure
+
+**Cost & efficiency:**
+- Chargeback / showback model for multi-tenant metrics platforms (per-team cost attribution mechanism)
+- Metric usage tracking (unused metrics detection and automated cleanup)
+
+**Data model & consistency:**
+- Cross-tier query stitching (merging 15s hot data with 1min warm data in a single query seamlessly)
+- Histogram bucket boundary selection as a permanent design decision with long-term accuracy implications
+
+**Evolution & migration:**
+- Concrete migration path from V1 → V2 → V3 without data loss or downtime
+- TSDB shard resharding (hash ring changes, data redistribution)
+- Alert and dashboard migration during platform upgrades
+
+**Organizational / operational realities:**
+- Multi-team governance model for a shared metrics platform
+- On-call runbook design for the metrics platform itself
+- Developer self-service vs platform team gatekeeping (metric onboarding flow)
+- Alert quality management at organizational scale (preventing alert fatigue across 500 teams)
+- Canary deployment strategy for the metrics platform itself
+
+---
+
+## STEP 2: Mandatory Enrichments
+
+### Missing Topic: Slow Dependency Behavior (Distinct from Total Failure)
+
+```
+SCENARIO: Object store (warm tier) experiences 10× latency increase
+(responds, but at 500ms instead of 50ms)
+
+WHY THIS IS HARDER THAN TOTAL FAILURE:
+  Total failure: Circuit breaker trips → Fallback to degraded mode → Clear signal
+  Slow dependency: Requests succeed → But consume threads/connections longer
+  → Thread pool exhaustion → Cascading slowness → Looks like "everything is slow"
+
+TIMELINE:
+  T+0min:   Object store latency increases from 50ms to 500ms
+  T+1min:   Query engine threads for warm-tier queries held 10× longer
+  T+2min:   Thread pool occupancy rises from 30% to 90%
+  T+3min:   New queries queue behind slow queries → Dashboard load times 5×
+  T+4min:   Alert evaluation queries also delayed (if sharing thread pool)
+  T+5min:   Engineers open dashboards to investigate slowness
+            → More queries → Thread pool saturated → Everything halts
+  T+7min:   Timeout cascades: Queries time out, get retried, more load
+
+MITIGATION:
+  1. SEPARATE THREAD POOLS per storage tier
+     Hot queries: Dedicated pool (never starved by warm/cold)
+     Warm queries: Dedicated pool with aggressive timeout (2s)
+     Cold queries: Dedicated pool with very aggressive timeout (5s)
+     
+  2. LATENCY-BASED CIRCUIT BREAKING
+     IF p99_latency(object_store) > 200ms for 30 seconds:
+       Stop sending warm-tier queries
+       Return "data unavailable for this time range" for warm tier
+       Continue serving hot-tier data normally
+     
+  3. TIMEOUT HIERARCHY
+     Query timeout: 30s (overall)
+     Per-shard timeout: 5s (fail fast, return partial)
+     Object store read timeout: 2s (don't wait for slow storage)
+     
+     If any sub-request exceeds its timeout:
+       Return partial result with "incomplete" annotation
+       DO NOT retry automatically (retry storms kill you here)
+
+REAL-WORLD APPLICATION (applied to API Gateway metrics):
+  An API gateway team queries "P99 latency over 7 days" for capacity planning.
+  This query spans hot (48h) + warm (remaining 5 days).
+  If warm storage is slow:
+  - Hot portion returns in 200ms (good)
+  - Warm portion takes 8s (slow)
+  - Without tier-specific timeouts: User waits 8s, all panels on dashboard block
+  - With tier-specific timeouts: Hot portion renders instantly,
+    warm portion shows "loading" or "data unavailable", user still gets
+    actionable data for the recent 48 hours
+
+Staff insight: Partial answers fast are ALWAYS better than complete answers slow
+during an incident. The on-call engineer cares about the last hour, not last week.
+```
+
+### Missing Topic: Retry Storms Under Partial Collector Failure
+
+```
+SCENARIO: 30% of collector fleet goes down → Agents retry to remaining 70%
+
+WHY THIS IS DANGEROUS:
+  Normal: 100 collectors handle 200M samples/sec = 2M samples/sec each
+  After failure: 70 collectors must handle 200M samples/sec = 2.86M each
+  PLUS: Failed sends from agents retry → 30% of traffic retried → 260M effective
+  70 collectors now face: 260M / 70 = 3.71M/sec each (1.86× normal)
+  
+  If collectors were at 60% capacity: Now at 111% → Overloaded
+  Overloaded collectors start dropping → Agents retry those too → Cascade
+
+FAILURE BEHAVIOR IF IGNORED:
+  T+0:    30% collectors fail
+  T+10s:  Agents detect failure, retry to remaining collectors
+  T+20s:  Remaining collectors at 110% → Start dropping
+  T+30s:  Agents see more failures → Retry harder
+  T+40s:  Remaining collectors at 150% → OOM risk
+  T+60s:  50% of all metrics lost → Dashboards show massive gaps
+  T+90s:  Alert engine misses real incidents due to data loss
+
+MITIGATION:
+  1. EXPONENTIAL BACKOFF WITH JITTER at agent level
+     Base: 1s, Max: 60s, Jitter: ± 50%
+     Prevents synchronized retry waves
+     
+  2. AGENT-SIDE CIRCUIT BREAKER
+     After 3 consecutive failures to a collector:
+       Mark collector as unhealthy for 30 seconds
+       Don't retry to it → Spread load across healthy collectors
+     
+  3. LOAD-AWARE ROUTING
+     Agents periodically receive load reports from collectors
+     Route preferentially to least-loaded collector
+     
+  4. COLLECTOR ADMISSION CONTROL
+     When load > 80%: Accept only priority-1 metrics (SLO-related)
+     When load > 90%: Accept only from known agents (reject unknown sources)
+     When load > 95%: Return 503 immediately (don't process, let agent buffer)
+
+  5. COLLECTOR AUTO-SCALING TRIGGER
+     IF collector_fleet_utilization > 70% for 60 seconds:
+       Scale up by 50% (not 10%—you need headroom for cascading load)
+     Scaling must complete in < 2 minutes to be useful
+
+EXPLICIT TRADE-OFFS:
+  - Aggressive backoff: Reduces retry storm but increases data loss window
+  - Load shedding: Protects collectors but drops metrics
+  - Auto-scaling: Adds capacity but takes 1-2 minutes (gap remains)
+  
+  Staff decision: All three simultaneously. Backoff buys time, load shedding
+  protects the surviving fleet, auto-scaling provides permanent relief.
+```
+
+### Missing Topic: Service Discovery at Scale
+
+```
+PROBLEM: In a pull-based or hybrid collection model, the system must know
+WHERE all scrape targets are. At 10M containers, this is a service
+discovery problem in its own right.
+
+SCALE CHALLENGE:
+  10M containers × 3 metadata fields (IP, port, labels) = 30M records
+  Container churn: 10% per hour (Kubernetes pod restarts, deploys)
+  = 1M service discovery updates per hour = ~280 updates/second
+
+APPROACHES:
+
+1. CENTRALIZED SERVICE REGISTRY (e.g., Consul, etcd):
+   Agents register themselves → Collectors read registry
+   Problem at scale: Single registry becomes bottleneck at 10M entries
+   with 280 updates/sec. etcd watch streams become expensive.
+   
+2. KUBERNETES API (for K8s-native environments):
+   Collectors watch K8s API for pod events
+   Problem: K8s API server handles ~100 watchers well, not 200 agent
+   scrapers all watching simultaneously.
+   
+3. HIERARCHICAL DISCOVERY (Google's approach):
+   ┌──────────────────┐
+   │ Global Registry   │ (knows which clusters exist)
+   └────────┬─────────┘
+            │
+   ┌────────▼─────────┐
+   │ Cluster Registry  │ (knows which pods exist in this cluster)
+   └────────┬─────────┘
+            │
+   ┌────────▼─────────┐
+   │ Agent on Node     │ (knows which pods exist on this node)
+   └──────────────────┘
+   
+   Each agent scrapes LOCAL pods (already knows them via kubelet)
+   → No global service discovery needed for scraping
+   → Agent pushes to collector (collector doesn't need to know targets)
+   
+   This is WHY push-based wins at hyperscale: You eliminate the
+   service discovery problem entirely. Each agent knows its local pods.
+
+FAILURE BEHAVIOR IF IGNORED:
+  - Stale service registry → Scraping dead IPs → False "target down" alerts
+  - Missing registrations → New pods not monitored → Silent blind spots
+  - Registry overload → All scrapers lose target list → Mass data gap
+
+Staff insight: "At Google scale, we moved from pull to push partly because
+service discovery for pull doesn't scale gracefully beyond ~100K targets.
+Push with per-node agents makes the discovery problem trivially local."
+```
+
+### Missing Topic: TSDB Shard Rebalancing (Resharding)
+
+```
+PROBLEM: The system starts with 200 TSDB shards. Growth requires 300 shards.
+How do you add 100 shards without losing data or causing downtime?
+
+WHY THIS IS HARD:
+  Routing: shard = hash(fingerprint) % 200
+  After: shard = hash(fingerprint) % 300
+  
+  ~33% of series now hash to different shards.
+  Those series exist on old shards but new data goes to new shards.
+  Queries must check BOTH old and new shard for affected series.
+
+MIGRATION STRATEGY:
+
+Phase 1: DUAL-WRITE (duration: 48 hours)
+  - New routing table: hash % 300
+  - For series that moved: Write to BOTH old shard and new shard
+  - Queries: Query BOTH and deduplicate results
+  - Cost: ~33% more writes and queries temporarily
+
+Phase 2: BACKFILL (duration: hours, background)
+  - Copy historical data for moved series from old shard to new shard
+  - Only copy data within hot retention window (48h)
+  - Warm/cold data: Remains queryable via old metadata
+    (object store data doesn't move, just update the metadata index)
+
+Phase 3: CUTOVER
+  - Stop dual-writing
+  - Old shards: Still serve queries for data from before migration
+  - New shards: Serve queries for data from after migration start
+  - Query engine: Union results from both
+
+Phase 4: CLEANUP (duration: days)
+  - After hot retention expires (48h), old shard data ages out
+  - Old shards that lost all series: Decommission
+  - Old shards that retained some series: Continue serving
+
+ALTERNATIVE: CONSISTENT HASHING
+  Use consistent hash ring instead of modulo hashing.
+  Adding 100 shards to 200: Only ~33% of series move (same as modulo)
+  BUT: Movement is distributed evenly across all shards (not biased)
+  AND: Virtual nodes allow fine-grained load balancing
+  
+  Staff decision: Consistent hashing from day 1. Modulo hashing makes
+  resharding a nightmare. This is a V1 vs V2 decision that's hard to change later.
+
+FAILURE BEHAVIOR IF IGNORED:
+  Without a resharding strategy, the only option is vertical scaling
+  of existing shards. When you hit the ceiling of a single node
+  (RAM, disk, CPU), you're stuck.
+  
+  Staff teams have been known to delay resharding until a shard OOMs,
+  causing a frantic emergency migration under production pressure.
+  Plan the resharding mechanism BEFORE you need it.
+
+REAL-WORLD COST:
+  A poorly planned resharding at a major company caused 4 hours of
+  partial metric loss while engineers manually moved data between shards.
+  The fix: Pre-built resharding automation triggered by capacity alerts.
+```
+
+### Missing Topic: Cross-Tier Query Stitching
+
+```
+PROBLEM: A dashboard shows "error rate over 7 days."
+  Last 48 hours: Hot storage (15-second resolution)
+  Days 3-7: Warm storage (1-minute resolution)
+  
+  The query engine must seamlessly combine data at different resolutions
+  into a single, coherent time-series graph.
+
+WHY THIS IS TRICKY:
+  1. RESOLUTION MISMATCH:
+     Hot: data point every 15s → 4 points per minute
+     Warm: data point every 1m → 1 point per minute
+     
+     If graphed naively: Hot portion appears 4× "denser" than warm
+     Rates computed over different windows give different values
+     
+  2. BOUNDARY ARTIFACTS:
+     At the hot/warm boundary (48 hours ago):
+     rate() over a 5-minute window that straddles the boundary
+     uses 15s data for part and 1m data for part
+     → Computed rate may have a discontinuity
+     
+  3. DIFFERENT AGGREGATE SEMANTICS:
+     Hot: raw counter values → rate() computes exact per-second rate
+     Warm: pre-computed (min, max, sum, count) → rate must be derived
+     from sum/count, not from raw counter increments
+
+SOLUTION:
+
+FUNCTION cross_tier_query(expression, start, end, step):
+  // Determine which tiers cover the time range
+  tiers = resolve_tiers(start, end)
+  // e.g., [{tier: "hot", range: [now-48h, now]}, 
+  //        {tier: "warm", range: [now-7d, now-48h]}]
+  
+  results = []
+  FOR tier IN tiers:
+    // Adjust step to match tier resolution
+    effective_step = max(step, tier.native_resolution)
+    
+    sub_result = query_tier(tier, expression, tier.range, effective_step)
+    results.append(sub_result)
+  
+  // Merge results, handling resolution differences
+  merged = merge_cross_tier(results)
+  
+  // Align to requested step (downsample hot portion if needed)
+  aligned = align_to_step(merged, step)
+  
+  RETURN aligned
+
+FUNCTION merge_cross_tier(results):
+  // At tier boundaries, prefer higher-resolution data
+  // If overlap exists (dual-write period), use hot data
+  // Handle rate() discontinuities by extrapolating at boundary
+  
+  FOR boundary IN tier_boundaries:
+    // Compute rate from both tiers at boundary
+    hot_rate = rate_from_hot(boundary - 5min, boundary)
+    warm_rate = rate_from_warm(boundary, boundary + 5min)
+    
+    // If discontinuity > 10%: Log warning, don't try to smooth
+    // Users accept the visual discontinuity as "resolution changed here"
+    // Trying to smooth introduces false data
+
+STAFF TRADE-OFF:
+  Option A: Hide resolution differences (interpolate/smooth)
+    Pro: Smooth-looking graph
+    Con: Introduces false precision, masks real behavior
+    
+  Option B: Show resolution change visually (annotation or step change)
+    Pro: Honest representation of data
+    Con: Looks "weird" to non-technical users
+  
+  Staff decision: Option B. Annotate the boundary. Never fabricate data.
+  "The graph shows what we actually measured, at the resolution we stored it."
+```
+
+### Missing Topic: Histogram Bucket Boundary Selection
+
+```
+PROBLEM: Histogram bucket boundaries are chosen at metric definition time
+and CANNOT be changed retroactively without losing comparability with
+historical data.
+
+WHY THIS MATTERS:
+  Bucket boundaries: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s]
+  
+  If your service typically responds in 1-5ms:
+  → 99% of values fall in the first bucket [0, 5ms]
+  → You can't distinguish P50=1ms from P99=4ms
+  → The histogram is useless for this service
+  
+  If your service typically responds in 500ms-2s:
+  → Only 3 buckets cover this range [500ms, 1s, 2.5s]
+  → P90 vs P99 has very low resolution
+  
+  WRONG bucket boundaries are an IRREVERSIBLE design mistake
+  if you need to compare across time.
+
+SELECTION STRATEGY:
+
+1. SERVICE-SPECIFIC BUCKETS:
+   Allow each service to define custom bucket boundaries.
+   API service: [1ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms]
+   Batch service: [100ms, 500ms, 1s, 5s, 10s, 30s, 60s, 300s]
+   
+2. GEOMETRIC PROGRESSION (default safe choice):
+   boundaries = [base × ratio^i for i in 0..N]
+   Example: base=1ms, ratio=2, N=15
+   → [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384ms]
+   
+   Provides uniform resolution on a log scale.
+   
+3. NATIVE HISTOGRAMS (emerging approach):
+   Dynamic buckets that adapt to the observed distribution.
+   No pre-defined boundaries → No mis-configuration risk.
+   
+   Trade-off: Higher cardinality (more series per histogram),
+   more complex merging across instances.
+   
+   Staff assessment: Native histograms are the future but not yet
+   mature in most TSDB implementations. Design for fixed buckets
+   with per-service customization, plan for native histogram migration.
+
+FAILURE BEHAVIOR IF IGNORED:
+  - SLO reports show P99 as "250ms" when it's actually "490ms"
+    (because there's no bucket between 250ms and 500ms)
+  - Capacity planning decisions based on inaccurate percentiles
+  - Performance regressions go undetected (hidden within a bucket)
+
+REAL-WORLD APPLICATION (Notification Delivery System):
+  Notification delivery latency varies from 50ms (push) to 30s (email).
+  Default buckets: [5ms, 10ms, 25ms, ...] → All email notifications
+  fall in the last bucket. Can't measure email P50 vs P99.
+  
+  Fix: Service-specific buckets:
+  Push: [10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s]
+  Email: [1s, 2s, 5s, 10s, 15s, 20s, 30s, 60s]
+  SMS: [500ms, 1s, 2s, 5s, 10s, 15s, 30s]
+```
+
+### Missing Topic: Multi-Team Governance and Platform Ownership
+
+```
+PROBLEM: A metrics platform serving 500 teams needs clear governance.
+Without it, you get tragedy of the commons: everyone emits metrics,
+nobody cleans up, costs explode, and cardinality bombs are weekly events.
+
+ORGANIZATIONAL STRUCTURE:
+
+PLATFORM TEAM (5-10 engineers):
+  Owns: Collector fleet, TSDB, query engine, alert engine, storage
+  Provides: Self-service onboarding, documentation, client libraries
+  SLOs: Ingestion availability, query latency, data completeness
+  
+SERVICE TEAMS (500 teams):
+  Own: Their metrics definitions, alert rules, dashboards
+  Responsible for: Staying within cardinality quotas, meaningful alerts
+  Self-service: Register metrics, create dashboards, define alerts
+
+GOVERNANCE MECHANISMS:
+
+1. METRIC REGISTRATION (self-service with guardrails):
+   Developer defines new metric in config file:
+     name: http_request_duration_seconds
+     type: histogram
+     labels: [service, method, status, endpoint]
+     max_cardinality: 5000
+     owner: team-api
+     retention_tier: 2  (30-day warm)
+   
+   CI/CD pipeline validates:
+   - Label names are in allowed set (no PII patterns)
+   - Estimated cardinality < quota
+   - Metric name follows naming convention
+   - Type is appropriate for use case
+   
+   Deployed to production: Collector fleet accepts this metric.
+   Unregistered metrics: REJECTED at collector.
+
+2. QUOTA MANAGEMENT:
+   Each team has allocated:
+   - Max active series: 50M (default, adjustable)
+   - Max ingestion rate: 5M samples/sec
+   - Max storage: 10TB warm tier
+   
+   Quotas are:
+   - Visible via self-service dashboard
+   - Alerting at 80% and 95%
+   - Hard limit at 100% (reject excess)
+   - Increase requires approval (capacity planning)
+
+3. COST ATTRIBUTION:
+   Monthly cost report per team:
+   
+   Team: API-Platform
+   Active series: 32M (64% of 50M quota)
+   Ingestion rate: 2.1M samples/sec
+   Storage used: 4.7TB
+   Query volume: 45K queries/day
+   Estimated monthly cost: $18,500
+   Top cost drivers:
+     - http_request_duration_seconds: $4,200 (22%)
+     - grpc_server_handled_total: $3,100 (17%)
+     - Unused metrics (no queries in 30 days): $2,800 (15%) ← ACTION NEEDED
+
+4. UNUSED METRIC DETECTION:
+   FUNCTION detect_unused_metrics():
+     FOR metric IN all_metrics:
+       last_queried = query_audit_log(metric)
+       IF last_queried > 30 days ago:
+         NOTIFY owner: "Metric X hasn't been queried in 30 days.
+           Cost: $Y/month. Will be auto-disabled in 14 days."
+       IF last_queried > 44 days ago AND no objection:
+         DISABLE metric at collector (stop ingesting)
+         Historical data retained per policy
+   
+   This alone typically saves 15-25% of total platform cost.
+
+5. ALERT QUALITY MANAGEMENT:
+   Track per-team:
+   - Alerts that fire but are immediately silenced (noise)
+   - Alerts that fire for > 24 hours with no action (ignored)
+   - Alerts with > 10 fires/week (potentially too sensitive)
+   
+   Monthly report to team leads:
+   "Your team has 47 alert rules. 12 fired last month.
+    3 were immediately silenced (recommend: delete or fix).
+    2 fired 15+ times (recommend: increase threshold or aggregate)."
+
+WHY THIS MATTERS AT L6:
+  A Staff Engineer designing a metrics system that serves 500 teams
+  MUST address governance. Without it:
+  - Costs grow 3× annually from unused metrics alone
+  - Cardinality bombs happen weekly (no registration = no validation)
+  - On-call for the platform is miserable (constant firefighting)
+  - Teams blame the platform for performance problems caused by their own
+    high-cardinality metrics
+  
+  The governance model is as important as the technical architecture.
+  Staff engineers design SYSTEMS that include people and processes, not just code.
+```
+
+### Missing Topic: On-Call Runbooks for the Metrics Platform Itself
+
+```
+THE IRONY: The system designed to help on-call engineers IS a system
+that needs on-call engineers. The metrics platform's own operational
+maturity must exceed its customers' expectations.
+
+RUNBOOK 1: HIGH INGESTION LATENCY
+  Alert: ingestion_lag_seconds > 30 for 5 minutes
+  
+  Diagnosis steps:
+  1. Check collector fleet utilization
+     → IF > 80%: Scale up collectors (auto-scaling may be delayed)
+  2. Check TSDB write queue depth per shard
+     → IF one shard hot: Likely cardinality bomb on that shard
+     → Check cardinality enforcer metrics
+  3. Check network utilization between collectors and TSDB
+     → IF saturated: Either traffic spike or network issue
+  4. Check for recent deploys to collector fleet
+     → IF yes: Canary regression, rollback
+  
+  Escalation: If not resolved in 15 minutes, page secondary on-call
+
+RUNBOOK 2: TSDB SHARD OOM
+  Alert: tsdb_shard_memory_usage > 90% OR tsdb_shard_down
+  
+  IMMEDIATE:
+  1. Identify the shard (from alert labels)
+  2. Check if cardinality spike is active (cardinality_enforcer_rejections)
+     → IF yes: Identify offending metric, block at collector level
+  3. If shard crashed:
+     → Verify auto-restart initiated
+     → Monitor WAL replay progress
+     → Estimate data gap from collector buffer metrics
+  4. If shard at 90% but not crashed:
+     → Manually trigger compaction (reduce memory pressure)
+     → Consider emergency series deletion for obvious junk series
+
+RUNBOOK 3: ALERT EVALUATION DELAYED
+  Alert: alertmanager_evaluation_duration_seconds > 60
+  
+  This is a P0 because delayed alerts = missed incidents.
+  
+  IMMEDIATE:
+  1. Check if alert engine has its own data path (should be isolated)
+  2. Check query engine load (dashboard thundering herd?)
+  3. Check for expensive alert rules (new rule added?)
+     → Top-N alert rules by evaluation time
+  4. If dashboard load is the cause:
+     → Verify load shedding is active for ad-hoc queries
+     → Scale query engine (will take 2-5 minutes)
+  5. If specific rule is slow:
+     → Disable the rule temporarily
+     → Investigate and optimize (usually missing recording rule)
+
+RUNBOOK 4: STORAGE COST SPIKE
+  Alert: monthly_projected_cost > budget * 1.2
+  
+  Not an emergency but needs action within days:
+  1. Run cost attribution report (per-team breakdown)
+  2. Identify top growth contributors
+  3. Check for cardinality growth (new labels added without registration)
+  4. Check for retention policy compliance (data not being downsampled?)
+  5. Notify team leads of top offenders with cost data
+  6. If immediate action needed: Increase downsampling aggressiveness
+
+META-MONITORING (who watches the watchers):
+  The metrics platform CANNOT monitor itself with its own metrics
+  (circular dependency). External monitoring required:
+  
+  1. EXTERNAL HEARTBEAT:
+     Separate system (could be as simple as a cron job on a different server)
+     sends a "canary" metric every 60 seconds.
+     IF canary metric not received for 3 minutes → Page via separate channel
+     
+  2. BLACK-BOX PROBING:
+     External prober sends a query every 30 seconds:
+     GET /api/v1/query?query=up{job="metrics_canary"}
+     IF response time > 10s OR status != 200 → Page
+     
+  3. ALTERNATE ALERTING PATH:
+     Critical meta-alerts route through a DIFFERENT notification system
+     (e.g., if primary is PagerDuty, backup is OpsGenie or direct SMS)
+     
+     Never have the metrics platform's own alerts go through the same
+     alert engine that might be the thing that's broken.
+```
+
+### Missing Topic: Canary Deployment for the Metrics Platform
+
+```
+PROBLEM: A bad deploy to the metrics platform can take down ALL
+observability for the entire organization. This is categorically
+different from a bad deploy to a single application.
+
+BLAST RADIUS OF BAD PLATFORM DEPLOY:
+  - Bug in collector: All metric ingestion affected
+  - Bug in TSDB: All metric storage/query affected
+  - Bug in query engine: All dashboards and alerts affected
+  - Bug in alert engine: All alerting affected
+  
+  A single bad config change took down a major company's entire
+  monitoring stack for 45 minutes. During that 45 minutes, three
+  separate production incidents went undetected.
+
+CANARY STRATEGY:
+
+1. SHADOW TRAFFIC (pre-production):
+   Fork 1% of live ingestion traffic to a staging TSDB
+   Deploy new version to staging
+   Compare: Ingestion rate, query correctness, resource usage
+   IF deviation > 5% on any metric: BLOCK production deploy
+
+2. ROLLING CANARY (production):
+   Stage 1: Deploy to 1 collector (out of 500)
+     Monitor for 30 minutes: Ingestion errors, latency, memory
+     Automated rollback if: Error rate > 0.1% OR latency > 2× baseline
+     
+   Stage 2: Deploy to 5% of collectors
+     Monitor for 1 hour
+     
+   Stage 3: Deploy to 25% of collectors
+     Monitor for 2 hours
+     
+   Stage 4: Deploy to 100% of collectors
+   
+   Total deployment time: ~4 hours
+   
+   CRITICAL: At each stage, the canary collectors' metrics are compared
+   against non-canary collectors. The metrics system can observe its own
+   canary health because the non-canary portion is still healthy.
+
+3. TSDB DEPLOY (most dangerous):
+   TSDB stores state. A bad TSDB deploy can corrupt data.
+   
+   Strategy: Deploy to ONE shard first.
+   That shard handles 1/200 of traffic.
+   Monitor for 4 hours: Ingestion, query, compaction, memory.
+   
+   IF problem: Rollback that one shard.
+   Impact: 0.5% of time series briefly unavailable.
+   
+   NEVER deploy TSDB changes to all shards simultaneously.
+
+4. QUERY ENGINE DEPLOY:
+   Stateless → Safer to canary.
+   Deploy to 5% of query engine instances.
+   Route specific dashboard queries to canary instances.
+   Compare query results: canary vs production.
+   IF results diverge: Rollback immediately.
+
+5. ALERT ENGINE DEPLOY (highest risk):
+   Alert engine changes can suppress real alerts.
+   
+   Strategy: Run NEW alert engine in parallel with OLD.
+   Both evaluate the same rules.
+   Compare outputs: If new engine misses an alert that old catches
+   → BLOCK deploy, investigate.
+   
+   Only cut over after 24 hours of parallel evaluation with no divergence.
+
+STAFF PRINCIPLE:
+  "The blast radius of a bad metrics platform deploy is the entire company.
+  The deployment velocity of the metrics platform should be the SLOWEST
+  of any system in the organization. Move deliberately, not fast."
+```
+
+### Missing Topic: Chargeback / Showback Cost Attribution Mechanism
+
+```
+PROBLEM: At 5B time series costing $20M/year, someone must pay.
+Without cost attribution, the platform team absorbs all cost,
+teams have no incentive to clean up, and the CFO asks
+"why is monitoring costing us $20M?"
+
+ATTRIBUTION MODEL:
+
+COST FORMULA PER TEAM:
+  team_cost = (ingestion_cost × team_ingestion_fraction)
+            + (storage_cost × team_storage_fraction)
+            + (query_cost × team_query_fraction)
+
+MEASURING EACH COMPONENT:
+
+1. INGESTION FRACTION:
+   Each metric sample carries a namespace label (e.g., team="api-platform")
+   Collector tracks: samples_ingested_total{namespace="..."} per team
+   Team's fraction = team_samples / total_samples
+
+2. STORAGE FRACTION:
+   Each time series tagged with owning namespace
+   TSDB reports: active_series{namespace="..."} per team
+   Team's fraction = team_series / total_series
+   
+   IMPORTANT: Storage cost includes DEAD series (created but no longer active)
+   Teams must be charged for dead series to incentivize cleanup.
+
+3. QUERY FRACTION:
+   Query engine logs: query_cost_units{user_namespace="..."} per query
+   Cost units = series_touched × samples_read × wall_time
+   Team's fraction = team_query_cost / total_query_cost
+
+DASHBOARD (self-service):
+  Each team sees:
+  ┌────────────────────────────────────────────┐
+  │  Team: API-Platform                         │
+  │  Monthly Cost: $18,500                      │
+  │  Trend: +12% month-over-month               │
+  │                                             │
+  │  Top 5 Metrics by Cost:                     │
+  │  1. http_request_duration_seconds  $4,200   │
+  │  2. grpc_server_handled_total      $3,100   │
+  │  3. connection_pool_metrics        $2,800   │
+  │  4. cache_hit_ratio                $1,200   │
+  │  5. custom_business_metric         $1,100   │
+  │                                             │
+  │  Unused Metrics (no queries in 30d): $2,800 │
+  │  → [Clean Up Now] button                    │
+  │                                             │
+  │  Quota: 50M series (used: 32M, 64%)        │
+  └────────────────────────────────────────────┘
+
+WHY SHOWBACK (not chargeback) IS USUALLY BETTER:
+  Chargeback: Team is actually billed, deducted from their budget
+  Showback: Team sees the cost but doesn't directly pay
+  
+  Staff experience: Chargeback leads to teams hiding metrics
+  (under-instrumenting to save money) which is WORSE than over-spending.
+  Showback with soft nudges (monthly reports, unused metric alerts)
+  achieves 80% of the cost reduction without the perverse incentive.
+  
+  Exception: At hyperscaler scale, chargeback is necessary because
+  the absolute numbers are too large for showback alone to control.
+```
+
+---
+
+## STEP 3: Failure-First Enforcement — Verification
+
+The chapter already includes:
+- Cascading failure timeline (Part 9: Failure Timeline Walkthrough) ✓
+- Partial failure behavior (5 failure modes) ✓
+- Slow dependency behavior (NOW ADDED above) ✓
+- Explicit blast-radius analysis (per failure mode) ✓
+
+Adding one additional cascading failure scenario not covered:
+
+### Missing: Cascading Failure — Platform Deploy Causes Self-Monitoring Blindness
+
+```
+SCENARIO: Bad collector deploy breaks metric ingestion → 
+Platform's own metrics stop flowing → 
+Meta-alerts can't evaluate → 
+Nobody knows the platform is broken.
+
+CASCADING FAILURE TIMELINE:
+
+T+0min:   Bad config pushed to 100% of collectors simultaneously
+          (skipped canary — "it's just a config change")
+T+0min:   Config causes collectors to reject all samples with
+          a specific label format (regex bug)
+T+1min:   40% of all metrics silently dropped (matching the bad regex)
+T+2min:   Remaining 60% still flowing → TSDB looks "slightly lower"
+          but not alarmingly so
+T+3min:   Platform team's own metrics: collector_ingestion_rate drops
+          BUT: This metric is emitted by the collectors themselves
+          → Collectors still emit their OWN metrics (they work)
+          → Drop only visible in APPLICATION metrics
+T+5min:   Alert rules evaluate: Some show "no data" (dropped metrics)
+          → Alert engine marks these as "evaluation_failure"
+          → Meta-alert: "5% of alert rules failing evaluation"
+T+8min:   Teams notice dashboards showing lower-than-expected traffic
+          → Support tickets: "Our dashboard shows half the traffic"
+T+10min:  Platform on-call investigates
+          → Platform's own dashboards look FINE
+          (collectors are healthy, TSDB is healthy)
+          → Application dashboards are broken
+T+15min:  On-call realizes: It's not an application issue,
+          it's a COLLECTOR FILTERING issue
+T+18min:  Config rollback initiated
+T+20min:  Config deployed → Metrics resume
+T+25min:  Buffered data from agents partially backfills (10-min buffer)
+T+30min:  Gap in data: 10-30 minutes for affected metrics
+
+USER-VISIBLE IMPACT:
+  - 20 minutes of missing metrics for 40% of all services
+  - Alerts for 40% of services were non-functional
+  - During those 20 minutes, 2 real incidents were missed
+  - Total blast radius: 40% of organization blind for 20 minutes
+
+ROOT CAUSE ANALYSIS:
+  1. Config change skipped canary → 100% blast radius
+  2. Platform metrics and application metrics are different paths
+     → Platform looks healthy while applications are blind
+  3. No "end-to-end canary metric" to detect filtering bugs
+
+PREVENTION:
+  1. NEVER deploy collector config to 100% without canary
+  2. END-TO-END CANARY: Inject a known synthetic metric at the application
+     level → Verify it arrives in TSDB within 60 seconds
+     IF canary metric missing → IMMEDIATE alert via external system
+  3. Compare collector "received" count vs "forwarded" count
+     IF divergence > 1% → Alert: "Collector filtering more than expected"
+```
+
+---
+
+## STEP 8: Additional Diagram — Multi-Tenant Containment Boundaries
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│           MULTI-TENANT CONTAINMENT BOUNDARIES                               │
+│                                                                             │
+│  TEACH: How tenant isolation prevents one team's failure from               │
+│         affecting another team's observability                              │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────┐                 │
+│  │  TEAM A (API Platform)                                 │                 │
+│  │  Quota: 50M series, 5M samples/sec                    │                 │
+│  │  ┌─────────────────────────────────────────────────┐  │                 │
+│  │  │ Their metrics → Their namespace → Their quota   │  │                 │
+│  │  │ Cardinality bomb? → Only THEIR metrics rejected │  │                 │
+│  │  │ Query of death? → Only THEIR query killed       │  │                 │
+│  │  │ Alert misconfigured? → Only THEIR alerts noisy  │  │                 │
+│  │  └─────────────────────────────────────────────────┘  │                 │
+│  └───────────────────────────────────────────────────────┘                 │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────┐                 │
+│  │  TEAM B (Payment Processing)                           │                 │
+│  │  Quota: 20M series, 2M samples/sec                    │                 │
+│  │  ┌─────────────────────────────────────────────────┐  │                 │
+│  │  │ Completely isolated from Team A's failures       │  │                 │
+│  │  │ Even if Team A uses 100% of their quota,        │  │                 │
+│  │  │ Team B's quota is RESERVED and UNAFFECTED        │  │                 │
+│  │  └─────────────────────────────────────────────────┘  │                 │
+│  └───────────────────────────────────────────────────────┘                 │
+│                                                                             │
+│  ╔═══════════════════════════════════════════════════════════╗             │
+│  ║  ISOLATION ENFORCED AT:                                    ║             │
+│  ║                                                            ║             │
+│  ║  1. INGESTION: Per-namespace rate limits at collector      ║             │
+│  ║     → Team A flooding doesn't slow Team B's ingestion     ║             │
+│  ║                                                            ║             │
+│  ║  2. CARDINALITY: Per-namespace limits at cardinality       ║             │
+│  ║     enforcer → Team A's bad label doesn't affect Team B   ║             │
+│  ║                                                            ║             │
+│  ║  3. STORAGE: Per-namespace series quota in TSDB            ║             │
+│  ║     → Team A can't consume Team B's storage                ║             │
+│  ║                                                            ║             │
+│  ║  4. QUERY: Per-namespace concurrency limits in query engine║             │
+│  ║     → Team A's expensive queries don't starve Team B      ║             │
+│  ║                                                            ║             │
+│  ║  5. ALERTING: Per-namespace rule count limits              ║             │
+│  ║     → Team A's 10,000 alert rules don't slow evaluation   ║             │
+│  ╚═══════════════════════════════════════════════════════════╝             │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────┐                 │
+│  │  SHARED RESOURCES (failure domain for ALL teams):      │                 │
+│  │                                                        │                 │
+│  │  • Collector fleet (stateless — scales independently)  │                 │
+│  │  • TSDB shards (hash partitioned — one team's data     │                 │
+│  │    may share a shard, but quota enforcement prevents    │                 │
+│  │    one team from overwhelming the shard)                │                 │
+│  │  • Query engine (per-user limits protect shared pool)   │                 │
+│  │                                                        │                 │
+│  │  RISK: A platform-level bug (not a tenant bug) can     │                 │
+│  │  affect all teams. This is why platform deploys need    │                 │
+│  │  the MOST conservative canary strategy.                 │                 │
+│  └───────────────────────────────────────────────────────┘                 │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## STEP 9: Extended Interview Calibration
+
+### Additional Google L6 Interview Calibration
+
+```
+ADDITIONAL INTERVIEWER PROBES:
+
+PROBE 8: "How do you handle governance when 500 teams share this platform?"
+  Testing: Organizational awareness, platform thinking
+  L5 answer: "We'll set global limits"
+  L6 answer: "Self-service registration with CI/CD validation, per-team quotas
+  with showback dashboards, automated unused metric detection, and quarterly
+  review with team leads. Governance is as important as the architecture."
+
+PROBE 9: "Walk me through deploying a change to the collector fleet."
+  Testing: Operational maturity, blast-radius awareness
+  L5 answer: "Rolling deploy with health checks"
+  L6 answer: "Shadow traffic validation in staging, 1-node canary for 30 minutes
+  with automated rollback on error rate deviation, then 5% → 25% → 100% over
+  4 hours. End-to-end synthetic metric canary at every stage. The metrics
+  platform is the last thing you want to break with a fast deploy."
+
+PROBE 10: "The object store is returning 500ms instead of 50ms. What happens?"
+  Testing: Slow dependency reasoning (distinct from total failure)
+  L5 answer: "Queries will be slower"
+  L6 answer: "Separate thread pools per storage tier prevent cascading.
+  Latency-based circuit breaker on the warm tier trips at 200ms.
+  Hot-tier queries (last 48h) are completely unaffected.
+  Warm-tier queries show 'data unavailable' rather than waiting 10×.
+  The on-call investigating a production incident sees real-time data
+  perfectly; only historical exploration is degraded."
+
+ADDITIONAL STAFF SIGNALS:
+
+1. PROACTIVE GOVERNANCE DISCUSSION:
+   The candidate brings up "who owns this platform and how do
+   500 teams share it responsibly" without being asked.
+   This signals Staff thinking: Systems include people and processes.
+
+2. DEPLOY SAFETY AWARENESS:
+   The candidate says "the biggest risk to this system is our own deploy"
+   and describes a canary strategy. This signals operational maturity.
+
+3. COST AS A DESIGN INPUT:
+   The candidate says "let me classify metrics into tiers before
+   designing the storage layer" — using cost to inform architecture,
+   not as an afterthought.
+
+4. SELF-MONITORING DEPTH:
+   The candidate says "who watches the watchers?" and describes
+   external heartbeat monitoring, end-to-end canary metrics, and
+   alternate notification paths. This is the hallmark of someone
+   who has been on-call for a platform.
+
+COMMON L5 MISTAKE (ADDITIONAL):
+
+MISTAKE 7: Treating the metrics platform as "just another service"
+  L5: Designs it with the same deployment velocity and testing standards
+  as any application service
+  Problem: A bad deploy to the metrics platform blinds the entire org.
+  Unlike a bad deploy to a single service (which metrics detect),
+  a bad deploy to the metrics platform is self-concealing.
+  
+  L6 fix: The metrics platform has the SLOWEST deployment cadence,
+  the MOST conservative canary strategy, and the MOST rigorous
+  testing of any system in the organization. "We deploy weekly,
+  not hourly, and that's intentional."
+```
+
+---
+
+## STEP 10: Final Verification
+
+**This section now meets Google Staff Engineer (L6) expectations.**
+
+Staff-level signals now covered:
+- [x] Judgment & decision-making: Explicit WHY for all major decisions
+- [x] Failure & degradation: 5+ failure modes, cascading timeline, slow dependency, retry storms
+- [x] Scale & evolution: V1 → V2 → V3 with incident-driven redesign, resharding strategy
+- [x] Cost & sustainability: Tiered cost model, showback/chargeback, unused metric cleanup
+- [x] Organizational reality: Multi-team governance, on-call runbooks, canary deployment
+- [x] Cardinality as existential threat: Covered at every layer
+- [x] Alert isolation principle: Covered with dedicated infrastructure
+- [x] Self-monitoring: Dead-man's switch, external heartbeat, alternate notification
+- [x] Cross-tier query stitching: Resolution mismatch and boundary artifacts addressed
+- [x] Histogram bucket selection: Permanent design decision with real-world examples
+- [x] Platform deploy safety: Canary strategy specific to metrics platform
+- [x] Service discovery at scale: Hierarchical model, push vs pull implications
+
+Unavoidable remaining gaps (scope boundaries, not oversights):
+- Distributed tracing integration depth (separate system)
+- Log-to-metric derivation pipeline details (separate chapter)
+- ML-based anomaly detection at scale (mentioned as over-engineering, could be separate chapter)
+
+---
+
+## STEP 11: Expanded Brainstorming Questions & Exercises
+
+### Additional Brainstorming Questions
+
+```
+Q6: What if the metrics platform must support 50 different client languages?
+  Impact: Client library maintenance burden grows linearly
+  Changes needed:
+  - OpenTelemetry as universal instrumentation API (one spec, many implementations)
+  - Protocol standardization (OTLP) so any client works with any backend
+  - Auto-instrumentation where possible (bytecode injection, eBPF)
+  - Staff insight: Standardize the PROTOCOL, not the library.
+    Let language communities own their client libraries.
+
+Q7: What if a regulator requires you to delete all metrics for a specific user?
+  (GDPR right to erasure applied to metrics)
+  Impact: Metrics typically don't contain user_id... but what if labels do?
+  Changes needed:
+  - PII scanning at ingestion (reject labels containing user identifiers)
+  - If already stored: Metrics are immutable in TSDB blocks
+    → Must rewrite blocks with offending data removed (extremely expensive)
+  - Staff insight: Prevention > remediation. Block PII in labels at ingestion.
+    This is a 5-minute CI/CD check vs a multi-week block rewrite.
+
+Q8: What if the metrics system must support multi-tenancy across 
+  different ORGANIZATIONS (not just teams within one org)?
+  Impact: Tenant isolation must be cryptographic, not just logical
+  Changes needed:
+  - Per-tenant encryption keys (not shared key)
+  - Per-tenant TSDB shards (no shared storage)
+  - Network isolation (separate collector endpoints per tenant)
+  - Audit logging for cross-tenant access attempts
+  - This is 5× more expensive than single-org multi-tenancy
+
+Q9: What if you need to support querying the UNION of metrics and logs?
+  "Show me the error rate, AND the actual error log messages, in one view"
+  Impact: Fundamentally different data models must be correlated
+  Changes needed:
+  - Shared correlation key (trace_id, request_id) across both systems
+  - Federated query engine that can query TSDB and log store
+  - Linked navigation: Click on metric spike → Show matching log entries
+  - Staff insight: Don't try to store both in one system. Federate.
+    The performance and cost characteristics are too different.
+
+Q10: What if metric ingestion must survive a COMPLETE datacenter loss
+  with ZERO data loss?
+  Impact: Must synchronously replicate before acknowledging writes
+  Changes needed:
+  - Synchronous cross-DC replication for WAL (doubles write latency)
+  - Or: Agent-side durable buffer (write to local disk + remote)
+  - Cost: 3-5× for ingestion path
+  - Staff assessment: Almost never worth it for metrics.
+    Metrics during a DC-level event are useful but not critical.
+    The 10-minute agent buffer covers the 99th percentile scenario.
+    Accept data loss for the 1% scenario where the DC is actually gone.
+```
+
+### Additional Full Design Exercises
+
+```
+FULL DESIGN EXERCISE 1: SLO MONITORING SUBSYSTEM
+────────────────────────────────────────────────────────
+Requirement: Build an SLO monitoring layer on top of the metrics system.
+Teams define SLOs: "99.9% of requests complete in < 500ms over 30 days."
+
+Design considerations:
+• Rolling window vs calendar window for SLO period
+• Error budget calculation: How much budget remaining?
+• Error budget burn rate alerting: "At current rate, budget exhausted in 4 hours"
+• Multi-window burn rate: Fast burn (1h window) vs slow burn (6h window)
+• Composite SLOs: "Service A AND Service B both meet SLO"
+• SLO data must survive metrics system outages (separate storage?)
+
+This exercise tests:
+• Understanding of SLI/SLO semantics at a mathematical level
+• Building RELIABLE computation on top of eventually-consistent data
+• Trade-offs between SLO precision and system complexity
+
+FULL DESIGN EXERCISE 2: METRICS-DRIVEN AUTO-REMEDIATION
+────────────────────────────────────────────────────────
+Requirement: When specific metric conditions are met, automatically
+execute remediation (e.g., scale up, restart, drain traffic).
+
+Design considerations:
+• How to prevent remediation loops (fix → problem recurs → fix → ...)
+• Rate limiting remediation actions (max 3 restarts per hour)
+• Approval gates: Critical actions require human confirmation
+• Audit trail: Every automated action logged with metric context
+• Rollback: If remediation makes things worse, auto-rollback
+• Testing: How to test remediation without breaking production
+
+This exercise tests:
+• Safety boundaries around automated actions
+• Understanding that automated remediation CAN BE the outage
+• Rate limiting and circuit breaking for actions (not just data)
+
+FULL DESIGN EXERCISE 3: METRICS PLATFORM MIGRATION
+────────────────────────────────────────────────────────
+Requirement: Migrate from a Prometheus federation to the
+horizontally-sharded TSDB architecture described in this chapter.
+Without losing data. Without dashboards going down. With 500 teams.
+
+Design considerations:
+• Dual-write period: Both systems receive all data
+• Query fan-out: Queries check both old and new, merge results
+• Dashboard migration: 10,000 dashboards with PromQL queries
+  → Must work against new TSDB (compatible query language?)
+• Alert rule migration: 500,000 rules, cannot have a gap in evaluation
+• Cutover strategy: Per-team? Per-region? Big-bang?
+• Rollback plan: If new system has issues, revert to old
+
+This is a HARD L6 exercise that tests:
+• Migration planning (the hardest problem in platform engineering)
+• Risk management under uncertainty
+• Organizational coordination across 500 teams
+• The ability to design a system AND the migration path to it
+
+FULL DESIGN EXERCISE 4: OBSERVABILITY FOR SERVERLESS
+────────────────────────────────────────────────────────
+Requirement: Extend the metrics system to support serverless functions
+(AWS Lambda-style) that exist for 100ms–15min.
+
+Design considerations:
+• Traditional scraping can't work (function gone before scrape)
+• Push model required: Function pushes metrics before termination
+• Cold start metrics: Function init time is a key metric
+• Concurrency: 100,000 function invocations/second, each emitting metrics
+• Cardinality: function_name × version × region × error_type
+  Could explode quickly with many functions
+• Cost: Functions run millions of times; storing per-invocation metrics
+  is prohibitively expensive → Must aggregate before storage
+
+CONSTRAINT REDESIGN 4: Zero External Dependencies
+────────────────────────────────────────────────────────
+Requirement: The metrics system cannot depend on any cloud service
+(no S3, no managed Kubernetes, no cloud LB). Bare metal only.
+
+Changes:
+  - MinIO for object storage (self-hosted)
+  - HAProxy for load balancing
+  - CoreDNS for service discovery
+  - Local NVMe for TSDB hot storage
+  - Ceph or similar for distributed warm storage
+  
+  Trade-offs:
+  - Operational burden increases 5×
+  - Hardware procurement adds weeks to scaling
+  - But: Zero vendor dependency, full control
+  - When it makes sense: Financial institutions, government, air-gapped environments
+
+CONSTRAINT REDESIGN 5: The Metrics System Has a $50K/year Budget
+────────────────────────────────────────────────────────
+(10,000 hosts, 20M active series)
+
+  - Prometheus with aggressive federation (no commercial TSDB)
+  - Thanos for long-term storage on cheap object store ($5/TB/month)
+  - 3 dedicated servers for TSDB ($1,500/month)
+  - 1 server for query/alert engine ($500/month)
+  - Object storage for warm/cold ($200/month)
+  - Total: ~$26K/year (under budget)
+  
+  What you sacrifice:
+  - No multi-region (single cluster only)
+  - No streaming aggregation (query-time only)
+  - Manual cardinality management (no automated enforcement)
+  - Limited retention (30 days hot, 6 months warm)
+  
+  This is the RIGHT design for a company with 10K hosts.
+  Over-engineering to the V3 architecture would waste $200K+/year.
+```
+
+### Additional Trade-Off Debates
+
+```
+DEBATE 6: Fixed histogram buckets vs native histograms vs DDSketch
+
+  Fixed buckets: "Simple, predictable, mergeable. Good enough accuracy."
+  Native histograms: "Adaptive, no bucket selection problem, higher accuracy."
+  DDSketch: "Mathematically guaranteed relative error, but complex and
+  not widely supported in TSDB ecosystems."
+  
+  Resolution: Fixed histograms for now (ecosystem maturity), with a
+  migration path to native histograms as TSDB support matures.
+  DDSketch for use cases requiring guaranteed relative error (SLO compliance).
+
+DEBATE 7: Central platform team vs embedded SREs for metrics
+
+  Central team: "Efficiency, consistency, deep platform expertise."
+  Embedded SREs: "Context-aware, faster response, better customer empathy."
+  
+  Resolution: Central platform team for infrastructure (TSDB, collectors,
+  query engine) + embedded advocates per business unit for onboarding,
+  dashboard design, and alert tuning. The platform is centrally owned;
+  the usage is locally owned.
+
+DEBATE 8: Real-time streaming alerts vs periodic batch evaluation
+
+  Streaming: "Sub-second alert latency. Evaluate as data arrives."
+  Batch: "Simpler, cheaper, 15-second granularity is sufficient."
+  
+  Resolution: Batch for 99% of alerts (15s evaluation cycle is fine).
+  Streaming only for the 1% that truly need sub-second detection
+  (e.g., "payment processing completely stopped"). The cost of
+  streaming everything is 10× for a benefit that matters rarely.
+```
