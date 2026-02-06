@@ -71,7 +71,7 @@ Money requires stronger guarantees than any other data in your system. An incorr
 │   │   idempotency, no ledger)                                               │
 │   ├── Gateway timeout: Did the charge succeed? Unknown. User retries.       │
 │   │   Double charge. $49.99 × 2 = angry customer + chargeback.              │
-│   ├── No internal ledger: "How much revenue did we collect today?"           │
+│   ├── No internal ledger: "How much revenue did we collect today?"          │
 │   │   Answer: "Ask Stripe." (single source, unverifiable)                   │
 │   ├── Refund: Manual Stripe dashboard action (no audit trail, no            │
 │   │   reconciliation)                                                       │
@@ -442,23 +442,23 @@ PARTIAL FAILURE: Order Service webhook delivery fails
 │                                                                             │
 │   LATENCY:                                                                  │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Create payment: P99 < 50ms (local DB write)                       │   │
-│   │  Authorize: P99 < 5 seconds (processor dependent, 2-3s typical)    │   │
-│   │  Capture: P99 < 5 seconds (processor dependent)                    │   │
-│   │  Refund: P99 < 5 seconds (processor dependent)                     │   │
-│   │  Status query: P99 < 50ms (local DB read)                          │   │
+│   │  Create payment: P99 < 50ms (local DB write)                        │   │
+│   │  Authorize: P99 < 5 seconds (processor dependent, 2-3s typical)     │   │
+│   │  Capture: P99 < 5 seconds (processor dependent)                     │   │
+│   │  Refund: P99 < 5 seconds (processor dependent)                      │   │
+│   │  Status query: P99 < 50ms (local DB read)                           │   │
 │   │                                                                     │   │
 │   │  WHY: Authorization latency is dominated by the external            │   │
 │   │  processor (network round-trip + bank authorization). Our system    │   │
-│   │  adds < 100ms overhead on top of processor latency.                │   │
+│   │  adds < 100ms overhead on top of processor latency.                 │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   AVAILABILITY:                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │  Payment creation: 99.95% (must accept payment intent)              │   │
-│   │  Authorization: 99.9% (depends on processor; degrade gracefully)   │   │
-│   │  Capture: 99.9% (retry-safe; brief delays acceptable)              │   │
-│   │  Refund: 99.5% (manual backup via processor dashboard)             │   │
+│   │  Authorization: 99.9% (depends on processor; degrade gracefully)    │   │
+│   │  Capture: 99.9% (retry-safe; brief delays acceptable)               │   │
+│   │  Refund: 99.5% (manual backup via processor dashboard)              │   │
 │   │                                                                     │   │
 │   │  WHY 99.95% for creation:                                           │   │
 │   │  A failed payment creation = lost sale. The customer clicked "Pay"  │   │
@@ -473,8 +473,8 @@ PARTIAL FAILURE: Order Service webhook delivery fails
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │  STRONG consistency for payment state transitions                   │   │
 │   │  - Payment status is a linearizable state machine                   │   │
-│   │  - No concurrent transitions on the same payment                   │   │
-│   │  - Read-your-write: After capture, status query returns "captured" │   │
+│   │  - No concurrent transitions on the same payment                    │   │
+│   │  - Read-your-write: After capture, status query returns "captured"  │   │
 │   │                                                                     │   │
 │   │  WHY strong (not eventual):                                         │   │
 │   │  Money demands deterministic state. "Payment is authorized AND      │   │
@@ -484,13 +484,13 @@ PARTIAL FAILURE: Order Service webhook delivery fails
 │                                                                             │
 │   DURABILITY:                                                               │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Zero payment data loss. Ever.                                     │   │
-│   │  - Synchronous replication to standby (no async lag risk)          │   │
-│   │  - WAL archived to object storage (point-in-time recovery)         │   │
-│   │  - Daily backups with verified restore                             │   │
+│   │  Zero payment data loss. Ever.                                      │   │
+│   │  - Synchronous replication to standby (no async lag risk)           │   │
+│   │  - WAL archived to object storage (point-in-time recovery)          │   │
+│   │  - Daily backups with verified restore                              │   │
 │   │                                                                     │   │
 │   │  WHY: Losing a payment record means:                                │   │
-│   │  - Customer charged but no record (we can't refund what we can't   │   │
+│   │  - Customer charged but no record (we can't refund what we can't    │   │
 │   │    find)                                                            │   │
 │   │  - Regulatory violation (financial records must be retained)        │   │
 │   │  - Reconciliation impossible (what went missing?)                   │   │
@@ -499,26 +499,26 @@ PARTIAL FAILURE: Order Service webhook delivery fails
 │   CORRECTNESS:                                                              │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │  Correctness > performance. Always.                                 │   │
-│   │  - Every debit has a matching credit (double-entry)                │   │
-│   │  - Ledger balances daily (or immediately detects imbalance)        │   │
-│   │  - No duplicate charges (idempotency enforced at every layer)      │   │
+│   │  - Every debit has a matching credit (double-entry)                 │   │
+│   │  - Ledger balances daily (or immediately detects imbalance)         │   │
+│   │  - No duplicate charges (idempotency enforced at every layer)       │   │
 │   │  - State machine transitions are valid (no skipping states)         │   │
 │   │                                                                     │   │
-│   │  WHY: A payment system that processes 10,000 TPS but occasionally  │   │
-│   │  double-charges is broken. A system that processes 100 TPS and     │   │
+│   │  WHY: A payment system that processes 10,000 TPS but occasionally   │   │
+│   │  double-charges is broken. A system that processes 100 TPS and      │   │
 │   │  never double-charges is correct. Correct first, fast second.       │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   TRADE-OFFS ACCEPTED:                                                      │
-│   - Higher authorization latency (processor-dependent, 2-5s acceptable)    │
-│   - Lower refund availability (manual fallback exists)                     │
-│   - Capture may be delayed minutes under load (queue + retry)              │
+│   - Higher authorization latency (processor-dependent, 2-5s acceptable)     │
+│   - Lower refund availability (manual fallback exists)                      │
+│   - Capture may be delayed minutes under load (queue + retry)               │
 │                                                                             │
 │   TRADE-OFFS NOT ACCEPTED:                                                  │
-│   - Double charges (non-negotiable)                                        │
-│   - Missing ledger entries (non-negotiable)                                │
-│   - Lost payment records (non-negotiable)                                  │
-│   - Unauditable state transitions (non-negotiable)                         │
+│   - Double charges (non-negotiable)                                         │
+│   - Missing ledger entries (non-negotiable)                                 │
+│   - Lost payment records (non-negotiable)                                   │
+│   - Unauditable state transitions (non-negotiable)                          │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -578,8 +578,8 @@ REALITY CHECK:
 SCALE GROWTH:
 
 | Scale  | Orders/day | Peak TPS | What Changes           | What Breaks First           |
-|--------|-----------|----------|------------------------|-----------------------------|
-| 1×     | 100K      | 10       | Baseline               | Nothing                     |
+|--------|-----------|----------|-------------------------|-----------------------------|
+| 1×     | 100K      | 10       | Baseline                | Nothing                     |
 | 5×     | 500K      | 50       | More API instances      | Processor rate limits       |
 | 10×    | 1M        | 100      | Read replicas for status| Processor cost              |
 | 50×    | 5M        | 500      | Shard by merchant/region| Reconciliation job duration |
@@ -612,33 +612,33 @@ SECOND FRAGILE ASSUMPTION: Reconciliation as a single daily job.
 │  │ Frontend │         │  Order   │         │ Support  │                     │
 │  │ (User)   │         │ Service  │         │  Tool    │                     │
 │  └────┬─────┘         └────┬─────┘         └────┬─────┘                     │
-│       │                    │                    │                            │
+│       │                    │                    │                           │
 │       └────────────────────┼────────────────────┘                           │
 │                            ▼                                                │
 │              ┌──────────────────────────────┐                               │
-│              │      PAYMENT API (×2)        │  ← Stateless, LB'd           │
+│              │      PAYMENT API (×2)        │  ← Stateless, LB'd            │
 │              │  Validate → Idempotency →    │                               │
 │              │  State Machine → Persist     │                               │
 │              └─────────────┬────────────────┘                               │
 │                            │                                                │
 │                            ▼                                                │
 │              ┌──────────────────────────────┐                               │
-│              │   POSTGRESQL (Primary)        │  ← Source of truth           │
+│              │   POSTGRESQL (Primary)       │  ← Source of truth            │
 │              │                              │                               │
 │              │  ┌────────────────────────┐  │                               │
 │              │  │ payments table         │  │  (state machine record)       │
 │              │  │ ledger_entries table   │  │  (double-entry accounting)    │
 │              │  │ refunds table          │  │  (refund lifecycle)           │
 │              │  │ reconciliation_log     │  │  (daily reconciliation)       │
-│              │  │ payment_events table   │  │  (audit trail)               │
+│              │  │ payment_events table   │  │  (audit trail)                │
 │              │  └────────────────────────┘  │                               │
 │              │                              │                               │
 │              │  Synchronous replica ──→     │  (zero-lag standby)           │
 │              └─────────────┬────────────────┘                               │
 │                            │                                                │
 │              ┌─────────────┼──────────────┐                                 │
-│              │             │              │                                  │
-│              ▼             ▼              ▼                                  │
+│              │             │              │                                 │
+│              ▼             ▼              ▼                                 │
 │     ┌──────────────┐ ┌──────────┐ ┌──────────────┐                          │
 │     │  Processor   │ │  Ledger  │ │  Webhook     │                          │
 │     │  Gateway     │ │  Writer  │ │  Dispatcher  │                          │
@@ -651,7 +651,7 @@ SECOND FRAGILE ASSUMPTION: Reconciliation as a single daily job.
 │            ▼                                                                │
 │     ┌──────────────┐                                                        │
 │     │   Stripe /   │                                                        │
-│     │   Adyen      │  ← External payment processor                         │
+│     │   Adyen      │  ← External payment processor                          │
 │     │   (3rd party)│                                                        │
 │     └──────────────┘                                                        │
 │                                                                             │
@@ -1586,7 +1586,7 @@ COST ESTIMATE (V1: 100K orders/day, AWS us-east-1):
 ```
 COST TRADE-OFFS:
 
-| Decision                     | Cost Impact   | Operability Impact      | On-Call Impact                    |
+| Decision                     | Cost Impact  | Operability Impact       | On-Call Impact                    |
 |------------------------------|--------------|--------------------------|-----------------------------------|
 | Synchronous replication      | +$175/mo     | Zero data loss           | Never explain lost payment record |
 | Separate audit events table  | +$5/mo       | Full debugging history   | 5-minute incident triage          |
@@ -1631,8 +1631,8 @@ OPERATIONAL BURDEN:
 ```
 THE FALSE CONFIDENCE PROBLEM:
 
-| Metric               | Looks Healthy        | Actually Broken                          |
-|----------------------|----------------------|------------------------------------------|
+| Metric               | Looks Healthy        | Actually Broken                           |
+|----------------------|----------------------|-------------------------------------------|
 | Auth success rate    | 98%                  | 2% are silent timeouts treated as decline;|
 |                      |                      | real rate unknown (money in limbo)        |
 | Capture rate         | 100%                 | Captures succeed but ledger write fails   |
@@ -1748,7 +1748,7 @@ V1 ACCEPTABLE RISKS:
 │   V1 (Initial):                                                             │
 │   - Single payment processor (Stripe)                                       │
 │   - Auth + capture + refund flow                                            │
-│   - PostgreSQL with synchronous replication                                  │
+│   - PostgreSQL with synchronous replication                                 │
 │   - Double-entry ledger with daily reconciliation                           │
 │   - Idempotency at client and processor layers                              │
 │   - State machine with audit trail                                          │
@@ -1765,7 +1765,7 @@ V1 ACCEPTABLE RISKS:
 │   - FIX: Multi-processor support (Stripe primary, Adyen fallback)           │
 │   - TRIGGER: International expansion; need EUR and GBP                      │
 │   - FIX: Multi-currency support (amount_cents + currency per payment)       │
-│   - TRIGGER: Reconciliation job takes 2+ hours at 500K orders/day          │
+│   - TRIGGER: Reconciliation job takes 2+ hours at 500K orders/day           │
 │   - FIX: Streaming reconciliation (process as settlements arrive)           │
 │                                                                             │
 │   NOT IN SCOPE (Staff-level):                                               │
@@ -1993,28 +1993,28 @@ STRONG L5 SIGNALS:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    PAYMENT FLOW ARCHITECTURE                                │
 │                                                                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                                  │
-│  │ Frontend │  │  Order   │  │ Support  │                                  │
-│  │ Checkout │  │ Service  │  │  Tool    │                                  │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘                                  │
+│  ┌──────────┐   ┌──────────┐  ┌──────────┐                                  │
+│  │ Frontend │   │  Order   │  │ Support  │                                  │
+│  │ Checkout │   │ Service  │  │  Tool    │                                  │
+│  └────┬─────┘   └────┬─────┘  └────┬─────┘                                  │
 │       │ create       │ capture     │ refund                                 │
 │       └──────────────┼─────────────┘                                        │
 │                      ▼                                                      │
 │        ┌──────────────────────────────┐                                     │
-│        │       PAYMENT API (×2)       │  ← Stateless, LB'd                 │
+│        │       PAYMENT API (×2)       │  ← Stateless, LB'd                  │
 │        │  Idempotency → State Machine │                                     │
 │        │  → Validate → Persist        │                                     │
 │        └──────────┬──────┬────────────┘                                     │
 │                   │      │                                                  │
 │          ┌────────┘      └────────┐                                         │
 │          ▼                        ▼                                         │
-│  ┌───────────────────┐   ┌───────────────────┐                              │
+│  ┌─────────────-──────┐   ┌───────────────────┐                             │
 │  │    POSTGRESQL      │   │ PROCESSOR GATEWAY │                             │
 │  │   (Primary +       │   │                   │                             │
 │  │    Sync Standby)   │   │ Stripe adapter    │                             │
-│  │                    │   │ Timeout handling   │                             │
-│  │ payments           │   │ Retry + circuit    │                             │
-│  │ ledger_entries     │   │ breaker            │                            │
+│  │                    │   │ Timeout handling  │                             │
+│  │ payments           │   │ Retry + circuit   │                             │
+│  │ ledger_entries     │   │ breaker           │                             │
 │  │ refunds            │   └─────────┬─────────┘                             │
 │  │ payment_events     │             │                                       │
 │  │ reconciliation_log │             ▼                                       │
@@ -2026,11 +2026,11 @@ STRONG L5 SIGNALS:
 │                                                                             │
 │  ASYNC PATHS:                                                               │
 │  ┌──────────────┐   ┌──────────────┐   ┌──────────────────┐                 │
-│  │  Webhook      │   │ Reconciler   │   │  Receipt Email   │                │
-│  │  Dispatcher   │   │ (daily cron) │   │  Job (async)     │                │
-│  │  → Order Svc  │   │ → Compare    │   │  → SendGrid      │               │
-│  │  → Notify     │   │   ledger vs  │   │                  │                │
-│  │              │   │   processor  │   │                  │                │
+│  │  Webhook     │   │ Reconciler   │   │  Receipt Email   │                 │
+│  │  Dispatcher  │   │ (daily cron) │   │  Job (async)     │                 │
+│  │  → Order Svc │   │ → Compare    │   │  → SendGrid      │                 │
+│  │  → Notify    │   │   ledger vs  │   │                  │                 │
+│  │              │   │   processor  │   │                  │                 │
 │  └──────────────┘   └──────────────┘   └──────────────────┘                 │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -2040,7 +2040,7 @@ STRONG L5 SIGNALS:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    PAYMENT STATE MACHINE                                     │
+│                    PAYMENT STATE MACHINE                                    │
 │                                                                             │
 │                                                                             │
 │   ┌──────────┐                                                              │
@@ -2054,9 +2054,9 @@ STRONG L5 SIGNALS:
 │        │                    ┌───────────────┼───────────────┐               │
 │        │                    │               │               │               │
 │        │                    ▼               ▼               ▼               │
-│        │             ┌──────────┐   ┌──────────────┐  ┌─────────┐          │
-│        │             │ captured  │   │capture_failed│  │ voided  │          │
-│        │             └─────┬────┘   └──────┬───────┘  └─────────┘          │
+│        │             ┌──────────┐   ┌──────────────┐  ┌─────────┐           │
+│        │             │ captured │   │capture_failed│  │ voided  │           │
+│        │             └─────┬────┘   └──────┬───────┘  └─────────┘           │
 │        │                   │               │            (terminal)          │
 │        │                   │               └── retry → captured             │
 │        │                   │               └── give up → voided             │
@@ -2080,7 +2080,7 @@ STRONG L5 SIGNALS:
 │                                                                             │
 │   INVARIANTS:                                                               │
 │   - Terminal states have no outgoing transitions                            │
-│   - captured → voided is INVALID (must refund instead)                     │
+│   - captured → voided is INVALID (must refund instead)                      │
 │   - Only one active payment per order at a time                             │
 │   - Ledger entries exist iff status = captured/refunded                     │
 │                                                                             │
