@@ -465,99 +465,99 @@ PARTIAL FAILURE: JWT validation key unavailable (key rotation)
 │                                                                             │
 │   LATENCY:                                                                  │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Gateway overhead (excluding backend): P50 < 5ms, P99 < 15ms      │   │
-│   │  Total request latency: Dominated by backend response time         │   │
+│   │  Gateway overhead (excluding backend): P50 < 5ms, P99 < 15ms        │   │
+│   │  Total request latency: Dominated by backend response time          │   │
 │   │                                                                     │   │
 │   │  Breakdown of gateway overhead:                                     │   │
-│   │  - TLS termination: ~1ms (session reuse)                           │   │
-│   │  - JWT validation: ~0.5ms (local signature check, no network)      │   │
-│   │  - Rate limit check: ~1ms (Redis RTT)                              │   │
-│   │  - Route matching: ~0.1ms (in-memory trie/map)                     │   │
+│   │  - TLS termination: ~1ms (session reuse)                            │   │
+│   │  - JWT validation: ~0.5ms (local signature check, no network)       │   │
+│   │  - Rate limit check: ~1ms (Redis RTT)                               │   │
+│   │  - Route matching: ~0.1ms (in-memory trie/map)                      │   │
 │   │  - Proxy overhead: ~1ms (header manipulation, connection pool)      │   │
-│   │  - Logging: ~0.5ms (async buffer, not in request path)             │   │
-│   │  Total: ~4ms typical                                               │   │
+│   │  - Logging: ~0.5ms (async buffer, not in request path)              │   │
+│   │  Total: ~4ms typical                                                │   │
 │   │                                                                     │   │
-│   │  WHY < 15ms P99: The gateway adds to EVERY request. If gateway     │   │
-│   │  adds 50ms, and you have 10 API calls per page load, that's       │   │
-│   │  500ms of gateway tax. At 5ms per call, it's 50ms. Invisible.     │   │
+│   │  WHY < 15ms P99: The gateway adds to EVERY request. If gateway      │   │
+│   │  adds 50ms, and you have 10 API calls per page load, that's         │   │
+│   │  500ms of gateway tax. At 5ms per call, it's 50ms. Invisible.       │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   AVAILABILITY:                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Target: 99.99% (52 minutes downtime/year)                         │   │
+│   │  Target: 99.99% (52 minutes downtime/year)                          │   │
 │   │                                                                     │   │
-│   │  WHY 99.99% (not 99.95%):                                          │   │
-│   │  Gateway down = entire API down. Every backend service is 100%     │   │
-│   │  available but unreachable. The gateway's availability must        │   │
-│   │  exceed every backend's availability target. If any backend        │   │
-│   │  targets 99.95%, the gateway must be better (it's on the path     │   │
-│   │  to all of them).                                                  │   │
+│   │  WHY 99.99% (not 99.95%):                                           │   │
+│   │  Gateway down = entire API down. Every backend service is 100%      │   │
+│   │  available but unreachable. The gateway's availability must         │   │
+│   │  exceed every backend's availability target. If any backend         │   │
+│   │  targets 99.95%, the gateway must be better (it's on the path       │   │
+│   │  to all of them).                                                   │   │
 │   │                                                                     │   │
-│   │  HOW: Stateless instances behind a load balancer. N+2 redundancy.  │   │
-│   │  No single point of failure. No gateway restart for config changes.│   │
+│   │  HOW: Stateless instances behind a load balancer. N+2 redundancy.   │   │
+│   │  No single point of failure. No gateway restart for config changes. │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   THROUGHPUT:                                                               │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Target: 15,000 requests/second sustained, 30,000 peak             │   │
+│   │  Target: 15,000 requests/second sustained, 30,000 peak              │   │
 │   │                                                                     │   │
-│   │  Per instance (c5.xlarge, 4 vCPU):                                 │   │
-│   │  - ~5,000 req/sec (with TLS, JWT validation, Redis call)           │   │
-│   │  - Need: 3 instances for 15K req/sec + headroom                    │   │
-│   │  - Deploy: 5 instances (N+2 redundancy)                            │   │
+│   │  Per instance (c5.xlarge, 4 vCPU):                                  │   │
+│   │  - ~5,000 req/sec (with TLS, JWT validation, Redis call)            │   │
+│   │  - Need: 3 instances for 15K req/sec + headroom                     │   │
+│   │  - Deploy: 5 instances (N+2 redundancy)                             │   │
 │   │                                                                     │   │
-│   │  WHY per-instance matters: During rolling deploy, 1-2 instances    │   │
-│   │  are out. Remaining instances must handle full load.               │   │
+│   │  WHY per-instance matters: During rolling deploy, 1-2 instances     │   │
+│   │  are out. Remaining instances must handle full load.                │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   CONSISTENCY:                                                              │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Route config: Eventually consistent (10-second propagation max)   │   │
-│   │  Rate limiting: Eventually consistent (best-effort, not exact)     │   │
+│   │  Route config: Eventually consistent (10-second propagation max)    │   │
+│   │  Rate limiting: Eventually consistent (best-effort, not exact)      │   │
 │   │                                                                     │   │
 │   │  WHY eventual for rate limiting:                                    │   │
-│   │  Rate limit counters are in Redis. With multiple gateway instances,│   │
-│   │  a request hitting instance A increments counter, but instance B   │   │
-│   │  might see the old count briefly. At 100 req/min limit, allowing   │   │
-│   │  102 requests is acceptable. At 100 req/min, blocking at 97 is    │   │
-│   │  also acceptable. Exact enforcement would require distributed      │   │
-│   │  locks—too expensive for rate limiting.                            │   │
+│   │  Rate limit counters are in Redis. With multiple gateway instances, │   │
+│   │  a request hitting instance A increments counter, but instance B    │   │
+│   │  might see the old count briefly. At 100 req/min limit, allowing    │   │
+│   │  102 requests is acceptable. At 100 req/min, blocking at 97 is      │   │
+│   │  also acceptable. Exact enforcement would require distributed       │   │
+│   │  locks—too expensive for rate limiting.                             │   │
 │   │                                                                     │   │
 │   │  WHY eventual for routes:                                           │   │
-│   │  Config change propagates to all instances within 10 seconds.      │   │
-│   │  During propagation, some instances route to new config, others    │   │
-│   │  to old. This is safe: both configs are valid (old and new routes  │   │
-│   │  both point to running services).                                  │   │
+│   │  Config change propagates to all instances within 10 seconds.       │   │
+│   │  During propagation, some instances route to new config, others     │   │
+│   │  to old. This is safe: both configs are valid (old and new routes   │   │
+│   │  both point to running services).                                   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   DURABILITY:                                                               │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Gateway is stateless. No durability requirement for request data. │   │
+│   │  Gateway is stateless. No durability requirement for request data.  │   │
 │   │                                                                     │   │
-│   │  Route config: Stored in config store (etcd/Consul) with           │   │
-│   │  replication. Gateway caches locally; config store is durable.     │   │
+│   │  Route config: Stored in config store (etcd/Consul) with            │   │
+│   │  replication. Gateway caches locally; config store is durable.      │   │
 │   │                                                                     │   │
-│   │  Rate limit counters: Redis with AOF persistence. Loss of          │   │
-│   │  counters on Redis restart is acceptable (counters reset;          │   │
-│   │  temporary rate limit bypass for one window).                      │   │
+│   │  Rate limit counters: Redis with AOF persistence. Loss of           │   │
+│   │  counters on Redis restart is acceptable (counters reset;           │   │
+│   │  temporary rate limit bypass for one window).                       │   │
 │   │                                                                     │   │
-│   │  Access logs: Shipped to log pipeline (Kafka → Elasticsearch).     │   │
-│   │  Buffered locally for < 30 seconds. Log loss during gateway        │   │
-│   │  crash: acceptable (< 30 seconds of logs).                         │   │
+│   │  Access logs: Shipped to log pipeline (Kafka → Elasticsearch).      │   │
+│   │  Buffered locally for < 30 seconds. Log loss during gateway         │   │
+│   │  crash: acceptable (< 30 seconds of logs).                          │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   TRADE-OFFS ACCEPTED:                                                      │
-│   - Rate limiting is approximate (±5%), not exact                          │
-│   - Config propagation takes up to 10 seconds (not instant)                │
-│   - Log loss on crash (< 30 seconds of access logs)                        │
-│   - No request retry at gateway level (client retries)                     │
+│   - Rate limiting is approximate (±5%), not exact                           │
+│   - Config propagation takes up to 10 seconds (not instant)                 │
+│   - Log loss on crash (< 30 seconds of access logs)                         │
+│   - No request retry at gateway level (client retries)                      │
 │                                                                             │
 │   TRADE-OFFS NOT ACCEPTED:                                                  │
-│   - Authentication bypass (non-negotiable)                                 │
-│   - Single point of failure (must have N+2 instances)                      │
-│   - Gateway adding > 50ms latency (gateway must be fast)                   │
-│   - Silent failure (every error must be logged and returned with           │
-│     request_id)                                                            │
+│   - Authentication bypass (non-negotiable)                                  │
+│   - Single point of failure (must have N+2 instances)                       │
+│   - Gateway adding > 50ms latency (gateway must be fast)                    │
+│   - Silent failure (every error must be logged and returned with            │
+│     request_id)                                                             │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -611,9 +611,9 @@ config updates, ~10/day; reads are request processing, 100M/day)
 ```
 SCALE GROWTH:
 
-| Scale  | QPS    | Instances | What Changes              | What Breaks First              |
-|--------|--------|-----------|---------------------------|--------------------------------|
-| 1×     | 3.5K   | 5         | Baseline                  | Nothing                        |
+| Scale  | QPS    | Instances | What Changes               | What Breaks First              |
+|--------|--------|-----------|----------------------------|--------------------------------|
+| 1×     | 3.5K   | 5         | Baseline                   | Nothing                        |
 | 3×     | 10K    | 8         | More instances             | Nothing (linear scaling)       |
 | 10×    | 35K    | 15        | Redis replica for reads    | Redis single-instance limit    |
 | 30×    | 100K   | 40        | Multiple Redis shards      | Log pipeline throughput        |
@@ -656,70 +656,70 @@ THIRD FRAGILE ASSUMPTION: Log pipeline throughput.
 │                    API GATEWAY ARCHITECTURE                                 │
 │                                                                             │
 │                                                                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐                    │
-│  │ Mobile   │  │  Web     │  │ Partner  │  │ Internal │                    │
-│  │  App     │  │  SPA     │  │  API     │  │  Tools   │                    │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘                    │
+│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐                  │
+│  │ Mobile   │   │  Web     │   │ Partner  │   │ Internal │                  │
+│  │  App     │   │  SPA     │   │  API     │   │  Tools   │                  │
+│  └────┬─────┘   └────┬─────┘   └────┬─────┘   └────┬─────┘                  │
 │       │              │              │              │                        │
 │       └──────────────┴──────────────┴──────────────┘                        │
 │                              │                                              │
 │                              ▼                                              │
 │                 ┌──────────────────────┐                                    │
-│                 │   LOAD BALANCER      │  ← L4/L7 LB (ALB/NLB)             │
+│                 │   LOAD BALANCER      │  ← L4/L7 LB (ALB/NLB)              │
 │                 │   (Health checks)    │                                    │
 │                 └──────────┬───────────┘                                    │
 │                            │                                                │
 │              ┌─────────────┼─────────────┐                                  │
 │              ▼             ▼             ▼                                  │
-│    ┌─────────────┐ ┌─────────────┐ ┌─────────────┐                         │
+│    ┌─────────────┐ ┌─────────────┐ ┌─────────────┐                          │
 │    │  Gateway    │ │  Gateway    │ │  Gateway    │  ← Stateless ×5          │
 │    │  Instance 1 │ │  Instance 2 │ │  Instance N │     (N+2 redundancy)     │
 │    │             │ │             │ │             │                          │
-│    │ ┌─────────┐ │ │ ┌─────────┐ │ │ ┌─────────┐ │                         │
-│    │ │  TLS    │ │ │ │  TLS    │ │ │ │  TLS    │ │                         │
-│    │ │ Termina-│ │ │ │ Termina-│ │ │ │ Termina-│ │                         │
-│    │ │  tion   │ │ │ │  tion   │ │ │ │  tion   │ │                         │
-│    │ ├─────────┤ │ │ ├─────────┤ │ │ ├─────────┤ │                         │
-│    │ │  Auth   │ │ │ │  Auth   │ │ │ │  Auth   │ │                         │
-│    │ │ (JWT)   │ │ │ │ (JWT)   │ │ │ │ (JWT)   │ │                         │
-│    │ ├─────────┤ │ │ ├─────────┤ │ │ ├─────────┤ │                         │
-│    │ │  Rate   │ │ │ │  Rate   │ │ │ │  Rate   │ │                         │
-│    │ │ Limiter │ │ │ │ Limiter │ │ │ │ Limiter │ │                         │
-│    │ ├─────────┤ │ │ ├─────────┤ │ │ ├─────────┤ │                         │
-│    │ │ Router  │ │ │ │ Router  │ │ │ │ Router  │ │                         │
-│    │ ├─────────┤ │ │ ├─────────┤ │ │ ├─────────┤ │                         │
-│    │ │ Proxy   │ │ │ │ Proxy   │ │ │ │ Proxy   │ │                         │
-│    │ └─────────┘ │ │ └─────────┘ │ │ └─────────┘ │                         │
-│    └──────┬──────┘ └──────┬──────┘ └──────┬──────┘                         │
-│           │               │               │                                │
-│           └───────────────┼───────────────┘                                │
-│                           │                                                │
-│          ┌────────────────┼─────────────────┐                              │
-│          ▼                ▼                  ▼                              │
-│  ┌──────────────┐ ┌──────────────┐ ┌───────────────────┐                   │
-│  │    Redis     │ │  Config      │ │  Service Registry │                   │
-│  │              │ │  Store       │ │                   │                   │
-│  │ Rate limit   │ │ (etcd)       │ │  user-svc: [IPs] │                   │
-│  │ counters     │ │              │ │  order-svc: [IPs] │                   │
-│  │ API key      │ │  Routes      │ │  payment-svc:[IPs]│                   │
-│  │ cache        │ │  Policies    │ │  ...              │                   │
-│  └──────────────┘ │  Rate limits │ └───────────────────┘                   │
-│                   └──────────────┘                                         │
-│                                                                            │
-│  BACKEND SERVICES:                                                         │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐              │
-│  │  User      │ │  Order     │ │  Payment   │ │  Product   │              │
-│  │  Service   │ │  Service   │ │  Service   │ │  Service   │              │
-│  │  (×3)      │ │  (×3)      │ │  (×2)      │ │  (×3)      │              │
-│  └────────────┘ └────────────┘ └────────────┘ └────────────┘              │
-│                                                                            │
-│  OBSERVABILITY:                                                            │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐                              │
-│  │  Kafka     │ │ Prometheus │ │ Log Store  │                              │
-│  │ (access    │ │ (metrics)  │ │ (Elastic   │                              │
-│  │  logs)     │ │            │ │  search)   │                              │
-│  └────────────┘ └────────────┘ └────────────┘                              │
-│                                                                            │
+│    │ ┌─────────┐ │ │ ┌─────────┐ │ │ ┌─────────┐ │                          │
+│    │ │  TLS    │ │ │ │  TLS    │ │ │ │  TLS    │ │                          │
+│    │ │ Termina-│ │ │ │ Termina-│ │ │ │ Termina-│ │                          │
+│    │ │  tion   │ │ │ │  tion   │ │ │ │  tion   │ │                          │
+│    │ ├─────────┤ │ │ ├─────────┤ │ │ ├─────────┤ │                          │
+│    │ │  Auth   │ │ │ │  Auth   │ │ │ │  Auth   │ │                          │
+│    │ │ (JWT)   │ │ │ │ (JWT)   │ │ │ │ (JWT)   │ │                          │
+│    │ ├─────────┤ │ │ ├─────────┤ │ │ ├─────────┤ │                          │
+│    │ │  Rate   │ │ │ │  Rate   │ │ │ │  Rate   │ │                          │
+│    │ │ Limiter │ │ │ │ Limiter │ │ │ │ Limiter │ │                          │
+│    │ ├─────────┤ │ │ ├─────────┤ │ │ ├─────────┤ │                          │
+│    │ │ Router  │ │ │ │ Router  │ │ │ │ Router  │ │                          │
+│    │ ├─────────┤ │ │ ├─────────┤ │ │ ├─────────┤ │                          │
+│    │ │ Proxy   │ │ │ │ Proxy   │ │ │ │ Proxy   │ │                          │
+│    │ └─────────┘ │ │ └─────────┘ │ │ └─────────┘ │                          │
+│    └──────┬──────┘ └──────┬──────┘ └──────┬──────┘                          │
+│           │               │               │                                 │
+│           └───────────────┼───────────────┘                                 │
+│                           │                                                 │
+│          ┌────────────────┼─────────────────┐                               │
+│          ▼                ▼                 ▼                               │
+│  ┌──────────────┐ ┌──────────────┐ ┌───────────────────┐                    │
+│  │    Redis     │ │  Config      │ │  Service Registry │                    │
+│  │              │ │  Store       │ │                   │                    │
+│  │ Rate limit   │ │ (etcd)       │ │  user-svc: [IPs]  │                    │
+│  │ counters     │ │              │ │  order-svc: [IPs] │                    │
+│  │ API key      │ │  Routes      │ │  payment-svc:[IPs]│                    │
+│  │ cache        │ │  Policies    │ │  ...              │                    │
+│  └──────────────┘ │  Rate limits │ └───────────────────┘                    │
+│                   └──────────────┘                                          │
+│                                                                             │
+│  BACKEND SERVICES:                                                          │
+│  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐                │
+│  │  User      │ │  Order     │ │  Payment   │ │  Product   │                │
+│  │  Service   │ │  Service   │ │  Service   │ │  Service   │                │
+│  │  (×3)      │ │  (×3)      │ │  (×2)      │ │  (×3)      │                │
+│  └────────────┘ └────────────┘ └────────────┘ └────────────┘                │
+│                                                                             │
+│  OBSERVABILITY:                                                             │
+│  ┌────────────┐ ┌────────────┐ ┌────────────┐                               │
+│  │  Kafka     │ │ Prometheus │ │ Log Store  │                               │
+│  │ (access    │ │ (metrics)  │ │ (Elastic   │                               │
+│  │  logs)     │ │            │ │  search)   │                               │
+│  └────────────┘ └────────────┘ └────────────┘                               │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 REQUEST FLOW (numbered steps):
@@ -1598,9 +1598,9 @@ LOAD SHEDDING STRATEGY:
     | Priority | Routes                        | Behavior Under Overload     |
     |----------|-------------------------------|-----------------------------|
     | P0       | /payments/*, /auth/*          | Always served (never shed)  |
-    | P1       | /orders/*, /users/*           | Shed at > 90% CPU          |
-    | P2       | /recommendations/*, /search/* | Shed at > 75% CPU          |
-    | P3       | /analytics/*, /export/*       | Shed at > 60% CPU          |
+    | P1       | /orders/*, /users/*           | Shed at > 90% CPU           |
+    | P2       | /recommendations/*, /search/* | Shed at > 75% CPU           |
+    | P3       | /analytics/*, /export/*       | Shed at > 60% CPU           |
 
     Shedding mechanism:
     1. Gateway monitors its own CPU utilization (per-instance metric)
@@ -2018,12 +2018,12 @@ COST ESTIMATE (V1: 15K peak QPS, AWS us-east-1):
 ```
 COST TRADE-OFFS:
 
-| Decision                      | Cost Impact  | Operability Impact      | On-Call Impact           |
+| Decision                      | Cost Impact | Operability Impact      | On-Call Impact           |
 |-------------------------------|-------------|-------------------------|--------------------------|
-| N+2 instances (5 not 3)      | +$250/mo    | Survive 2 failures      | Fewer 2 AM pages         |
+| N+2 instances (5 not 3)       | +$250/mo    | Survive 2 failures      | Fewer 2 AM pages         |
 | Redis replica                 | +$130/mo    | Rate limit HA           | Redis failover automatic |
-| etcd cluster (3 not 1)       | +$30/mo     | Config store HA         | No config store SPOF     |
-| Structured logging (JSON)    | +$100/mo    | Faster debugging        | 5-min incident triage    |
+| etcd cluster (3 not 1)        | +$30/mo     | Config store HA         | No config store SPOF     |
+| Structured logging (JSON)     | +$100/mo    | Faster debugging        | 5-min incident triage    |
 | Elasticsearch (not just Kafka)| +$700/mo    | Searchable logs         | "Show me 5xx for X" easy |
 
 BIGGEST COST DRIVER: Logging infrastructure ($1,270/month = 56% of total).
@@ -2074,11 +2074,11 @@ OPERATIONAL BURDEN:
 ```
 THE FALSE CONFIDENCE PROBLEM:
 
-| Metric                 | Looks Healthy         | Actually Broken                          |
-|------------------------|-----------------------|------------------------------------------|
-| Gateway error rate     | 0.1%                  | One backend returning wrong data (200 OK |
-|                        |                       | with empty body); no errors, just wrong  |
-| Request rate           | 15,000/sec            | Bot attack: 80% of requests are bots;    |
+| Metric                 | Looks Healthy         | Actually Broken                           |
+|------------------------|-----------------------|-------------------------------------------|
+| Gateway error rate     | 0.1%                  | One backend returning wrong data (200 OK  |
+|                        |                       | with empty body); no errors, just wrong   |
+| Request rate           | 15,000/sec            | Bot attack: 80% of requests are bots;     |
 |                        |                       | rate limiter not configured for this      |
 |                        |                       | pattern (rotating IPs, under per-IP limit)|
 | Rate limit rejection   | 0.5%                  | Rate limit failing open (Redis down);     |
@@ -2232,7 +2232,7 @@ V1 ACCEPTABLE RISKS:
 │   V1.1 (First Issues — triggered by route misconfiguration incident):       │
 │   - TRIGGER: Wrong route config sent 100% of order traffic to wrong service │
 │   - FIX: Route config validation (conflict detection before apply)          │
-│   - FIX: Canary config deployment (apply to 1 instance first, bake 5 min)  │
+│   - FIX: Canary config deployment (apply to 1 instance first, bake 5 min)   │
 │   - FIX: Config change audit log with rollback command                      │
 │                                                                             │
 │   V1.2 (Triggered by bot attack):                                           │
@@ -2241,14 +2241,14 @@ V1 ACCEPTABLE RISKS:
 │   - FIX: Global aggregate rate limit (safety valve)                         │
 │                                                                             │
 │   V2 (Incremental — triggered by growth):                                   │
-│   - TRIGGER: 40+ backend services, 200+ route patterns                     │
-│   - FIX: Dynamic service discovery (Consul/K8s integration)                │
+│   - TRIGGER: 40+ backend services, 200+ route patterns                      │
+│   - FIX: Dynamic service discovery (Consul/K8s integration)                 │
 │   - TRIGGER: WebSocket support needed for real-time chat feature            │
 │   - FIX: WebSocket proxy with sticky routing                                │
 │   - TRIGGER: Partner API program grows to 100+ partners                     │
-│   - FIX: API key self-service portal + usage analytics                     │
+│   - FIX: API key self-service portal + usage analytics                      │
 │   - TRIGGER: Redis rate limit approaching single-instance capacity          │
-│   - FIX: Redis Cluster for rate limiting (sharded by key)                  │
+│   - FIX: Redis Cluster for rate limiting (sharded by key)                   │
 │                                                                             │
 │   NOT IN SCOPE (Staff-level):                                               │
 │   - Multi-region gateway with geo-routing                                   │
@@ -2553,57 +2553,57 @@ STRONG L5 SIGNALS:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    API GATEWAY ARCHITECTURE                                 │
 │                                                                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                                  │
-│  │ Mobile   │  │  Web     │  │ Partner  │                                  │
-│  │  App     │  │  SPA     │  │  API     │                                  │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘                                  │
-│       │ HTTPS       │ HTTPS       │ HTTPS                                  │
-│       └─────────────┼─────────────┘                                        │
-│                     ▼                                                      │
-│       ┌──────────────────────────────┐                                     │
-│       │       LOAD BALANCER          │  ← ALB, health checks               │
-│       └──────────────┬───────────────┘                                     │
-│                      │                                                     │
-│       ┌──────────────┼──────────────┐                                      │
-│       ▼              ▼              ▼                                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                                  │
-│  │ Gateway  │  │ Gateway  │  │ Gateway  │  ← Stateless × 5                 │
-│  │   #1     │  │   #2     │  │   #N     │                                  │
-│  │          │  │          │  │          │                                  │
-│  │ TLS →    │  │ TLS →    │  │ TLS →    │                                  │
-│  │ Auth →   │  │ Auth →   │  │ Auth →   │                                  │
-│  │ Rate →   │  │ Rate →   │  │ Rate →   │                                  │
-│  │ Route →  │  │ Route →  │  │ Route →  │                                  │
-│  │ Proxy    │  │ Proxy    │  │ Proxy    │                                  │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘                                  │
-│       └──────────────┼──────────────┘                                      │
-│                      │                                                     │
-│   ┌──────────────────┼─────────────────────────────┐                       │
-│   │                  │                             │                       │
-│   ▼                  ▼                             ▼                       │
-│  ┌────────┐    ┌──────────┐               ┌──────────────┐                 │
-│  │ Redis  │    │  etcd    │               │   Service    │                 │
-│  │        │    │  (3-node │               │   Registry   │                 │
-│  │ Rate   │    │  cluster)│               │              │                 │
-│  │ limits │    │          │               │ user-svc ×3  │                 │
-│  │ API key│    │ Routes   │               │ order-svc ×3 │                 │
-│  │ cache  │    │ Policies │               │ pay-svc ×2   │                 │
-│  │ CB     │    │          │               │ ...          │                 │
-│  │ state  │    └──────────┘               └──────────────┘                 │
-│  └────────┘                                                                │
-│                                                                            │
-│  BACKEND SERVICES (internal HTTP):                                         │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐             │
-│  │  User   │ │  Order  │ │ Payment │ │ Product │ │  ...    │             │
-│  │ Service │ │ Service │ │ Service │ │ Service │ │(15 svc) │             │
-│  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘             │
-│                                                                            │
-│  OBSERVABILITY:                                                            │
-│  ┌──────────┐  ┌────────────┐  ┌─────────────┐                            │
-│  │  Kafka   │  │ Prometheus │  │Elasticsearch│                            │
-│  │ (logs)   │  │ (metrics)  │  │  (log query) │                            │
-│  └──────────┘  └────────────┘  └─────────────┘                            │
-│                                                                            │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                                   │
+│  │ Mobile   │  │  Web     │  │ Partner  │                                   │
+│  │  App     │  │  SPA     │  │  API     │                                   │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘                                   │
+│       │ HTTPS       │ HTTPS       │ HTTPS                                   │
+│       └─────────────┼─────────────┘                                         │
+│                     ▼                                                       │
+│       ┌──────────────────────────────┐                                      │
+│       │       LOAD BALANCER          │  ← ALB, health checks                │
+│       └──────────────┬───────────────┘                                      │
+│                      │                                                      │
+│       ┌──────────────┼──────────────┐                                       │
+│       ▼              ▼              ▼                                       │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                                   │
+│  │ Gateway  │  │ Gateway  │  │ Gateway  │  ← Stateless × 5                  │
+│  │   #1     │  │   #2     │  │   #N     │                                   │
+│  │          │  │          │  │          │                                   │
+│  │ TLS →    │  │ TLS →    │  │ TLS →    │                                   │
+│  │ Auth →   │  │ Auth →   │  │ Auth →   │                                   │
+│  │ Rate →   │  │ Rate →   │  │ Rate →   │                                   │
+│  │ Route →  │  │ Route →  │  │ Route →  │                                   │
+│  │ Proxy    │  │ Proxy    │  │ Proxy    │                                   │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘                                   │
+│       └─────────────┼─────────────┘                                         │
+│                     │                                                       │
+│   ┌─────────────────┼─────────────────────────────┐                         │
+│   │                 │                             │                         │
+│   ▼                 ▼                             ▼                         │
+│  ┌────────┐    ┌──────────┐               ┌──────────────┐                  │
+│  │ Redis  │    │  etcd    │               │   Service    │                  │
+│  │        │    │  (3-node │               │   Registry   │                  │
+│  │ Rate   │    │  cluster)│               │              │                  │
+│  │ limits │    │          │               │ user-svc ×3  │                  │
+│  │ API key│    │ Routes   │               │ order-svc ×3 │                  │
+│  │ cache  │    │ Policies │               │ pay-svc ×2   │                  │
+│  │ CB     │    │          │               │ ...          │                  │
+│  │ state  │    └──────────┘               └──────────────┘                  │
+│  └────────┘                                                                 │
+│                                                                             │
+│  BACKEND SERVICES (internal HTTP):                                          │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐                │
+│  │  User   │ │  Order  │ │ Payment │ │ Product │ │  ...    │                │
+│  │ Service │ │ Service │ │ Service │ │ Service │ │(15 svc) │                │
+│  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘                │
+│                                                                             │
+│  OBSERVABILITY:                                                             │
+│  ┌──────────┐  ┌────────────┐  ┌─────────────┐                              │
+│  │  Kafka   │  │ Prometheus │  │Elasticsearch│                              │
+│  │ (logs)   │  │ (metrics)  │  │  (log query) │                             │
+│  └──────────┘  └────────────┘  └─────────────┘                              │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -2615,53 +2615,53 @@ STRONG L5 SIGNALS:
 │                                                                             │
 │  Client Request: GET /api/v2/users/me                                       │
 │                                                                             │
-│  ┌──────────┐                                                              │
-│  │ 1. TLS   │ ← Decrypt HTTPS                                              │
-│  │ Terminate │                                                              │
-│  └────┬─────┘                                                              │
-│       │                                                                    │
-│  ┌────▼──────────┐                                                         │
+│  ┌──────────┐                                                               │
+│  │ 1. TLS   │ ← Decrypt HTTPS                                               │
+│  │ Terminate│                                                               │
+│  └────┬─────┘                                                               │
+│       │                                                                     │
+│  ┌────▼──────────┐                                                          │
 │  │ 2. Request ID │ ← Generate or propagate X-Request-ID                     │
-│  └────┬──────────┘                                                         │
-│       │                                                                    │
-│  ┌────▼──────────┐     ┌─────────────────┐                                 │
-│  │ 3. Authenticate│────→│ Invalid? → 401  │ ← Short-circuit                │
-│  │    (JWT/APIKey)│     └─────────────────┘                                │
-│  └────┬──────────┘                                                         │
-│       │ Valid                                                              │
-│  ┌────▼──────────┐     ┌─────────────────┐                                 │
-│  │ 4. Rate Limit │────→│ Exceeded? → 429 │ ← Short-circuit                │
-│  │    (Redis)    │     └─────────────────┘                                 │
-│  └────┬──────────┘                                                         │
-│       │ Allowed                                                            │
-│  ┌────▼──────────┐     ┌─────────────────┐                                 │
-│  │ 5. Route      │────→│ No match? → 404 │ ← Short-circuit                │
-│  │    (Trie)     │     └─────────────────┘                                 │
-│  └────┬──────────┘                                                         │
-│       │ Matched                                                            │
-│  ┌────▼──────────┐     ┌─────────────────┐                                 │
-│  │ 6. Circuit    │────→│ Open? → 503     │ ← Short-circuit                │
-│  │    Breaker    │     └─────────────────┘                                 │
-│  └────┬──────────┘                                                         │
-│       │ Closed                                                             │
-│  ┌────▼──────────┐     ┌─────────────────┐                                 │
-│  │ 7. Proxy to   │────→│ Timeout? → 504  │                                │
-│  │    Backend    │     │ Refused? → 502  │                                │
-│  └────┬──────────┘     └─────────────────┘                                 │
-│       │ Response                                                           │
-│  ┌────▼──────────┐                                                         │
-│  │ 8. Response   │ ← Add headers, return to client                         │
-│  │    Processing │                                                         │
-│  └────┬──────────┘                                                         │
-│       │                                                                    │
-│  ┌────▼──────────┐                                                         │
-│  │ 9. Log (async)│ ← Access log → Kafka (non-blocking)                     │
-│  └───────────────┘                                                         │
+│  └────┬──────────┘                                                          │
+│       │                                                                     │
+│  ┌────▼──────────┐     ┌─────────────────┐                                  │
+│  │ 3.Authenticate│────→│ Invalid? → 401  │ ← Short-circuit                  │
+│  │   (JWT/APIKey)│     └─────────────────┘                                  │
+│  └────┬──────────┘                                                          │
+│       │ Valid                                                               │
+│  ┌────▼──────────┐     ┌─────────────────┐                                  │
+│  │ 4. Rate Limit │────→│ Exceeded? → 429 │ ← Short-circuit                  │
+│  │    (Redis)    │     └─────────────────┘                                  │
+│  └────┬──────────┘                                                          │
+│       │ Allowed                                                             │
+│  ┌────▼──────────┐     ┌─────────────────┐                                  │
+│  │ 5. Route      │────→│ No match? → 404 │ ← Short-circuit                  │
+│  │    (Trie)     │     └─────────────────┘                                  │
+│  └────┬──────────┘                                                          │
+│       │ Matched                                                             │
+│  ┌────▼──────────┐     ┌─────────────────┐                                  │
+│  │ 6. Circuit    │────→│ Open? → 503     │ ← Short-circuit                  │
+│  │    Breaker    │     └─────────────────┘                                  │
+│  └────┬──────────┘                                                          │
+│       │ Closed                                                              │
+│  ┌────▼──────────┐     ┌─────────────────┐                                  │
+│  │ 7. Proxy to   │────→│ Timeout? → 504  │                                  │
+│  │    Backend    │     │ Refused? → 502  │                                  │
+│  └────┬──────────┘     └─────────────────┘                                  │
+│       │ Response                                                            │
+│  ┌────▼──────────┐                                                          │
+│  │ 8. Response   │ ← Add headers, return to client                          │
+│  │    Processing │                                                          │
+│  └────┬──────────┘                                                          │
+│       │                                                                     │
+│  ┌────▼──────────┐                                                          │
+│  │ 9. Log (async)│ ← Access log → Kafka (non-blocking)                      │
+│  └───────────────┘                                                          │
 │                                                                             │
-│  TIMING:                                                                   │
-│  Steps 1-6: ~4ms (gateway overhead)                                        │
-│  Step 7: Backend-dependent (10ms - 30,000ms)                               │
-│  Steps 8-9: ~1ms                                                           │
+│  TIMING:                                                                    │
+│  Steps 1-6: ~4ms (gateway overhead)                                         │
+│  Step 7: Backend-dependent (10ms - 30,000ms)                                │
+│  Steps 8-9: ~1ms                                                            │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
