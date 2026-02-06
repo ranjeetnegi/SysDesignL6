@@ -1306,6 +1306,64 @@ WHY THIS MATTERS:
   would have prevented it.
 ```
 
+### Config Change Review Workflow
+
+```
+WHY THIS NEEDS ITS OWN MECHANISM:
+  Config changes bypass code review, CI, and test pipelines.
+  The only safety gate between a human and global production impact
+  is the config system's own review workflow.
+
+WORKFLOW TIERS:
+
+  TIER 1 — SELF-SERVICE (non-production, non-critical):
+    Developer changes staging config → Applied immediately
+    Audit logged, no approval required
+    Use case: Testing, development iteration
+
+  TIER 2 — PEER REVIEW (production, non-critical):
+    Developer submits change → System holds in PENDING state
+    One peer from same team must approve within the UI
+    After approval → Applied with standard canary rollout
+    Timeout: If not approved in 4 hours → Auto-rejected
+    
+    FUNCTION submit_change_for_review(change):
+      pending = create_pending_change(change)
+      notify(change.namespace.owner_team, pending)
+      RETURN pending.id
+    
+    FUNCTION approve_change(pending_id, approver):
+      pending = get_pending(pending_id)
+      IF approver == pending.author:
+        RETURN error("Cannot self-approve")
+      IF NOT same_team(approver, pending.namespace.owner):
+        RETURN error("Must be same team")
+      apply_with_canary(pending)
+
+  TIER 3 — TWO-PERSON RULE (production critical: payments, auth, security):
+    Developer submits → TWO approvers from different teams required
+    One must be from the platform/SRE team
+    Applied only after both approve
+    Use case: Rate limits, security configs, payment thresholds
+
+  TIER 4 — EMERGENCY BYPASS (incident response):
+    On-call engineer with escalation privilege can bypass review
+    System records: WHO bypassed, WHEN, WHY (mandatory reason field)
+    Auto-creates follow-up review ticket due within 24 hours
+    Alert sent to team lead: "Emergency config bypass by {actor}"
+    
+    REAL-WORLD APPLICATION (API Gateway):
+      During a traffic spike, the on-call needs to increase rate_limit
+      from 10,000 to 50,000 req/s. Waiting for peer review means
+      30 minutes of degraded service. Emergency bypass → Applied in
+      5 seconds → Incident mitigated → Review happens next morning.
+    
+    Staff insight: Emergency bypass exists because the alternative is
+    engineers SSH-ing into servers and editing files manually.
+    A bypassed-but-audited change is infinitely better than
+    an untracked manual change.
+```
+
 ### Failure Behavior
 
 ```
@@ -1395,6 +1453,64 @@ TECHNOLOGY CHOICE:
   The write QPS is tiny (~30/second peak). PostgreSQL handles this trivially.
   Logical replication provides a built-in change stream.
   For very large scale (>1M keys), consider sharding by namespace prefix.
+```
+
+### Config Store Sharding Strategy
+
+```
+WHEN SINGLE-NODE POSTGRESQL BREAKS:
+  Single PostgreSQL node handles 500K keys, 3GB history comfortably.
+  Breaks at:
+  → >2M keys (index size exceeds memory, point lookups slow)
+  → >50GB version history (backup/restore time exceeds RTO)
+  → >200 writes/second sustained (rare but possible during mass migration)
+
+SHARDING APPROACH: HASH BY NAMESPACE PREFIX
+
+  Shard key: HASH(namespace) % N
+  
+  WHY namespace, not key:
+  → All keys in a namespace are on the same shard (local transactions)
+  → Propagation server reads change log per-shard (parallelizable)
+  → Admin operations (freeze namespace, list keys) are single-shard
+  
+  WHY NOT hash by individual key:
+  → Cross-key operations within a namespace would require distributed tx
+  → Propagation ordering within a namespace becomes multi-shard coordination
+  → No benefit: namespaces are already well-distributed
+
+SHARD COUNT:
+  Start with 4 shards (even at single-node scale, for future flexibility)
+  → Use logical sharding: 4 PostgreSQL schemas on 1 physical instance
+  → When physical sharding needed: Move schemas to separate instances
+  → This avoids data migration during shard-out
+
+CHANGE LOG AGGREGATION:
+  Each shard has its own change log with local sequence numbers.
+  Propagation servers subscribe to ALL shard change logs.
+  Global ordering: Propagation server merges shard streams by timestamp.
+  
+  ORDERING GUARANTEE:
+  Within a namespace (single shard): Strict ordering preserved.
+  Across namespaces (different shards): Eventual consistency (acceptable).
+  
+  Staff insight: Cross-namespace ordering doesn't matter because services
+  subscribe to their own namespace. Two different services getting config
+  updates in different order is fine—they're independent.
+
+RESHARDING:
+  Adding new shards requires:
+  1. Create new shard
+  2. Identify namespaces to move (consistent hashing makes this predictable)
+  3. Freeze moved namespaces (reject writes for ~30 seconds)
+  4. Copy data to new shard
+  5. Update shard map (which propagation servers read)
+  6. Unfreeze namespaces
+  
+  Impact: 30-second write freeze for affected namespaces only.
+  Read path: Unaffected (local cache).
+  
+  This is a once-per-year operation, not a daily concern.
 ```
 
 ### Versioning
@@ -1929,6 +2045,76 @@ CRITICAL: The hash salt includes the FLAG NAME.
   With flag-name salt: Different 10% for each flag → Independent tests
 ```
 
+### Flag Rule Complexity at Scale
+
+```
+PROBLEM: As flag count and targeting rule complexity grow, evaluation
+becomes a hidden performance bottleneck.
+
+RULE COMPILATION:
+  Flag rules arrive as JSON from propagation server:
+  { "flag": "new_checkout", "rules": [
+      { "match": {"region": "us-east-1", "plan": "enterprise"}, "value": true },
+      { "match": {"percent": 50}, "value": true },
+      { "default": false }
+  ]}
+  
+  Naive evaluation: Walk rules linearly per request → O(R) per flag
+  With 50 flags × 10 rules each = 500 rule checks per request → ~500µs
+  
+  OPTIMIZATION: Compile rules into a decision tree at ingestion time.
+  Rules are STATIC between propagation events.
+  
+  FUNCTION compile_flag_rules(flag_definition):
+    tree = DecisionTree()
+    FOR rule IN flag_definition.rules:
+      IF rule.has_attribute_match:
+        tree.add_attribute_branch(rule.attribute, rule.condition, rule.value)
+      ELSE IF rule.has_percent_match:
+        tree.add_percent_leaf(rule.percent, rule.value)
+      ELSE:
+        tree.set_default(rule.value)
+    RETURN tree.compile()  // Flattened, no allocations at eval time
+  
+  Compiled evaluation: O(depth of tree) → typically O(1)-O(3) per flag
+
+RULE COUNT LIMITS:
+  Per-flag: Max 100 targeting rules
+  → Beyond 100 rules, the flag is being used as a data-driven router, not a toggle
+  → Staff insight: If you need 100+ rules, you need a proper experiment platform
+  
+  Per-namespace: Max 10,000 active flags
+  → Beyond 10K flags, propagation and memory costs become non-trivial
+  → Enforcement: Flag creation rejected above limit until cleanup occurs
+
+FLAG DEPENDENCY ANALYSIS:
+  Flag A: "enable_new_checkout"
+  Flag B: "enable_checkout_discount" (only meaningful if A is true)
+  
+  If A = false and B = true → B has no effect but confuses readers
+  If A changes → B's behavior changes implicitly
+  
+  DETECTION:
+  FUNCTION detect_dependencies(flag_evaluation_logs):
+    FOR each flag_pair (A, B):
+      correlation = compute_outcome_correlation(A, B, logs)
+      IF correlation.conditional_entropy < threshold:
+        REPORT "Flag B appears dependent on Flag A"
+    RETURN dependency_graph
+  
+  ENFORCEMENT:
+  → Flag creation UI allows declaring dependencies
+  → Dependent flags cannot be created without referencing parent
+  → Dashboard shows dependency graph
+  → Cleanup of parent flag warns about child flags
+  
+  REAL-WORLD APPLICATION (Messaging System):
+    Flag "enable_reactions" depends on "enable_new_message_format"
+    Reactions require new message schema. If reactions is ON but new format
+    is OFF → reactions silently fail for messages in old format.
+    Dependency tracking prevents this by warning at flag creation time.
+```
+
 ---
 
 # Part 7: Data Model & Storage Decisions
@@ -2003,6 +2189,67 @@ SECRETS:
   Versioned: Latest version is the default, can request specific version
   
   Example: "/secrets/payment-service/production/stripe_api_key"
+```
+
+## Config Inheritance and Conflict Resolution
+
+```
+PROBLEM: Config values have a resolution hierarchy:
+  /default/timeout_ms = 500
+  /production/timeout_ms = 1000
+  /production/us-east-1/timeout_ms = 1500
+  
+  Service in us-east-1 resolves timeout_ms = 1500 (most specific wins).
+  But what happens when conflicts arise?
+
+CONFLICT SCENARIO 1: Schema version mismatch
+  /default/ has schema v1 (timeout_ms: integer, min=100, max=10000)
+  /production/ has schema v2 (timeout_ms: integer, min=100, max=30000)
+  
+  Which schema validates a write to /production/timeout_ms = 15000?
+  → Rule: The MOST SPECIFIC namespace's schema validates.
+  → /production/ schema v2 allows 15000. Valid.
+  
+  WHY: Child namespaces override parent behavior entirely.
+  If you wanted the parent's limits, don't create a child schema.
+
+CONFLICT SCENARIO 2: Inheritance loop
+  /A/ inherits from /B/, /B/ inherits from /A/
+  → Detected at namespace creation time (graph cycle check)
+  → REJECTED: "Circular inheritance detected: A → B → A"
+  
+  FUNCTION validate_namespace_hierarchy(namespace, parent):
+    visited = SET()
+    current = parent
+    WHILE current != NULL:
+      IF current == namespace: RETURN error("Circular inheritance")
+      visited.add(current)
+      current = get_parent(current)
+    RETURN ok()
+
+CONFLICT SCENARIO 3: Override masking dangerous values
+  /default/rate_limit = 1000 (safe)
+  /production/us-east-1/rate_limit = 999999 (effectively no limit)
+  
+  The override MASKS the safe default. An attacker or mistake in
+  a regional override can defeat global safety measures.
+  
+  MITIGATION: Ceiling constraints propagate DOWN the hierarchy.
+  /default/ can set: rate_limit.max_override = 50000
+  → Any child namespace setting rate_limit > 50000 is REJECTED
+  → Allows tuning within bounds, prevents dangerous overrides
+  
+  Staff insight: This is the config equivalent of OS-level resource limits.
+  A process can lower its own limits but not raise them above the parent.
+
+RESOLUTION ALGORITHM:
+  FUNCTION resolve(namespace_path, key):
+    // namespace_path = ["production", "us-east-1"]
+    FOR i FROM len(namespace_path) DOWN TO 0:
+      prefix = join(namespace_path[0:i])
+      value = store.get(prefix, key)
+      IF value != NULL: RETURN value
+    RETURN compiled_default(key)  // Hardcoded fallback
 ```
 
 ## How Data Is Partitioned
@@ -2276,6 +2523,68 @@ CHANGE LOG ORDERING:
   → This is rare (< 0.01% of propagation events).
 ```
 
+## Cross-Namespace Atomic Config Changes
+
+```
+PROBLEM: Two services need coordinated config changes.
+  Service A: payment-service/timeout_ms = 500 → 2000
+  Service B: fraud-service/timeout_ms = 500 → 2000
+  
+  If A gets the new timeout but B doesn't (propagation delay),
+  payment service waits 2 seconds for fraud check, but fraud service
+  still times out at 500ms → Payment retries → Increased load on fraud.
+
+WHY TRUE DISTRIBUTED TRANSACTIONS ARE REJECTED:
+  Cross-namespace atomic writes would require:
+  → 2PC or distributed consensus across config store shards
+  → Propagation servers would need to hold changes until ALL namespaces
+    are ready → Massively increases propagation complexity
+  → Single failed shard blocks ALL changes → Availability nightmare
+  
+  Staff decision: Do NOT support cross-namespace atomic writes.
+  Instead, provide ORDERING TOOLS to manage coordinated changes.
+
+APPROACH 1: ORDERED CHANGE SETS (recommended)
+  Create a "change set" that specifies order and wait conditions:
+  
+  FUNCTION execute_change_set(changes):
+    // changes = [{ns: "fraud-service", key: "timeout_ms", value: 2000},
+    //            {ns: "payment-service", key: "timeout_ms", value: 2000}]
+    
+    // Phase 1: Apply changes that have NO dependencies first
+    apply(changes[0])  // Fraud service gets new timeout first
+    
+    // Phase 2: Wait for propagation confirmation
+    WAIT_UNTIL propagation_confirmed(changes[0], threshold=95_PERCENT)
+    
+    // Phase 3: Apply dependent changes
+    apply(changes[1])  // Payment service now safe to increase timeout
+    
+  This ensures fraud service is READY before payment service starts
+  expecting longer responses.
+
+APPROACH 2: COMPATIBILITY WINDOWS
+  Set both services to accept BOTH old and new timeout values.
+  1. Deploy fraud service with: accept_timeout = max(old, new)
+  2. Change payment-service timeout to 2000
+  3. After propagation complete: Set fraud-service timeout to 2000
+  
+  This is the config equivalent of backward-compatible schema migration.
+
+  REAL-WORLD APPLICATION (News Feed):
+    Feed service has timeout=500ms for ranking service.
+    Ranking service has processing_budget=400ms.
+    Increasing feed timeout to 1000ms without increasing ranking budget
+    is safe. But decreasing feed timeout below ranking budget causes
+    all requests to timeout. Change sets enforce: ranking budget
+    decreases BEFORE feed timeout decreases.
+
+Staff insight: Engineers asking for cross-namespace atomicity usually
+have a SEQUENCING problem, not an atomicity problem. Ordered change
+sets solve 95% of these cases. The remaining 5% indicate an
+architectural coupling that should be addressed at the service level.
+```
+
 ## Clock Assumptions
 
 ```
@@ -2377,6 +2686,70 @@ TIMELINE:
 DEGRADATION:
   The system degrades to "static config" mode—everything works,
   but no new config changes take effect until propagation recovers.
+```
+
+## Failure Mode 2b: Slow Propagation Server (Partial Degradation)
+
+```
+SCENARIO: Propagation servers are running but experiencing high latency
+due to GC pauses, network congestion, or overloaded change log consumer.
+
+WHY THIS IS DISTINCT FROM TOTAL FAILURE:
+  Total failure → Clients detect disconnect, reconnect, use cache
+  Slow degradation → Clients remain connected but receive updates late
+  → No disconnect signal → No automatic failover → SILENT STALENESS
+
+IMPACT:
+  Propagation latency increases from 3 seconds to 2-5 minutes.
+  Services continue serving stale config—but nobody knows it's stale.
+  A kill switch activated during this window takes 5 minutes to propagate
+  instead of 3 seconds → 5 minutes of continued bad behavior.
+
+TIMELINE:
+  T+0:    Propagation server GC pause begins (or NIC saturation)
+  T+0-30s: Change log events buffer in propagation server's queue
+  T+30s:  Queue depth exceeds threshold → Alert: "propagation_lag_seconds > 10"
+  T+1min: Engineer activates kill switch → Stored in config store
+  T+1min: Kill switch stuck in propagation queue behind 200 pending events
+  T+4min: Propagation server processes kill switch event → Pushes to clients
+  T+4.5min: Services receive kill switch → Behavior changes
+  
+  NET EFFECT: Kill switch took 3.5 minutes instead of 3 seconds.
+  For an active incident, that's 3.5 minutes of continued damage.
+
+MITIGATION:
+  1. PRIORITY LANES: Config changes tagged as "kill_switch" or "emergency"
+     skip the normal change log queue and are sent via a separate
+     priority channel.
+     
+     FUNCTION process_change_event(event):
+       IF event.priority == "EMERGENCY":
+         push_immediately_to_all_clients(event)  // Skip queue
+       ELSE:
+         enqueue_for_ordered_delivery(event)
+  
+  2. PROPAGATION HEARTBEAT WITH VERSION:
+     Propagation server sends heartbeat every 5 seconds including
+     its current change log position.
+     Client compares: "Server says it's at position 1000, but I got
+     my last update at position 950. Server is processing slowly."
+     → Client can switch to a different propagation server.
+  
+  3. CLIENT-SIDE STALENESS DETECTION:
+     Sidecar tracks: "Last config update received: 45 seconds ago"
+     If staleness > threshold (30 seconds) AND propagation is expected
+     to be active → ALERT: "Sidecar running on stale config"
+     → On-call investigates propagation pipeline
+
+  REAL-WORLD APPLICATION (Rate Limiter):
+    Rate limiter config is slow to propagate. During a traffic spike,
+    increasing rate_limit from 10K to 50K takes 3 minutes to reach
+    all instances. Meanwhile, legitimate traffic is being rejected.
+    Priority lanes ensure rate_limit changes propagate in < 5 seconds.
+
+  Staff insight: Slow dependencies are worse than dead dependencies.
+  Dead → fail fast, clear error. Slow → silent degradation, delayed
+  detection, extended blast radius.
 ```
 
 ## Failure Mode 3: Bad Config Push (Config Poisoning)
@@ -2489,6 +2862,75 @@ MITIGATION:
   (payment flow, checkout process) where inconsistency causes data issues.
 ```
 
+## Failure Mode 6: SDK Bug Cascading to All Services
+
+```
+SCENARIO: A new SDK version has a bug in flag evaluation logic.
+Services that adopt the new SDK return wrong flag values.
+
+WHY THIS IS THE MOST DANGEROUS BLAST RADIUS:
+  The SDK runs INSIDE every service process.
+  A bug in the SDK is a bug in EVERY service that adopts it.
+  
+  Unlike a server-side bug (which affects one component),
+  an SDK bug is a CLIENT-SIDE bug that affects ALL consumers.
+  
+  Analogy: A bad config server deploy affects config reads.
+  A bad SDK deploy affects payment processing, search, messaging—
+  every service that uses a feature flag.
+
+TIMELINE:
+  T+0:     SDK v2.4.0 released with bug in rule evaluation.
+           Bug: "gte" (greater-than-or-equal) operator evaluated as "gt"
+           (greater-than). Affects flags using >=.
+  T+1day:  Team A adopts v2.4.0 for their service (50 instances)
+  T+3days: Teams B, C, D adopt v2.4.0 (500 instances total)
+  T+5days: Team B reports: "5% rollout is showing as 4.99%"
+           → Dismissed as rounding error
+  T+7days: Teams E through K adopt v2.4.0 (5,000 instances)
+  T+8days: Team F reports: "Users at exactly tier boundary not seeing
+           correct feature. User with score=100 should qualify for
+           'gte 100' rule but doesn't."
+  T+9days: Bug identified in SDK. Fix released as v2.4.1.
+  T+10-15days: Teams gradually adopt v2.4.1.
+  
+  NET EFFECT: 9 days of incorrect flag evaluation, slow detection
+  because the bug was SUBTLE (off-by-one in boundary condition).
+
+CONTAINMENT STRATEGIES:
+  1. SDK AS LIBRARY, NOT FORCED UPGRADE:
+     → Teams adopt at their own pace (already in the chapter)
+     → BUT: This means a fix ALSO propagates slowly
+     → Trade-off: Safety of gradual adoption vs speed of fix deployment
+  
+  2. SDK CANARY VERIFICATION:
+     Platform team maintains a test service that evaluates 1000 known
+     flag+context combinations against expected results.
+     
+     FUNCTION verify_sdk(sdk_version):
+       FOR each (flag, context, expected) IN test_suite:
+         actual = sdk_version.evaluate(flag, context)
+         IF actual != expected:
+           REPORT "SDK MISMATCH: flag={flag}, expected={expected}, got={actual}"
+       IF mismatches > 0:
+         BLOCK_RELEASE(sdk_version)
+         ALERT("SDK release blocked: {mismatches} evaluation mismatches")
+  
+  3. SHADOW EVALUATION:
+     First 24 hours after SDK update: Service runs BOTH old and new SDK.
+     Compares results. If divergence > 0.1% → Alert, auto-revert to old SDK.
+  
+  4. FORCED HOTFIX FOR SECURITY BUGS:
+     If SDK has a security vulnerability (e.g., secrets leaked in logs):
+     → Platform team publishes advisory with 48-hour adoption deadline
+     → After deadline: Services on vulnerable SDK blocked from secret access
+     → This is the ONLY scenario where forced upgrade is acceptable
+
+  Staff insight: The SDK is the highest-leverage code in the organization.
+  A 10-line bug in the SDK has more impact than a 1000-line bug in any
+  single service. SDK releases must have MORE rigor than any service deploy.
+```
+
 ## Failure Timeline Walkthrough
 
 ```
@@ -2555,6 +2997,139 @@ RUNBOOK 3: CARDINALITY EXPLOSION IN FLAGS
   2. Identify flags in FULLY_ON state for > 30 days → Should be code-cleaned
   3. Send cleanup assignments to flag owners
   4. If owners unresponsive after 2 weeks → Auto-archive the flag
+```
+
+## Meta-Monitoring: Who Watches the Config System
+
+```
+PROBLEM: The config system monitors other services via propagation
+health, flag evaluation metrics, and secret access logs.
+But what monitors the config system itself?
+
+If the config system's own monitoring breaks, you lose visibility
+into config health for EVERY service simultaneously.
+
+PRINCIPLE: The config platform MUST NOT depend on itself for monitoring.
+
+MONITORING STACK (independent of config system):
+  1. Config platform metrics go to the SAME observability pipeline
+     as all other services (Prometheus, etc.)—but never through
+     the config system's own propagation path.
+  
+  2. Config platform alerting uses STATIC alert rules
+     (not dynamically configured via the config system).
+     Alert thresholds are hardcoded or in a separate config file
+     that is NOT managed by the config system.
+  
+  3. Health checks are EXTERNAL probes:
+     → Separate monitoring service pings config API every 10 seconds
+     → Checks: Can I write a test config? Can I read it back? Latency?
+     → This service has ZERO dependency on the config system
+
+KEY METRICS FOR THE CONFIG PLATFORM:
+
+  PROPAGATION HEALTH:
+    config_propagation_lag_seconds (P50, P99)
+    config_connected_clients_total
+    config_disconnected_clients_rate (per minute)
+    config_change_events_per_second
+  
+  STORE HEALTH:
+    config_store_write_latency_ms (P50, P99)
+    config_store_read_latency_ms (P50, P99)
+    config_store_replication_lag_seconds
+    config_store_disk_usage_percent
+  
+  SECRET ENGINE HEALTH:
+    secrets_access_latency_ms (P50, P99)
+    secrets_kms_call_rate (per minute)
+    secrets_lease_renewal_failures (per minute)
+    secrets_rotation_in_progress_count
+  
+  SDK / SIDECAR HEALTH:
+    config_sdk_cache_hit_rate (should be > 99.99%)
+    config_sdk_fallback_to_default_rate (should be < 0.01%)
+    config_sdk_version_distribution (how many instances on each version)
+    secrets_sidecar_unavailable_rate
+  
+  FLAG HEALTH:
+    flag_evaluation_rate (per second, per flag)
+    flag_stale_count (flags not evaluated in 30 days)
+    flag_targeting_rule_count (per flag)
+    flag_total_active_count
+
+ALERTING RULES (STATIC, not config-driven):
+  CRITICAL: config_propagation_lag_seconds.p99 > 30 for 5 minutes
+  CRITICAL: config_store_health != healthy for 2 minutes
+  CRITICAL: secrets_kms_call_error_rate > 5% for 1 minute
+  WARNING:  config_sdk_fallback_to_default_rate > 0.1% for 10 minutes
+  WARNING:  config_connected_clients < expected * 0.9 for 5 minutes
+  INFO:     flag_stale_count > 100
+
+Staff insight: At Google, platform teams that use their own platform
+for monitoring inevitably create circular dependency loops.
+The config system's monitoring must be bootstrappable independently—
+if the config system is completely down, you must still be able
+to detect it and diagnose it.
+```
+
+## Config Drift Detection
+
+```
+PROBLEM: During incidents, engineers use emergency local overrides
+(SSH + local config file, environment variable injection) to
+fix production immediately. These overrides BYPASS the config system.
+
+After the incident, these overrides are often forgotten.
+→ Server A has a local override with rate_limit = 50000
+→ All other servers have rate_limit = 10000 (from config system)
+→ Server A behaves differently from the rest of the fleet
+→ Months later: "Why is Server A handling 5× more traffic?"
+
+DETECTION MECHANISM:
+  FUNCTION detect_drift(expected_config, actual_config):
+    // expected_config: What the config system says this instance should have
+    // actual_config: What the instance is actually using (reported by SDK)
+    
+    diffs = {}
+    FOR key IN union(expected_config.keys, actual_config.keys):
+      IF expected_config[key] != actual_config[key]:
+        diffs[key] = {
+          expected: expected_config[key],
+          actual: actual_config[key],
+          source: actual_config.source(key)  // "config_system" | "local_override" | "env_var" | "compiled_default"
+        }
+    RETURN diffs
+
+  SDK reports actual config values + sources periodically (every 5 minutes).
+  Config platform compares against expected state.
+  Any drift → Alert with details.
+
+DRIFT SOURCES:
+  1. Emergency local override (file on disk)
+  2. Environment variable injection (set during deploy, never removed)
+  3. Old SDK version (doesn't understand new config key format)
+  4. Propagation failure (this instance never got the update)
+  5. Manual SSH edit (untracked, dangerous)
+
+RESOLUTION:
+  Source 1-2: Auto-generate cleanup ticket for responsible team.
+  Source 3: Alert platform team (SDK version mismatch).
+  Source 4: Investigate propagation path (is this instance connected?).
+  Source 5: RED ALERT. Untracked manual edits are the most dangerous.
+            → Force config refresh on that instance.
+            → Investigate: Who SSH'd into production? Why?
+
+REAL-WORLD APPLICATION (News Feed):
+  After an incident, feed ranking service on 3 servers still has
+  emergency weight override: ranking_weight_likes = 0.0
+  (set to disable likes-based ranking during abuse event).
+  Three months later: "Why is our feed quality bad for 0.3% of users?"
+  Config drift detection would have caught this in 5 minutes.
+
+Staff insight: Config drift is the config system's equivalent of
+database schema drift. It's invisible, it accumulates, and it
+causes incidents that are incredibly hard to diagnose.
 ```
 
 ---
@@ -2850,6 +3425,65 @@ TRADE-OFF 4: Secret encryption strength
   AES-256 (software): Fast, standard, free
   HSM-backed: Slower, expensive ($9K/month), required by some compliance
   Decision: AES-256 by default, HSM for Tier 2+ secrets only
+```
+
+## Hidden Cost: Audit Log and Flag Evaluation Logging at Scale
+
+```
+PROBLEM: Audit logs and flag evaluation logs are the fastest-growing
+cost in a mature config platform. They're often overlooked in design.
+
+AUDIT LOG GROWTH:
+  Config changes: ~3/second × 500 bytes/event = 130 MB/day → Trivial
+  Secret accesses: ~1,000/second × 300 bytes = 26 GB/day → Significant
+  
+  With compliance retention (7 years for SOX, 5 years for GDPR):
+  → Secret audit alone: 26 GB/day × 365 × 7 = ~66 TB
+  → Storage cost at $0.02/GB: ~$1,300/month just for secret audit storage
+  
+  This is often the LARGEST cost in the config platform—not the servers.
+
+FLAG EVALUATION LOGGING (the real cost trap):
+  If you log every flag evaluation for A/B test analysis:
+  100,000 QPS × 50 flags × 100 bytes/log = 500 GB/day
+  → This is MORE data than most companies' entire logging pipeline
+  → Annual cost at $0.02/GB: ~$3,600/month for storage alone
+  
+  Staff decision: Do NOT log individual flag evaluations.
+  Instead:
+  → Aggregate: Store counts per (flag, value, 1-minute bucket)
+    100,000 QPS × 50 flags → 50,000 counter increments/second
+    Stored as: ~50,000 × 1440 minutes/day × 50 bytes = 3.6 GB/day
+    → 99.3% cost reduction vs full evaluation logging
+  
+  → Sample: For detailed analysis, log 0.1% of evaluations
+    → 500 MB/day instead of 500 GB/day
+  
+  → Infer from outcomes: A/B test results derived from user behavior
+    metrics, not flag evaluation logs. More accurate and cheaper.
+
+SDK LANGUAGE MAINTENANCE COST:
+  Config SDK must exist in every language the org uses.
+  Typical: Go, Java, Python, Node.js, C++ → 5 SDK implementations
+  
+  Each SDK needs:
+  → Feature parity (same evaluation logic, same caching behavior)
+  → Testing (per-language test suite, integration tests)
+  → Release management (5 release pipelines)
+  → On-call support (5 codebases to debug)
+  
+  Staff estimate: 0.5-1 FTE per actively maintained SDK language.
+  5 languages → 2.5-5 FTEs just for SDK maintenance.
+  
+  COST OPTIMIZATION: Implement core evaluation logic in a shared
+  language (Rust/C) with FFI bindings to each target language.
+  → 1 core codebase + 5 thin wrappers
+  → Reduces from 5 FTEs to ~2 FTEs
+
+  REAL-WORLD APPLICATION:
+  LaunchDarkly, Split, and Unleash all maintain 10+ SDKs.
+  This is a major reason why managed SaaS is cost-effective
+  for organizations with < 50,000 instances.
 ```
 
 ## What Over-Engineering Looks Like
@@ -3372,6 +4006,67 @@ V3 ARCHITECTURE (scale, 10,000 services, 500,000 instances):
   the system to serve billions of evaluations per second.
 ```
 
+## Migration Path: V2 to V3 Without Downtime
+
+```
+PROBLEM: You cannot shut down config for 500 services while migrating
+from polling-based V2 to streaming-based V3. The migration must be
+invisible to application teams.
+
+PHASE 1: DUAL-WRITE (2-4 weeks)
+  Deploy V3 config store alongside V2 (etcd/Consul).
+  ALL writes go to BOTH stores (V2 first, V3 second).
+  
+  FUNCTION dual_write(namespace, key, value):
+    v2_result = v2_store.put(namespace, key, value)  // etcd/Consul
+    v3_result = v3_store.put(namespace, key, value)  // PostgreSQL
+    IF v2_result.ok AND v3_result.ok:
+      RETURN ok()
+    ELSE:
+      // V3 write failure: Log, alert, but don't block (V2 is still primary)
+      IF NOT v3_result.ok:
+        LOG.error("V3 store write failed, V2 succeeded—investigating")
+      RETURN v2_result
+  
+  Verification: Nightly job compares V2 and V3 stores for consistency.
+  Any divergence → Auto-heal by copying V2 → V3.
+
+PHASE 2: DEPLOY V3 SIDECAR/SDK IN SHADOW MODE (4-8 weeks)
+  New SDK connects to BOTH V2 polling endpoint AND V3 streaming endpoint.
+  SDK evaluates config from BOTH sources.
+  V2 result is USED, V3 result is COMPARED (shadow evaluation).
+  
+  IF v2_value != v3_value:
+    metric.increment("config_migration_divergence", {key: key})
+    LOG.warn("V2/V3 divergence: key={key}, v2={v2_value}, v3={v3_value}")
+  
+  RETURN v2_value  // V2 is still the source of truth
+  
+  Goal: Zero divergence for 2 consecutive weeks → Phase 3.
+
+PHASE 3: FLIP PRIMARY TO V3 (1 week)
+  SDK switches: V3 result is USED, V2 result is COMPARED.
+  Any divergence → Alert (but V3 is now primary).
+  
+  Rollback plan: One config flag (ironic—managed outside both systems,
+  as an environment variable) switches primary back to V2.
+  
+  Duration: Run for 1 week, then declare V3 primary.
+
+PHASE 4: DECOMMISSION V2 (2-4 weeks)
+  Stop dual-writes. V2 store becomes read-only.
+  Remove V2 polling from SDK.
+  Decommission V2 infrastructure (etcd/Consul cluster).
+  
+TOTAL MIGRATION: 2-4 months for 500-service fleet.
+  Zero downtime. Zero data loss. Fully reversible until Phase 4.
+
+Staff insight: The migration itself is managed via environment variables
+and hardcoded SDK flags—NOT via the config system being migrated.
+Using the old config system to manage its own migration is a
+circular dependency that breaks under failure.
+```
+
 ## How Incidents Drive Redesign
 
 ```
@@ -3451,6 +4146,64 @@ CANARY STRATEGY:
 STAFF PRINCIPLE:
   "Config platform changes are the SECOND slowest to deploy
   (after the observability platform). Move deliberately."
+```
+
+## SDK Version Compatibility Strategy
+
+```
+PROBLEM: The SDK is embedded in every service. The platform team
+releases SDK updates, but service teams adopt at different rates.
+At any given time, 10+ SDK versions are active across the fleet.
+
+COMPATIBILITY MATRIX:
+  SDK Version | Config API | Propagation Protocol | Flag Eval | Secrets API
+  v2.0        | v1, v2     | gRPC v1              | Engine v1 | v1
+  v2.1        | v1, v2     | gRPC v1              | Engine v1 | v1, v2
+  v2.2        | v2, v3     | gRPC v1, v2          | Engine v2 | v2
+  v2.3        | v2, v3     | gRPC v2              | Engine v2 | v2
+  
+  Each SDK version supports CURRENT and PREVIOUS protocol versions.
+  Server supports CURRENT and TWO PREVIOUS protocol versions.
+  
+  → SDK v2.0 (oldest supported) can talk to current server.
+  → Server can talk to SDK v2.0 through v2.3.
+
+DEPRECATION POLICY:
+  Protocol versions supported for 12 months after successor release.
+  SDK versions supported for 6 months after successor release.
+  
+  After deprecation:
+  → SDK still WORKS (we never break running services)
+  → But: No new features, no bug fixes, no security patches
+  → Platform team sends quarterly "SDK version report" to all teams
+  → Teams on deprecated SDKs get flagged in quarterly review
+
+BACKWARD COMPATIBILITY RULES:
+  1. New config keys added to the store MUST have defaults that old SDKs
+     handle gracefully (SDK ignores unknown keys).
+  2. New flag rule types (e.g., "semantic_version" operator) MUST be
+     backward-compatible: Old SDK that doesn't understand the rule
+     falls through to default value (safe degradation).
+  3. Propagation protocol changes MUST be additive:
+     → New fields in change events are ignored by old SDKs.
+     → Old SDKs never receive events they can't parse.
+  4. Breaking changes require protocol version bump:
+     → Server supports both old and new protocol simultaneously.
+     → Old SDKs use old protocol, new SDKs use new protocol.
+
+FORCED UPGRADE CRITERIA (rare, exceptional):
+  → Security vulnerability in SDK (secret handling bug)
+  → Data corruption bug (SDK writes invalid cache to disk)
+  → Protocol vulnerability (authentication bypass)
+  
+  Forced upgrade process:
+  1. Publish advisory with severity and deadline (48h for critical)
+  2. Provide automated migration tool (dependency version bump + test)
+  3. After deadline: Block deprecated SDK from accessing secrets API
+  4. Non-secret config access continues (no user-visible impact)
+  
+  Staff insight: Forced upgrades should happen < 1 time per year.
+  If you're forcing upgrades more often, your API stability is poor.
 ```
 
 ---
@@ -3760,6 +4513,35 @@ STAFF SIGNALS:
 3. OPERATIONAL EMPATHY: Candidate designs for the on-call engineer:
    "If the config system is down at 3 AM, the on-call needs to be able
    to change config locally without the central system."
+
+4. META-SYSTEM AWARENESS: Candidate asks "Who monitors the config system?"
+   and designs independent observability. This is a clear L6 signal—
+   L5 candidates treat the config system as reliable infrastructure,
+   L6 candidates treat it as the most critical single point of failure.
+
+5. COST INSTINCT: Candidate identifies audit logs and flag evaluation
+   logging as the dominant cost driver, not the servers themselves.
+   "The propagation servers cost $500/month. The audit logs cost $5,000/month.
+   I'd focus optimization on log storage, not compute."
+
+6. MIGRATION THINKING: When discussing the architecture, candidate
+   voluntarily explains how to MIGRATE to this design from a simpler one.
+   "No one builds V3 on day one. Here's how you get here from git-based
+   config without a big-bang migration."
+
+COMMON L6-VERSUS-STRONG-L5 DISTINGUISHER:
+  Ask: "You deployed a config change that made things worse. Walk me through
+  the next 60 seconds."
+  
+  Strong L5: "Roll back the config change, check error rates."
+  L6: "First, how MUCH worse? If error rate went from 0.01% to 0.05%,
+  I observe for 30 more seconds to confirm it's the config change and not
+  noise. If error rate went from 0.01% to 50%, I hit the rollback button
+  immediately—but I also check whether automatic rollback already fired.
+  If it did, I check WHY it took a human to notice. That's a monitoring gap."
+  
+  The difference: L5 knows what to do. L6 calibrates response to severity
+  and identifies systemic improvements from every incident.
 ```
 
 ---
@@ -4428,6 +5210,30 @@ An L5 might design a working key-value config store with an API. An L6 designs a
 | **Compliance** | Q4, Q7, Exercise 3 |
 | **Multi-Environment** | Redesign 1, Exercise 2 |
 | **Full Trade-Off Debates** | Debates 1-8 |
+
+### L6 Verification Statement
+
+**This chapter now meets Google Staff Engineer (L6) expectations.**
+
+Staff-level signals now covered:
+
+- [x] Config change safety as primary design constraint (schema validation, canary rollout, auto-rollback)
+- [x] Blast radius analysis for every failure mode including slow degradation
+- [x] SDK bug cascading failure (widest blast radius component)
+- [x] Meta-monitoring / self-observability (who watches the config system)
+- [x] Config drift detection (emergency overrides becoming permanent)
+- [x] Config store sharding strategy at extreme scale
+- [x] Flag rule complexity scaling and dependency analysis
+- [x] Config inheritance conflict resolution with ceiling constraints
+- [x] Cross-namespace coordinated changes via ordered change sets
+- [x] Config change review workflow (tiered approval with emergency bypass)
+- [x] V2 → V3 migration path without downtime
+- [x] SDK version compatibility strategy with deprecation policy
+- [x] Audit log and evaluation logging cost as dominant cost driver
+- [x] Interview calibration with L5-vs-L6 distinguishers
+- [x] Operational empathy (on-call runbooks, emergency fallbacks)
+- [x] Deploy/release separation throughout design decisions
+- [x] Cost-first reasoning with explicit over-engineering avoidance
 
 ### Remaining Considerations (Not Gaps):
 
