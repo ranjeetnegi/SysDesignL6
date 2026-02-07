@@ -831,6 +831,78 @@ SEARCH AS AN INFORMATION LEAK:
     Every search feature is also a potential data leak vector.
 ```
 
+## SLO/SLI Framework
+
+```
+SLOs ARE NOT JUST NUMBERS — THEY ARE CONTRACTS WITH TENANTS.
+A Staff Engineer defines SLOs, measures SLIs, and manages error budgets.
+
+SLI (Service Level Indicator) — what we MEASURE:
+
+  SLI 1: Query Latency
+    Measurement: P99 of search query latency, measured at the gateway
+    (includes all internal processing, NOT including client-side network)
+    Granularity: Per tenant, per 5-minute window
+
+  SLI 2: Query Availability
+    Measurement: % of queries that return a non-error response within timeout
+    Partial results count as AVAILABLE (not an error)
+    Error = 5xx or timeout with zero results returned
+
+  SLI 3: Indexing Freshness
+    Measurement: P95 time from document mutation to searchability
+    Measured by: Canary documents indexed every 30 seconds with known content,
+    then searched. Freshness = time between index and first successful search.
+
+  SLI 4: Index Completeness
+    Measurement: % of source-of-truth documents that exist in the index
+    Measured by: Periodic sampling — pick 1000 random source documents,
+    verify they exist in the index via get-by-ID.
+
+SLO (Service Level Objective) — what we PROMISE:
+
+  SLO 1: Query P99 latency < 300ms (per tenant, per 5-min window)
+  SLO 2: Query availability > 99.95% (per month)
+  SLO 3: Indexing freshness P95 < 5 seconds (per tenant)
+  SLO 4: Index completeness > 99.99% (per daily check)
+
+ERROR BUDGET — how much failure is ACCEPTABLE:
+
+  SLO 2 at 99.95% = 21.6 minutes of downtime per month
+  → If error budget is not exhausted: Ship features, experiment, take risks
+  → If error budget is 50% consumed: Slow down risky changes
+  → If error budget is exhausted: Freeze all non-reliability work
+
+  STAFF INSIGHT:
+  Error budgets are the mechanism that balances velocity and reliability.
+  Without error budgets, platform teams either move too fast (break things)
+  or too slow (never ship). The SLO framework makes this explicit:
+  "We have 15 minutes of budget left this month — that reindex can wait."
+
+PER-TENANT SLO TIERS:
+
+  TIER 1 (Premium):
+    → P99 < 200ms, 99.99% availability, freshness < 2 seconds
+    → Dedicated shard allocation, 3 replicas, dedicated coordinator pool
+    → Cost: 3× standard pricing
+
+  TIER 2 (Standard):
+    → P99 < 300ms, 99.95% availability, freshness < 5 seconds
+    → Shared infrastructure with quotas, 2 replicas
+    → Cost: Standard pricing
+
+  TIER 3 (Best-effort):
+    → P99 < 500ms, 99.9% availability, freshness < 30 seconds
+    → Shared infrastructure, 1 replica, first to be shed under load
+    → Cost: 0.5× standard pricing
+
+  WHY TIERS:
+  → Not all tenants need the same guarantees
+  → Tiered SLOs enable cost-efficient resource allocation
+  → Shedding Tier 3 traffic protects Tier 1 during incidents
+  → Tenants self-select based on business criticality
+```
+
 ---
 
 # Part 4: Scale & Load Modeling (Concrete Numbers)
@@ -1736,6 +1808,79 @@ EXAMPLE:
   → Length normalization gives advantage to focused content
 ```
 
+### Relevance Evaluation & Safe Rollout Framework
+
+```
+HOW DO YOU KNOW IF RELEVANCE IMPROVED? YOU MEASURE IT.
+A Staff Engineer never deploys a relevance change without measurement.
+
+OFFLINE EVALUATION (before deployment):
+
+  JUDGMENT SETS:
+    → Curated set of (query, document, relevance_label) triples
+    → Labels: Perfect (4), Excellent (3), Good (2), Fair (1), Bad (0)
+    → Size: 5,000-10,000 labeled queries
+    → Source: Human raters, click logs, editorial teams
+    → Updated quarterly (queries change, corpus changes)
+
+  METRICS:
+    → NDCG@10: Normalized Discounted Cumulative Gain at position 10
+      Measures: Are the best results at the top? Penalizes good results at low positions.
+    → Precision@5: % of top 5 results that are relevant
+    → Zero-result rate: % of queries returning 0 results (should be < 2%)
+    → Regression detection: Compare new model vs current model on judgment sets
+
+  GATE:
+    → NDCG@10 must not decrease by > 1% vs production model
+    → Zero-result rate must not increase by > 0.5%
+    → IF either gate fails: Block deployment, investigate
+
+ONLINE EVALUATION (during and after deployment):
+
+  A/B TESTING FOR RELEVANCE:
+    → Deploy new model to 5% of traffic (canary)
+    → Control: Current production model (95% of traffic)
+    → Treatment: New model (5% of traffic)
+    → Duration: 7 days minimum (capture weekly patterns)
+    → Metrics compared:
+      - Click-through rate (CTR) on search results
+      - Mean Reciprocal Rank (MRR) of first click
+      - Reformulation rate (user searches again immediately)
+      - Add-to-cart / conversion rate (if e-commerce)
+      - Session search success rate (user found what they needed)
+
+  STATISTICAL SIGNIFICANCE:
+    → Require p < 0.05 for declaring a winner
+    → At 5% traffic × 12K QPS = 600 QPS in treatment
+    → Sufficient sample size within 24-48 hours for CTR
+    → 7 days for conversion metrics (lower signal, needs more data)
+
+  ROLLOUT SEQUENCE:
+    1. Offline eval on judgment sets → GATE
+    2. Shadow mode: Run new model on production traffic, log results,
+       DON'T serve them. Compare with production results offline.
+    3. Canary: 5% of traffic for 7 days → A/B metrics
+    4. Ramp: 5% → 25% → 50% → 100% over 2 weeks
+    5. At any stage: If metrics degrade → rollback within minutes
+
+  ROLLBACK:
+    → Relevance model is a versioned artifact (not code)
+    → Rollback = update model config to point to previous version
+    → Takes effect within seconds (config push, not deployment)
+    → Zero code deployment required for rollback
+
+STAFF INSIGHT:
+  Relevance is the HARDEST thing to get right in search because
+  "better" is subjective and query-dependent. A change that improves
+  head queries ("shoes") can degrade tail queries ("blue suede shoes size 11").
+  
+  The safe rollout framework exists because a bad relevance change is WORSE
+  than a latency regression — users notice bad results more than slow results.
+  And unlike latency, relevance degradation has no clear error signal.
+  Users don't report "results are slightly less relevant" — they just
+  leave the platform.
+```
+
 ---
 
 # Part 7: Data Model & Storage Decisions
@@ -2088,6 +2233,89 @@ CLOCKS IN SEARCH SYSTEMS:
   user-facing features (sorting by date) where ±1 second accuracy is fine.
 ```
 
+## Index-Source Reconciliation
+
+```
+THE INDEX WILL DIVERGE FROM THE SOURCE OF TRUTH. NOT "IF" — "WHEN."
+
+Divergence causes:
+  → Indexing pipeline bug drops mutations silently
+  → Consumer offset gets stuck (queue backlog not processed)
+  → Partial reindex completes but misses some documents
+  → Source system sends delete but pipeline is down
+  → Network partition between source and pipeline
+
+RECONCILIATION IS A MANDATORY BACKGROUND PROCESS, NOT AN EMERGENCY PROCEDURE.
+
+RECONCILIATION PROCESS:
+
+  STEP 1: SAMPLE VERIFICATION (continuous, every 5 minutes)
+    → Pick 1,000 random document IDs from source of truth
+    → For each: GET document from search index by ID
+    → Compare: Does document exist? Is version current? Are fields correct?
+    → Metric: Divergence rate = (mismatched + missing) / sampled
+    → Alert: Divergence rate > 0.01% → WARN
+    → Alert: Divergence rate > 0.1% → PAGE
+
+  STEP 2: FULL RECONCILIATION (scheduled, weekly or on-demand)
+    → Stream ALL document IDs + versions from source of truth
+    → Stream ALL document IDs + versions from search index
+    → Diff: Identify missing, extra, and version-mismatched documents
+    → Queue missing/mismatched documents for re-indexing
+    → Queue extra documents (in index but not in source) for deletion
+    → Throttle reconciliation writes to avoid impacting live serving
+
+  STEP 3: FRESHNESS CANARY (continuous, every 30 seconds)
+    → Index a synthetic "canary document" with known content + timestamp
+    → Search for canary document
+    → Freshness = current_time - canary_timestamp
+    → If freshness > SLO: Pipeline is unhealthy
+    → This catches stuck pipelines that sample verification might miss
+      (if the pipeline is stuck, all new documents are missing, but
+       existing documents look fine in the sample)
+
+  PSEUDO-CODE:
+  FUNCTION reconcile(tenant_id, index_name):
+    source_cursor = source_of_truth.scan(tenant_id)
+    index_cursor = search_index.scan(tenant_id, index_name)
+    
+    missing = []
+    stale = []
+    extra = []
+    
+    // Merge-join on document ID (both cursors sorted)
+    WHILE source_cursor.has_next() OR index_cursor.has_next():
+      IF source_doc.id < index_doc.id:
+        missing.append(source_doc.id)      // In source, not in index
+        source_cursor.advance()
+      ELSE IF source_doc.id > index_doc.id:
+        extra.append(index_doc.id)          // In index, not in source
+        index_cursor.advance()
+      ELSE:
+        IF source_doc.version > index_doc.version:
+          stale.append(source_doc.id)       // Index has old version
+        source_cursor.advance()
+        index_cursor.advance()
+    
+    // Repair
+    FOR doc_id IN missing + stale:
+      queue_for_reindex(doc_id)             // Throttled
+    FOR doc_id IN extra:
+      queue_for_deletion(doc_id)            // Throttled
+    
+    RETURN {missing: len(missing), stale: len(stale), extra: len(extra)}
+
+STAFF INSIGHT:
+  Reconciliation is boring but critical infrastructure. Without it,
+  the search index silently drifts from reality over weeks and months.
+  The "ghost results" incident (Part 14) happened because there was
+  no reconciliation process to catch the stuck pipeline. Every search
+  system at Staff level MUST have automated reconciliation with alerting.
+  
+  An analogy: Reconciliation is to search what checksums are to storage.
+  You don't notice their absence until corruption has already spread.
+```
+
 ---
 
 # Part 9: Failure Modes & Degradation (MANDATORY)
@@ -2303,6 +2531,191 @@ TOTAL USER IMPACT: ~0 seconds downtime (replica failover at T=0:01)
 TOTAL CLUSTER RECOVERY: ~25 minutes
 ```
 
+## Cascading Failure: Write Path Poisoning the Read Path
+
+```
+THE MOST DANGEROUS FAILURE MODE IN SEARCH:
+A write-path overload cascades into read-path degradation.
+
+This is the failure that takes down production search. It's not a single
+component failure — it's a chain reaction where each step makes the next worse.
+
+STEP-BY-STEP CASCADING TIMELINE:
+
+T=0:00  TRIGGER: Tenant A starts bulk reindex (500K docs/minute)
+        → Indexing pipeline accepts all writes (no per-tenant quota in V2)
+        → Shard primaries begin buffering mutations
+
+T=0:05  Shard indexing buffers fill faster than normal
+        → Refresh cycle creates 5× more segments than usual
+        → 5× more segments = 5× more files per shard to search
+
+T=0:15  SEGMENT MERGE TRIGGERED (background process)
+        → Merge process reads old segments + writes new merged segment
+        → Disk I/O doubles: Merge I/O + query I/O compete for the same SSD
+        → Page cache evicted by merge reads → query I/O now hits disk
+
+T=0:20  QUERY LATENCY DEGRADES (propagation to read path)
+        → P99 query latency rises from 100ms → 500ms
+        → Coordinators start timing out shard requests
+        → Coordinators issue speculative retries → 1.3× shard load
+
+T=0:25  RETRY AMPLIFICATION
+        → More timeouts → more retries → more shard load
+        → Shard CPU saturated: Serve merge + queries + retries
+        → P99 → 2000ms, partial results on 30% of queries
+
+T=0:30  CLIENT RETRIES (user-visible)
+        → Product teams' services start retrying failed searches
+        → External QPS doubles: 12K → 24K
+        → Coordinators overwhelmed → query queue grows
+
+T=0:35  CASCADING COLLAPSE
+        → Query queue full → coordinators reject new queries (503)
+        → 50% of queries failing
+        → On-call paged: "Search is down"
+
+T=0:40  MANUAL INTERVENTION
+        → On-call identifies bulk reindex as root cause
+        → Kills Tenant A's reindex job
+        → But: Merge storm continues (merges in progress can't be cancelled)
+
+T=0:55  GRADUAL RECOVERY
+        → Merges complete, I/O pressure drops
+        → Page cache warms up, queries return to SSD/cache
+        → P99 drops to 200ms
+
+T=1:10  FULL RECOVERY
+        → All metrics back to normal
+        → Post-incident: Add per-tenant indexing quotas, tie merge
+          throttle to query latency, add circuit breaker on coordinator retries
+
+CONTAINMENT MECHANISMS (what V3 adds to prevent this):
+  1. Per-tenant indexing rate limits (prevent unbounded writes)
+  2. Merge throttle tied to query latency:
+     IF query_p99 > 2× baseline: PAUSE all merges
+     → Queries recover immediately; merges resume when latency normalizes
+  3. Coordinator retry budget: Max 10% retries per query
+  4. Write-path I/O isolation: Separate disk I/O queues for merges vs queries
+     (using OS-level I/O scheduling or dedicated merge disks)
+  5. Automatic load shedding: If coordinator queue > threshold,
+     shed Tier 3-4 queries before affecting Tier 1
+
+STAFF INSIGHT:
+  This cascading failure is the #1 reason search systems have outages.
+  It's not a single component failing — it's a positive feedback loop
+  where write load creates I/O contention that degrades reads, which
+  triggers retries that add more load. The ONLY way to break the loop
+  is proactive throttling at the write path BEFORE it affects the read path.
+  Reactive responses (killing the job after collapse) always take too long.
+```
+
+## Observability & Monitoring Architecture
+
+```
+SEARCH OBSERVABILITY IS A FIRST-CLASS SUBSYSTEM, NOT AN AFTERTHOUGHT.
+
+A search system that returns results is not necessarily healthy.
+Staleness, relevance degradation, and slow tail latency are invisible
+without explicit monitoring. The observability architecture must answer
+three questions at all times:
+  1. Are queries fast? (Latency SLOs)
+  2. Is the index fresh? (Freshness SLOs)
+  3. Are results relevant? (Quality SLOs)
+
+TIER 1: QUERY PATH METRICS (real-time, per-second granularity)
+
+  LATENCY:
+    → P50, P95, P99, P999 query latency (per tenant, per index, global)
+    → Per-phase breakdown: Parse, scatter, shard execution, gather, re-rank
+    → Per-shard latency distribution (identify slow shards)
+    → Autocomplete latency (separate from search — different SLO)
+  
+  THROUGHPUT:
+    → QPS by tenant, by index, by query type (search vs suggest vs scroll)
+    → Error rate by type: timeout, shard failure, rate limited, rejected
+    → Partial result rate: % of queries with missing shards
+  
+  ALERTS:
+    → P99 > 300ms for 5 minutes → PAGE (immediate)
+    → Error rate > 1% for 2 minutes → PAGE
+    → Partial result rate > 5% for 5 minutes → WARN
+    → QPS drop > 30% vs same time yesterday → WARN (possible upstream issue)
+
+TIER 2: INDEXING PATH METRICS (near-real-time, per-minute granularity)
+
+  FRESHNESS:
+    → Indexing lag: Time between document mutation and searchability
+      Measured per-tenant, per-shard, per-pipeline-stage
+    → Lag percentiles: P50, P95, P99 indexing lag
+    → Queue depth: Messages waiting in indexing queue (per tenant)
+  
+  THROUGHPUT:
+    → Documents indexed per second (per tenant)
+    → Indexing errors per second (schema violations, pipeline failures)
+    → Segment merge rate: Merges per minute, merge duration, merge I/O
+  
+  ALERTS:
+    → Indexing lag P95 > 30 seconds → PAGE (freshness SLO violated)
+    → Queue depth growing for > 10 minutes → WARN
+    → Indexing error rate > 5% → PAGE
+    → Zero documents indexed for 5 minutes (pipeline stuck) → PAGE
+
+TIER 3: CLUSTER HEALTH METRICS (background, per-minute)
+
+  NODE HEALTH:
+    → CPU, memory, disk I/O, disk usage per node
+    → GC pause frequency and duration (per JVM node)
+    → Network throughput between nodes
+  
+  SHARD HEALTH:
+    → Shard allocation status: Unassigned, initializing, relocating
+    → Replica lag per shard (transaction log position delta)
+    → Segment count per shard (too many = query slowdown)
+    → Under-replicated shard count (redundancy at risk)
+  
+  ALERTS:
+    → Disk usage > 85% on any node → WARN
+    → Unassigned shards > 0 for 5 minutes → PAGE
+    → Under-replicated shards > 10% → WARN
+    → GC pause > 5 seconds → WARN
+
+TIER 4: RELEVANCE QUALITY METRICS (daily + per-deployment)
+
+  OFFLINE METRICS:
+    → NDCG@10 (Normalized Discounted Cumulative Gain) on judgment sets
+    → Precision@K on editorial ratings
+    → Zero-result rate: % of queries returning 0 results
+  
+  ONLINE METRICS:
+    → Click-through rate (CTR) on search results
+    → Mean Reciprocal Rank (MRR) of first clicked result
+    → Reformulation rate: % of users who immediately search again
+      (high reformulation = bad relevance)
+    → Abandonment rate: % of searches with no click (bad relevance or no intent)
+  
+  ALERTS:
+    → NDCG drops > 5% after deployment → BLOCK deployment, auto-rollback
+    → Zero-result rate > 2× baseline → WARN
+    → CTR drops > 10% vs yesterday → INVESTIGATE
+
+DASHBOARD STRUCTURE:
+  → PLATFORM OVERVIEW: Global QPS, latency, error rate, indexing lag
+  → PER-TENANT VIEW: Tenant-specific latency, freshness, quota usage
+  → SHARD EXPLORER: Per-shard latency, segment count, disk usage
+  → INCIDENT VIEW: Timeline of alerts, deployments, config changes
+  → RELEVANCE DASHBOARD: NDCG trends, CTR, zero-result rate
+
+STAFF INSIGHT ON OBSERVABILITY:
+  Most search incidents are detected by TENANT TEAMS, not the platform team.
+  "Our search results look wrong" is the most common report.
+  This means the platform's observability FAILED to detect the problem first.
+  
+  The fix: Freshness monitoring (indexing lag), relevance monitoring (NDCG),
+  and per-tenant dashboards that tenant teams can self-serve.
+  The platform team should detect problems BEFORE tenants report them.
+```
+
 ---
 
 # Part 10: Performance Optimization & Hot Paths
@@ -2453,6 +2866,73 @@ LOAD SHEDDING (drop lower-priority work when overloaded):
        presence of wildcards or regex
      → If estimated cost > budget, reject or simplify query
      → Prevents "query of death" (one expensive query that brings down a shard)
+```
+
+## Query-of-Death Detection and Kill
+
+```
+A "QUERY OF DEATH" IS A SINGLE QUERY THAT CAN BRING DOWN A SHARD.
+
+EXAMPLES:
+  → Wildcard on high-cardinality field: field:* → enumerate all terms
+  → Unbounded regex: field:/.*pattern.*/ → catastrophic backtracking
+  → Leading wildcard: *shoes → cannot use inverted index, must scan
+  → Massive disjunction: term1 OR term2 OR ... OR term10000
+  → Deep pagination with sorting: Get page 10,000 sorted by price
+    (must score and sort top 200,000 documents)
+
+WHY THIS IS A STAFF-LEVEL CONCERN:
+  → One user's bad query can affect ALL users on the same shard
+  → The shard has no per-query resource isolation (shared CPU, shared memory)
+  → A single stuck query consumes a thread/goroutine, reducing shard concurrency
+  → If the query triggers excessive memory allocation → GC pause → all queries slow
+
+DETECTION AND PREVENTION:
+
+  LAYER 1: QUERY COST ESTIMATION (coordinator, before scatter)
+    FUNCTION estimate_query_cost(parsed_query):
+      cost = 0
+      FOR term IN parsed_query.terms:
+        df = term_stats.get_doc_frequency(term)    // Cached term statistics
+        cost += df                                  // More matches = more work
+      IF parsed_query.has_wildcard:
+        cost *= 100                                 // Wildcards are 100× more expensive
+      IF parsed_query.has_regex:
+        cost *= 1000                                // Regex is 1000× more expensive
+      IF parsed_query.page_offset > 1000:
+        cost += parsed_query.page_offset            // Deep pagination is expensive
+      
+      IF cost > MAX_QUERY_COST:
+        REJECT with 400: "Query too expensive. Simplify or add filters."
+      RETURN cost
+
+  LAYER 2: PER-QUERY TIMEOUT (shard level)
+    → Each shard enforces a per-query execution timeout (e.g., 100ms)
+    → If query exceeds timeout: Kill the query, return partial results
+    → Log: Query text, estimated cost, actual execution time, shard ID
+    → This prevents a single query from monopolizing a shard's CPU
+
+  LAYER 3: CIRCUIT BREAKER ON EXPENSIVE QUERIES
+    → Track per-query-pattern execution cost
+    → If the same query pattern (normalized) exceeds timeout 3× in 1 minute:
+      → Block that pattern for 5 minutes
+      → Return cached "This query is temporarily unavailable" error
+    → Prevents retry loops on inherently expensive queries
+
+  LAYER 4: PER-SHARD CONCURRENCY LIMIT
+    → Each shard allows max N concurrent queries (e.g., 50)
+    → If all slots are occupied: New queries queue with short timeout
+    → If queue is full: Reject with 503
+    → One expensive query consumes 1 slot; it can't consume all 50
+    → Ensures fast queries aren't blocked by slow ones
+
+STAFF INSIGHT:
+  Query-of-death is a multi-tenancy concern as much as a technical one.
+  In a shared cluster, Tenant A's developer writing SELECT * equivalent
+  can degrade Tenant B's production search. The coordinator MUST reject
+  dangerous queries BEFORE they reach the shards. Rejection at the
+  coordinator is cheap; execution at the shard is expensive and damages
+  everyone on that shard.
 ```
 
 ## Why Some Optimizations Are Intentionally NOT Done
@@ -3074,6 +3554,135 @@ INCIDENT 4: "The Ghost Results" (ongoing concern)
   Redesign: Indexing lag SLO with automated alerting,
   periodic reconciliation between index and source of truth,
   "freshness" field in every search result for debugging
+```
+
+## Platform Code Deployment Strategy
+
+```
+DEPLOYING SEARCH PLATFORM CODE IS DIFFERENT FROM DEPLOYING APPLICATION CODE.
+
+The search platform has three independently deployable components:
+  1. Coordinator (stateless) — query parsing, scatter-gather, ranking
+  2. Indexing pipeline (stateless) — document processing, text analysis
+  3. Shard software (stateful) — index management, segment operations
+
+Each has different deployment risk profiles.
+
+COORDINATOR DEPLOYMENT (LOW RISK):
+  → Stateless: No data to migrate, no sessions to drain
+  → Rolling restart: Replace one coordinator at a time
+  → Canary: Deploy to 1 coordinator, observe for 30 minutes
+  → Ramp: 1 → 25% → 50% → 100% over 2 hours
+  → Rollback: Replace with previous version (seconds)
+  → Verification: P99 latency, error rate, partial result rate unchanged
+  → Risk: Query parsing bug could return wrong results for all queries
+
+PIPELINE DEPLOYMENT (MEDIUM RISK):
+  → Stateless processing, but stateful queue offsets
+  → Rolling restart: Replace one worker at a time
+  → Risk: Text analysis bug could corrupt newly indexed documents
+  → Canary: Deploy to 1 worker, monitor indexed document quality
+  → Verification: Sample indexed documents, compare against expected analysis
+  → Rollback: Replace with previous version, re-process queue from checkpoint
+  → Critical: Bad pipeline code CANNOT be fixed by rollback alone —
+    documents indexed by the bad version must be re-indexed
+
+SHARD SOFTWARE DEPLOYMENT (HIGH RISK):
+  → Stateful: Manages on-disk index, in-memory buffers, transaction logs
+  → Rolling restart: One node at a time, with shard migration
+  → Before restart: Migrate primary shards away from target node
+    (promote replicas elsewhere, so target node has only replicas)
+  → Restart node with new version → replicas sync from primaries
+  → Canary: One node for 24 hours (observe shard health, query latency,
+    merge behavior, disk I/O patterns)
+  → Ramp: 1 node → 10% → 25% → 50% → 100% over 1 week
+  → Rollback: Reverse the process (long — requires re-syncing shards)
+  → Risk: Data format changes, segment compatibility, merge policy changes
+  → Critical: Shard software versions must be backward-compatible
+    across at least 2 versions (mixed-version cluster during rollout)
+
+DEPLOYMENT GATES:
+  → All unit tests pass
+  → Integration tests with production-like data pass
+  → Offline relevance evaluation shows no regression
+  → Canary runs for minimum duration without alerts
+  → No error budget violations in the past 24 hours
+  → Human approval for shard software changes (high risk)
+```
+
+## Tenant Onboarding & Self-Service
+
+```
+ONBOARDING A NEW TENANT IS AN ORGANIZATIONAL AND TECHNICAL PROCESS.
+
+SELF-SERVICE ONBOARDING WORKFLOW:
+
+  STEP 1: INTAKE (Tenant team, 30 minutes)
+    → Tenant fills out request form:
+      - Data description (what are the documents?)
+      - Expected scale (document count, QPS, growth rate)
+      - Freshness requirement (seconds, minutes, hours)
+      - SLO tier (Premium, Standard, Best-effort)
+      - Schema (field names, types, which fields are searchable)
+    → Automated validation: Schema compliance, reasonable scale estimates
+
+  STEP 2: PROVISIONING (Automated, 5 minutes)
+    → Create logical index within shared cluster
+    → Allocate shards based on estimated scale
+    → Configure per-tenant quotas (QPS, indexing rate, storage)
+    → Generate API credentials scoped to tenant
+    → Set up per-tenant monitoring dashboard
+    → Create alias pointing to tenant's index
+
+  STEP 3: DATA LOADING (Tenant team, hours to days)
+    → Tenant uses bulk indexing API to load initial data
+    → Rate-limited to avoid impacting other tenants
+    → Platform provides progress dashboard
+    → Validation: Sample search queries to verify indexing correctness
+
+  STEP 4: INTEGRATION (Tenant team, days)
+    → Tenant integrates search API into their product
+    → Configures synonym dictionaries, boost factors
+    → Tests with production-like queries
+    → Platform team reviews for anti-patterns (expensive queries, missing filters)
+
+  STEP 5: PRODUCTION (Ongoing)
+    → Tenant configures their own relevance tuning via admin API
+    → Tenant monitors their own SLO dashboard
+    → Platform team monitors cluster-wide health
+    → Quarterly review: Usage, cost, SLO compliance
+
+OWNERSHIP BOUNDARY:
+
+  PLATFORM TEAM OWNS:
+  → Cluster infrastructure (nodes, disks, network)
+  → Core software (coordinator, pipeline, shard manager)
+  → Global SLOs (cluster-wide latency, availability)
+  → Capacity planning and scaling
+  → Incident response for infrastructure issues
+  → Multi-tenant isolation and quota enforcement
+  → Platform-level security (authentication, tenant isolation)
+
+  TENANT TEAMS OWN:
+  → Data quality (what documents to index, correctness)
+  → Schema design (field selection, analyzers)
+  → Relevance tuning (boost factors, synonyms, scoring)
+  → Indexing pipeline integration (pushing data to search)
+  → Product-level SLOs (how search fits into their product)
+  → Query pattern optimization (avoiding expensive queries)
+
+  WHY THIS BOUNDARY:
+  → Platform team can't know what "relevant" means for each tenant's domain
+  → Tenant team can't operate distributed infrastructure
+  → Clear ownership prevents "works on my machine" for search quality
+  → Platform team scales with infrastructure, not with tenant count
+
+STAFF INSIGHT:
+  The sign of a mature search platform is that new tenants can onboard
+  WITHOUT a platform engineer being involved. Self-service tooling
+  (schema builder, synonym editor, relevance dashboard) is not a "nice to have" —
+  it's the mechanism that prevents the platform team from becoming a bottleneck
+  as the organization grows from 5 to 50 tenant teams.
 ```
 
 ---
