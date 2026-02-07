@@ -1345,7 +1345,7 @@ As systems scale, use cases shift in importance:
 │   ┌───────────────┐     ┌───────────────┐      ┌───────────────┐            │
 │   │ Core:         │     │ Core:         │      │ Core:         │            │
 │   │ • Basic send  │ ──► │ • Send at     │ ──►  │ • Send at     │            │
-│   │ • Basic recv  │     │   scale       │      │   massive scale│           │
+│   │ • Basic recv  │     │   scale       │      │  massive scale│            │
 │   │               │     │ • Reliability │      │ • Partitioned │            │
 │   │ Edge:         │     │               │      │   delivery    │            │
 │   │ • Everything  │     │ New Core:     │      │               │            │

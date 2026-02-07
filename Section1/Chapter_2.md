@@ -1068,25 +1068,25 @@ Here's a test that distinguishes L5 from L6 during an incident:
 │                    INCIDENT RESPONSE OWNERSHIP                          │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   SCENARIO: Users report checkout failures. Initial investigation      │
-│   shows errors originate from the payment service, which is owned      │
+│   SCENARIO: Users report checkout failures. Initial investigation       │
+│   shows errors originate from the payment service, which is owned       │
 │   by a different team.                                                  │
 │                                                                         │
 │   L5 RESPONSE:                                                          │
-│   "I've confirmed it's not our service. I've pinged the payment team   │
-│   and escalated to my manager. Waiting for them to respond."           │
+│   "I've confirmed it's not our service. I've pinged the payment team    │
+│   and escalated to my manager. Waiting for them to respond."            │
 │                                                                         │
 │   L6 RESPONSE:                                                          │
-│   "Users can't checkout—that's my problem regardless of where the      │
-│   bug is. I've joined the payment team's incident channel, I'm         │
-│   helping them debug, and I'm exploring whether we can gracefully      │
-│   degrade checkout to a retry-later flow while they fix the root       │
-│   cause. I've also identified 3 other services that depend on          │
-│   payments that we should notify."                                     │
+│   "Users can't checkout—that's my problem regardless of where the       │
+│   bug is. I've joined the payment team's incident channel, I'm          │
+│   helping them debug, and I'm exploring whether we can gracefully       │
+│   degrade checkout to a retry-later flow while they fix the root        │
+│   cause. I've also identified 3 other services that depend on           │
+│   payments that we should notify."                                      │
 │                                                                         │
 │   THE DIFFERENCE:                                                       │
-│   L5 → Owns their component's health                                   │
-│   L6 → Owns the user-facing outcome                                    │
+│   L5 → Owns their component's health                                    │
+│   L6 → Owns the user-facing outcome                                     │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```

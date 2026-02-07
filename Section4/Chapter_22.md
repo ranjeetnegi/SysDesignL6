@@ -41,7 +41,7 @@ This section teaches caching as Staff Engineers practice it: as a system-wide ar
 │   │  5. Is the operational cost worth it? (Complexity budget)           │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
-│   If you can't answer all five, you're not ready to add caching.           │
+│   If you can't answer all five, you're not ready to add caching.            │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

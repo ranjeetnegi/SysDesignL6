@@ -216,7 +216,7 @@ This is where most database decisions should start:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    ACCESS PATTERN → DATABASE GUIDANCE                        │
+│                    ACCESS PATTERN → DATABASE GUIDANCE                       │
 │                                                                             │
 │   Pattern                        Best Fit              Avoid                │
 │   ───────────────────────────────────────────────────────────────────       │
@@ -319,7 +319,7 @@ Database guidance:
 │                                                                             │
 │   Read        LOW    ┌─────────────────┬─────────────────────┐              │
 │   Latency     (<10ms)│ Redis/Memcached │ PostgreSQL + Cache  │              │
-│   Requirement        │ (but durability?)│ (most common case)  │              │
+│   Requirement        │(but durability?)│ (most common case)  │              │
 │                      ├─────────────────┼─────────────────────┤              │
 │               HIGH   │ Cassandra       │ Bigtable/DynamoDB   │              │
 │         (acceptable) │ Wide-column     │ Write-optimized     │              │
@@ -494,16 +494,16 @@ Distribute data across multiple machines:
 │                    HORIZONTAL SCALING APPROACHES                            │
 │                                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  READ REPLICAS                                                       │   │
-│   │  • Primary handles writes, replicas handle reads                     │   │
-│   │  • Simple to implement                                               │   │
-│   │  • No change to write path                                           │   │
-│   │  • Eventual consistency for reads (replication lag)                  │   │
-│   │                                                                      │   │
-│   │  Primary ──write──→ [Replica 1]                                      │   │
-│   │     ↑                [Replica 2]  ←── reads distributed              │   │
-│   │     │                [Replica 3]                                     │   │
-│   │   writes                                                             │   │
+│   │  READ REPLICAS                                                      │   │
+│   │  • Primary handles writes, replicas handle reads                    │   │
+│   │  • Simple to implement                                              │   │
+│   │  • No change to write path                                          │   │
+│   │  • Eventual consistency for reads (replication lag)                 │   │
+│   │                                                                     │   │
+│   │  Primary ──write──→ [Replica 1]                                     │   │
+│   │     ↑                [Replica 2]  ←── reads distributed             │   │
+│   │     │                [Replica 3]                                    │   │
+│   │   writes                                                            │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -512,25 +512,25 @@ Distribute data across multiple machines:
 │   │  • Each shard is a full database instance                           │   │
 │   │  • Cross-shard queries are expensive/impossible                     │   │
 │   │  • Rebalancing is painful                                           │   │
-│   │                                                                      │   │
+│   │                                                                     │   │
 │   │  [Shard 1: users A-L]  [Shard 2: users M-Z]                         │   │
-│   │         ↑                       ↑                                    │   │
-│   │         └───── Router ──────────┘                                    │   │
-│   │                  ↑                                                   │   │
-│   │              Application                                             │   │
+│   │         ↑                       ↑                                   │   │
+│   │         └───── Router ──────────┘                                   │   │
+│   │                  ↑                                                  │   │
+│   │              Application                                            │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │  FUNCTIONAL PARTITIONING                                            │   │
 │   │  • Different data types go to different databases                   │   │
-│   │  • Users in PostgreSQL, Logs in Bigtable, Cache in Redis           │   │
+│   │  • Users in PostgreSQL, Logs in Bigtable, Cache in Redis            │   │
 │   │  • Each database does what it's best at                             │   │
 │   │  • Cross-database transactions impossible                           │   │
-│   │                                                                      │   │
+│   │                                                                     │   │
 │   │  [PostgreSQL]  [Bigtable]  [Redis]                                  │   │
-│   │    Users        Events      Sessions                                 │   │
-│   │    Orders       Logs        Rate limits                              │   │
-│   │    Products     Metrics     Cache                                    │   │
+│   │    Users        Events      Sessions                                │   │
+│   │    Orders       Logs        Rate limits                             │   │
+│   │    Products     Metrics     Cache                                   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -800,8 +800,8 @@ Key insight: Rows can have millions of columns. Columns are grouped into familie
 │   │  │ unit: F       │ unit: F       │ unit: F       │                 │ │  │
 │   │  └───────────────┴───────────────┴───────────────┴─────────────────┘ │  │
 │   │                                                                      │  │
-│   │  Access pattern: Get all readings for sensor X in time range Y-Z    │  │
-│   │  → Single row scan, extremely efficient                             │  │
+│   │  Access pattern: Get all readings for sensor X in time range Y-Z     │  │
+│   │  → Single row scan, extremely efficient                              │  │
 │   │                                                                      │  │
 │   └──────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
@@ -829,12 +829,12 @@ NoSQL databases typically offer tunable consistency:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    CASSANDRA CONSISTENCY LEVELS                             │
 │                                                                             │
-│   Write CL     Read CL      Guarantee          Latency    Availability     │
+│   Write CL     Read CL      Guarantee          Latency    Availability      │
 │   ───────────────────────────────────────────────────────────────────       │
-│   ONE          ONE          None (stale OK)    Lowest     Highest          │
-│   QUORUM       ONE          Read-your-writes*  Medium     High             │
-│   QUORUM       QUORUM       Strong*            Higher     Medium           │
-│   ALL          ALL          Linearizable       Highest    Lowest           │
+│   ONE          ONE          None (stale OK)    Lowest     Highest           │
+│   QUORUM       ONE          Read-your-writes*  Medium     High              │
+│   QUORUM       QUORUM       Strong*            Higher     Medium            │
+│   ALL          ALL          Linearizable       Highest    Lowest            │
 │                                                                             │
 │   * Within a single datacenter. Cross-DC adds complexity.                   │
 │                                                                             │
@@ -1172,7 +1172,7 @@ Most NewSQL systems don't support all SQL features:
 │   "Global distribution"      True, but with latency implications.           │
 │                              Cross-region transactions are slow.            │
 │                                                                             │
-│   "Easier than sharding"     True, but not zero effort. You still          │
+│   "Easier than sharding"     True, but not zero effort. You still           │
 │                              design for distributed behavior.               │
 │                                                                             │
 │   "ACID transactions"        True, but distributed transactions             │
@@ -2120,7 +2120,7 @@ ALTER TABLE users ALTER COLUMN phone SET DEFAULT '';
 │                                                                             │
 │   Staff Insight: Cassandra's data model is harder to change than SQL.       │
 │                  Get the PRIMARY KEY right the first time, or plan for      │
-│                  expensive migrations.                                       │
+│                  expensive migrations.                                      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2419,11 +2419,11 @@ When evolving databases, you need a migration strategy:
 │                                              YES    NO                      │
 │                                               │     │                       │
 │                                               ▼     ▼                       │
-│                                     ┌──────────┐ ┌──────────┐               │
-│                                     │Document  │ │Wide-Column               │
+│                                     ┌──────────┐ ┌───────-───┐              │
+│                                     │Document  │ │Wide-Column|              │
 │                                     │(MongoDB, │ │(Cassandra,│              │
 │                                     │Firestore)│ │Bigtable)  │              │
-│                                     └──────────┘ └──────────┘               │
+│                                     └──────────┘ └──────────-┘              │
 │                                                                             │
 │   Legend:                                                                   │
 │     w/s = writes per second                                                 │
@@ -2532,7 +2532,7 @@ When evolving databases, you need a migration strategy:
 │               │  │  PG 1  │  │  PG 2   │  │Cassan-│  │  ← Separate DBs      │
 │               │  │ Users  │  │ Orders  │  │ dra   │  │    by domain         │
 │               │  └────────┘  └─────────┘  │Events │  │                      │
-│               │                          └───────┘  │                      │
+│               │                           └───────┘  │                      │
 │               └──────────────────────────────────────┘                      │
 │                                                                             │
 │   10M+        ┌──────────────────────────────────────┐                      │
@@ -2736,29 +2736,29 @@ The thundering herd problem occurs when a cache failure causes all requests to s
 │   Normal Operation:                                                         │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │   [1000 requests/sec] ──→ [Redis] ──(5% miss)──→ [PostgreSQL]       │   │
-│   │                            95% hit                 50 req/sec        │   │
-│   │                                                    (handles fine)    │   │
+│   │                            95% hit                 50 req/sec       │   │
+│   │                                                    (handles fine)   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   Redis Failure:                                                            │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │   [1000 requests/sec] ──→ [Redis ✗] ──(100% miss)──→ [PostgreSQL]   │   │
-│   │                                                       1000 req/sec   │   │
-│   │                                                       (overloaded!)  │   │
-│   │                                                             │        │   │
-│   │                               ┌─────────────────────────────┘        │   │
-│   │                               ▼                                      │   │
-│   │                          [PG Timeout]                                │   │
-│   │                               │                                      │   │
-│   │                               ▼                                      │   │
-│   │                       [Connection Pool                               │   │
-│   │                        Exhausted]                                    │   │
-│   │                               │                                      │   │
-│   │                               ▼                                      │   │
-│   │                   [All Services Using PG Fail]                       │   │
-│   │                                                                      │   │
-│   │   Cascade: Redis → PostgreSQL → ALL dependent services               │   │
-│   │                                                                      │   │
+│   │                                                       1000 req/sec  │   │
+│   │                                                       (overloaded!) │   │
+│   │                                                             │       │   │
+│   │                               ┌─────────────────────────────┘       │   │
+│   │                               ▼                                     │   │
+│   │                          [PG Timeout]                               │   │
+│   │                               │                                     │   │
+│   │                               ▼                                     │   │
+│   │                       [Connection Pool                              │   │
+│   │                        Exhausted]                                   │   │
+│   │                               │                                     │   │
+│   │                               ▼                                     │   │
+│   │                   [All Services Using PG Fail]                      │   │
+│   │                                                                     │   │
+│   │   Cascade: Redis → PostgreSQL → ALL dependent services              │   │
+│   │                                                                     │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   Prevention (L6 Approach):                                                 │
@@ -2792,7 +2792,7 @@ At 100 requests per second with 30-second timeouts, you'd need 3,000 threads jus
 │   Anti-Pattern:                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                                                                     │   │
-│   │   [Request] → [Service A] → [Service B] → [PostgreSQL]             │   │
+│   │   [Request] → [Service A] → [Service B] → [PostgreSQL]              │   │
 │   │                   │              │                                  │   │
 │   │                   ▼              ▼                                  │   │
 │   │               [MongoDB]      [Redis]                                │   │
@@ -3339,9 +3339,9 @@ This diagram illustrates why you can only optimize for two of three properties:
 │               /__________________________ \                                 │
 │              LATENCY ──────────────────── AVAILABILITY                      │
 │                                                                             │
-│   • Strong consistency + Low latency = Single region (no availability)     │
-│   • Strong consistency + High availability = High latency (Spanner)        │
-│   • Low latency + High availability = Eventual consistency (async repl)    │
+│   • Strong consistency + Low latency = Single region (no availability)      │
+│   • Strong consistency + High availability = High latency (Spanner)         │
+│   • Low latency + High availability = Eventual consistency (async repl)     │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -3491,7 +3491,7 @@ Checksums detect corruption at the record level. Store a cryptographic hash of c
 │   │                                                                     │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
-│   3. Invariant Checks                                                       │   │
+│   3. Invariant Checks                                                       │ 
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                                                                     │   │
 │   │   Business invariants that should always hold:                      │   │
@@ -3811,13 +3811,13 @@ The lesson: **A node being unreachable is not the same as a node being down.** Y
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                                                                     │   │
 │   │   # redis.conf                                                      │   │
-│   │   cluster-require-full-coverage yes  # Reject if any slot missing  │   │
-│   │   min-replicas-to-write 1            # Master needs 1 sync replica │   │
-│   │   min-replicas-max-lag 10            # Replica must be <10s behind │   │
+│   │   cluster-require-full-coverage yes  # Reject if any slot missing   │   │
+│   │   min-replicas-to-write 1            # Master needs 1 sync replica  │   │
+│   │   min-replicas-max-lag 10            # Replica must be <10s behind  │   │
 │   │                                                                     │   │
 │   │   With these settings:                                              │   │
-│   │   • Side A: 2 masters but no replicas → stops accepting writes     │   │
-│   │   • Side B: Promoted master has replicas → becomes authoritative   │   │
+│   │   • Side A: 2 masters but no replicas → stops accepting writes      │   │
+│   │   • Side B: Promoted master has replicas → becomes authoritative    │   │
 │   │                                                                     │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
@@ -4038,20 +4038,20 @@ PostgreSQL primary not responding to health checks for >30 seconds
 │   Principle of Least Privilege:                                             │
 │                                                                             │
 │   Application accounts:                                                     │
-│   • Separate accounts per service (user-service, order-service)            │
+│   • Separate accounts per service (user-service, order-service)             │
 │   • Read-only accounts for reporting/analytics                              │
 │   • No DDL privileges for application accounts                              │
 │                                                                             │
 │   Human access:                                                             │
 │   • No direct production access by default                                  │
-│   • Break-glass procedure for emergencies (audited)                        │
+│   • Break-glass procedure for emergencies (audited)                         │
 │   • Separate read-only vs read-write roles                                  │
 │   • Time-limited access grants                                              │
 │                                                                             │
 │   Secrets management:                                                       │
-│   • Database credentials in secrets manager (Vault, AWS Secrets Manager)   │
+│   • Database credentials in secrets manager (Vault, AWS Secrets Manager)    │
 │   • Rotation policy (90 days minimum)                                       │
-│   • Never in code, config files, or environment variables in plaintext     │
+│   • Never in code, config files, or environment variables in plaintext      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -4100,10 +4100,10 @@ WHERE id = ?;
 │   Multi-region active   ~0 seconds     1-5 minutes   Very high              │
 │                                                                             │
 │   What to choose:                                                           │
-│   • Payment system: Sync replication, RTO <30 min, RPO ~0                  │
-│   • User profiles: Hourly backups, RTO 2 hours, RPO 1 hour acceptable      │
-│   • Analytics data: Daily backups, can reconstruct from source             │
-│   • Logs: No backup needed, regeneratable from retained sources            │
+│   • Payment system: Sync replication, RTO <30 min, RPO ~0                   │
+│   • User profiles: Hourly backups, RTO 2 hours, RPO 1 hour acceptable       │
+│   • Analytics data: Daily backups, can reconstruct from source              │
+│   • Logs: No backup needed, regeneratable from retained sources             │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -4118,17 +4118,17 @@ WHERE id = ?;
 │                                                                             │
 │   Weekly:                                                                   │
 │   ☐ Verify backup job completed without errors                              │
-│   ☐ Check backup size is reasonable (not 0 bytes, not wildly different)    │
+│   ☐ Check backup size is reasonable (not 0 bytes, not wildly different)     │
 │                                                                             │
 │   Monthly:                                                                  │
-│   ☐ Restore backup to test environment                                     │
-│   ☐ Run validation queries (row counts, checksums)                         │
-│   ☐ Verify application can connect and query                               │
+│   ☐ Restore backup to test environment                                      │
+│   ☐ Run validation queries (row counts, checksums)                          │
+│   ☐ Verify application can connect and query                                │
 │                                                                             │
 │   Quarterly:                                                                │
-│   ☐ Full disaster recovery drill                                           │
-│   ☐ Restore from scratch, measure actual RTO                               │
-│   ☐ Document gaps and update procedures                                    │
+│   ☐ Full disaster recovery drill                                            │
+│   ☐ Restore from scratch, measure actual RTO                                │
+│   ☐ Document gaps and update procedures                                     │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -4464,11 +4464,11 @@ For each, practice:
 │                                                                             │
 │   5. PLAN FOR FAILURE                                                       │
 │      Every database fails. Design for graceful degradation.                 │
-│      Fail-open for non-critical paths. Fail-safe for financial/security.   │
+│      Fail-open for non-critical paths. Fail-safe for financial/security.    │
 │                                                                             │
 │   6. EVOLUTION IS INEVITABLE                                                │
 │      Today's perfect choice becomes tomorrow's bottleneck.                  │
-│      Design for migration. Avoid lock-in. Keep data portable.              │
+│      Design for migration. Avoid lock-in. Keep data portable.               │
 │                                                                             │
 │   7. BORING IS GOOD                                                         │
 │      Battle-tested databases have solved problems you don't know exist yet. │

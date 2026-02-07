@@ -712,13 +712,13 @@ Multiple teams need to send notifications (email, SMS, push). Do you build a cen
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    NOTIFICATION PLATFORM: TEAM-SCALABLE DESIGN             │
+│                    NOTIFICATION PLATFORM: TEAM-SCALABLE DESIGN              │
 │                                                                             │
 │   ┌───────────────────────────────────────────────────────────────────────┐ │
 │   │                    MESSAGING PLATFORM TEAM                            │ │
 │   │                                                                       │ │
-│   │   Owns: Delivery infrastructure, vendor integrations, reliability    │ │
-│   │   Does NOT own: Message content, send decisions, user preferences    │ │
+│   │   Owns: Delivery infrastructure, vendor integrations, reliability     │ │
+│   │   Does NOT own: Message content, send decisions, user preferences     │ │
 │   │                                                                       │ │
 │   │   ┌─────────────────────────────────────────────────────────────┐     │ │
 │   │   │              NOTIFICATION SERVICE                           │     │ │
@@ -1279,12 +1279,12 @@ Staff Engineers treat organizational boundaries as first-class design constraint
 │             ┌──────────────┼────────────────────┼──────────────┐            │
 │             │              │                    │              │            │
 │             ▼              ▼                    ▼              ▼            │
-│   LEVEL 3:  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐                 │
-│   (Platform)│  User   │ │  Order  │ │  Notif  │ │  Feed   │                 │
-│             │ Profile │ │ Service │ │  Svc    │ │ Service │                 │
-│             └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘                 │
-│                  │           │           │           │                      │
-│                  └─────────┬─┴───────────┴──────┬────┘                      │
+│   LEVEL 3:  ┌─────────┐ ┌─────────┐         ┌─────────┐ ┌─────────┐         │
+│   (Platform)│  User   │ │  Order  │         │  Notif  │ │  Feed   │         │
+│             │ Profile │ │ Service │         │  Svc    │ │ Service │         │
+│             └────┬────┘ └────┬────┘         └────┬────┘ └────┬────┘         │
+│                  │           │                   │           │              │
+│                  └─────────┬─┴─────────--------─┬┴─────-─────┘              │
 │                            │                    │                           │
 │                            ▼                    ▼                           │
 │   LEVEL 4:        ┌─────────────────┐  ┌─────────────────┐                  │
@@ -1385,15 +1385,15 @@ Systems don't exist in binary states (working/broken). They exist on a spectrum:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    DEGRADATION SPECTRUM                                     │
 │                                                                             │
-│   100% ────── 80% ────── 50% ────── 20% ────── 0%                          │
-│   HEALTHY     DEGRADED   IMPAIRED   FAILING    DOWN                        │
+│   100% ────── 80% ────── 50% ────── 20% ────── 0%                           │
+│   HEALTHY     DEGRADED   IMPAIRED   FAILING    DOWN                         │
 │                                                                             │
 │   What does your system do at each point?                                   │
 │                                                                             │
-│   SENIOR THINKING:           STAFF THINKING:                               │
-│   "Add retries"              "What should we serve at 50%?"                │
-│   "Alert at 80%"             "How do we degrade gracefully?"               │
-│   "Fail fast"                "What's the user experience at each level?"   │
+│   SENIOR THINKING:           STAFF THINKING:                                │
+│   "Add retries"              "What should we serve at 50%?"                 │
+│   "Alert at 80%"             "How do we degrade gracefully?"                │
+│   "Fail fast"                "What's the user experience at each level?"    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1531,7 +1531,7 @@ The AuthLib incident showed what goes wrong. Here's how Staff Engineers run cros
 │   • Create incident channel (e.g., #incident-auth-2024-01-15)               │
 │   • Post: What's broken, who's affected, what we know                       │
 │   • Tag affected team on-calls (have contact list ready)                    │
-│   • Assign roles: Incident Commander (IC), Communications Lead             │
+│   • Assign roles: Incident Commander (IC), Communications Lead              │
 │                                                                             │
 │   PHASE 3: TRIAGE (30-60 min)                                               │
 │   ────────────────────────────                                              │
@@ -1699,17 +1699,17 @@ DECISION: API separation costs $20K/year less in coordination overhead
 │                    DEGRADATION STATES OVER TIME                             │
 │                                                                             │
 │   Health %                                                                  │
-│   100% ┤ ●●●●●●●                                                           │
+│   100% ┤ ●●●●●●●                                                            │
 │        │        ╲                                                           │
-│    80% ┤         ●●●●●           DEGRADED                                  │
-│        │              ╲          (fallback active)                         │
-│    50% ┤               ●●●●●●●●●●●●●●                                      │
+│    80% ┤         ●●●●●           DEGRADED                                   │
+│        │              ╲          (fallback active)                          │
+│    50% ┤               ●●●●●●●●●●●●●●                                       │
 │        │                              ╲                                     │
-│    20% ┤                               ●●●   IMPAIRED                      │
-│        │                                  ╲  (shedding load)               │
-│     0% ┤                                   ●●●●●  DOWN                     │
-│        └────────────────────────────────────────────────────────────       │
-│        t=0    t=5min  t=10min  t=20min  t=30min  t=35min  t=40min          │
+│    20% ┤                               ●●●   IMPAIRED                       │
+│        │                                  ╲  (shedding load)                │
+│     0% ┤                                   ●●●●●  DOWN                      │
+│        └────────────────────────────────────────────────────────────        │
+│        t=0    t=5min  t=10min  t=20min  t=30min  t=35min  t=40min           │
 │                                                                             │
 │   STAFF DESIGN QUESTIONS AT EACH STATE:                                     │
 │                                                                             │
@@ -1762,15 +1762,15 @@ DECISION: API separation costs $20K/year less in coordination overhead
 │                                                                             │
 │   MATH CHECK:                                                               │
 │   If Auth AND DB must both work for Payment:                                │
-│     Combined SLO = 99.99% × 99.99% = 99.98%                                │
-│     Payment promises 99.95%, so there's margin ✓                           │
+│     Combined SLO = 99.99% × 99.99% = 99.98%                                 │
+│     Payment promises 99.95%, so there's margin ✓                            │
 │                                                                             │
 │   If Checkout needs Payment AND Inventory:                                  │
-│     Combined SLO = 99.95% × 99.95% = 99.90%                                │
-│     Checkout promises 99.9%, exactly met (risky!)                          │
+│     Combined SLO = 99.95% × 99.95% = 99.90%                                 │
+│     Checkout promises 99.9%, exactly met (risky!)                           │
 │                                                                             │
-│   STAFF INSIGHT: Add margin at each layer. Serial dependencies             │
-│   multiply failure rates. Design for buffer, not exact match.              │
+│   STAFF INSIGHT: Add margin at each layer. Serial dependencies              │
+│   multiply failure rates. Design for buffer, not exact match.               │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

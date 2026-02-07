@@ -1249,24 +1249,24 @@ For every trade-off, Staff engineers ask: **"What happens when things go wrong?"
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │   NORMAL OPERATION                                                          │
-│   ┌─────────────┐        ┌─────────────┐        ┌─────────────┐            │
-│   │ API Server  │◄──────▶│    Redis    │◄──────▶│ API Server  │            │
-│   │   (Node 1)  │  check │   (Central) │  check │   (Node 2)  │            │
-│   └─────────────┘        └─────────────┘        └─────────────┘            │
-│         ✓ Accurate global limiting across all nodes                        │
+│   ┌─────────────┐        ┌─────────────┐        ┌─────────────┐             │
+│   │ API Server  │◄──────▶│    Redis    │◄──────▶│ API Server  │             │
+│   │   (Node 1)  │  check │   (Central) │  check │   (Node 2)  │             │
+│   └─────────────┘        └─────────────┘        └─────────────┘             │
+│         ✓ Accurate global limiting across all nodes                         │
 │                                                                             │
 │   REDIS DOWN (FAILURE MODE)                                                 │
-│   ┌─────────────┐        ┌─────────────┐        ┌─────────────┐            │
-│   │ API Server  │    ✗   │    Redis    │    ✗   │ API Server  │            │
-│   │   (Node 1)  │────────│   (DOWN)    │────────│   (Node 2)  │            │
-│   │ [Local: 100]│        └─────────────┘        │ [Local: 100]│            │
-│   └─────────────┘                               └─────────────┘            │
-│         ⚠ Each node limits independently                                   │
-│         ⚠ User could get 200 req (100 × 2 nodes) instead of 100            │
-│         ✓ System stays available                                           │
+│   ┌─────────────┐        ┌─────────────┐        ┌─────────────┐             │
+│   │ API Server  │    ✗   │    Redis    │    ✗   │ API Server  │             │
+│   │   (Node 1)  │────────│   (DOWN)    │────────│   (Node 2)  │             │
+│   │ [Local: 100]│        └─────────────┘        │ [Local: 100]│             │
+│   └─────────────┘                               └─────────────┘             │
+│         ⚠ Each node limits independently                                    │
+│         ⚠ User could get 200 req (100 × 2 nodes) instead of 100             │
+│         ✓ System stays available                                            │
 │                                                                             │
-│   DECISION: Accept 2x rate during outage vs. total failure                 │
-│   RATIONALE: Temporary over-limit is less harmful than complete outage     │
+│   DECISION: Accept 2x rate during outage vs. total failure                  │
+│   RATIONALE: Temporary over-limit is less harmful than complete outage      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

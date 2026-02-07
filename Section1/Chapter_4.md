@@ -22,7 +22,7 @@ This chapter teaches you how to think, act, and communicate when requirements ar
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    NAVIGATING AMBIGUITY: THE STAFF APPROACH                  │
+│                    NAVIGATING AMBIGUITY: THE STAFF APPROACH                 │
 │                                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │  SENIOR (L5) APPROACH                                               │   │
@@ -38,9 +38,9 @@ This chapter teaches you how to think, act, and communicate when requirements ar
 │   │  STAFF (L6) APPROACH                                                │   │
 │   │                                                                     │   │
 │   │  "Let me understand what problem we're really solving."             │   │
-│   │  "I'll assume 10K QPS initially, here's why—and here's what        │   │
+│   │  "I'll assume 10K QPS initially, here's why—and here's what         │   │
 │   │   changes if we need 100x that."                                    │   │
-│   │  "The choice between Kafka and RabbitMQ depends on our             │   │
+│   │  "The choice between Kafka and RabbitMQ depends on our              │   │
 │   │   consistency requirements. Let me clarify those first."            │   │
 │   │                                                                     │   │
 │   │  Makes assumptions → States them explicitly → Designs flexibly      │   │
@@ -675,7 +675,7 @@ The fundamental difference between Senior and Staff approaches to ambiguity:
 │                    MINDSET SHIFT: L5 → L6                                   │
 │                                                                             │
 │   L5 MINDSET: "I need to know X before I can decide Y."                     │
-│   L6 MINDSET: "I'll assume X, which lets me decide Y. If X changes, Y      │
+│   L6 MINDSET: "I'll assume X, which lets me decide Y. If X changes, Y       │
 │                would change like this."                                     │
 │                                                                             │
 │   L5 MINDSET: "I should ask about this."                                    │
@@ -1131,7 +1131,7 @@ CANDIDATE: "Critical question for this design. Here's my thinking:
 │   Asking too many questions    →    3-6 targeted questions, then assume     │
 │   Not stating assumptions      →    "I'm assuming X because Y"              │
 │   Analysis paralysis           →    Decide with caveats, move forward       │
-│   Rigid designs               →    "If X changes, here's how I'd adjust"   │
+│   Rigid designs               →    "If X changes, here's how I'd adjust"    │
 │   Treating interviewer as     →    Make recommendations, proceed            │
 │   oracle                            confidently                             │
 │                                                                             │

@@ -1059,12 +1059,12 @@ Interviewers rarely ask directly about cost. Instead, they probe for cost awaren
 │   │   └─────────────────────────────────────────────────────────────┘   │   │
 │   │                     │                  │                            │   │
 │   │                     ▼                  ▼                            │   │
-│   │   ┌──────────────────────┐  ┌──────────────────────────────────┐   │   │
-│   │   │  CACHE (Redis)       │  │  MESSAGE QUEUE                   │   │   │
-│   │   │  [MEDIUM COST]       │  │  [LOW-MEDIUM COST]               │   │   │
-│   │   │  • Memory expensive  │  │  • Storage of in-flight messages │   │   │
-│   │   │  • Often oversized   │  │  • Often over-retained           │   │   │
-│   │   └──────────────────────┘  └──────────────────────────────────┘   │   │
+│   │   ┌──────────────────────┐  ┌──────────────────────────────────┐    │   │
+│   │   │  CACHE (Redis)       │  │  MESSAGE QUEUE                   │    │   │
+│   │   │  [MEDIUM COST]       │  │  [LOW-MEDIUM COST]               │    │   │
+│   │   │  • Memory expensive  │  │  • Storage of in-flight messages │    │   │
+│   │   │  • Often oversized   │  │  • Often over-retained           │    │   │
+│   │   └──────────────────────┘  └──────────────────────────────────┘    │   │
 │   │                     │                  │                            │   │
 │   │                     ▼                  ▼                            │   │
 │   │   ┌─────────────────────────────────────────────────────────────┐   │   │
@@ -1229,7 +1229,7 @@ Staff engineers must estimate costs quickly during design discussions. Here are 
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    BACK-OF-ENVELOPE COST ESTIMATION                         │
 │                                                                             │
-│   STEP 1: IDENTIFY COST CATEGORIES                                         │
+│   STEP 1: IDENTIFY COST CATEGORIES                                          │
 │   ───────────────────────────────────────────────────────────               │
 │   • Compute: How many servers? How much CPU/memory per request?             │
 │   • Storage: How much data? What tier? How long retained?                   │
@@ -1439,10 +1439,10 @@ When cost-based capacity is exceeded, failures should be contained.
 │   │  Traffic Spike                                                      │   │
 │   │       │                                                             │   │
 │   │       ▼                                                             │   │
-│   │  ┌─────────┐   Overload   ┌─────────┐   Cascade   ┌─────────┐      │   │
-│   │  │ Service │ ──────────▶  │ Database│ ──────────▶ │All Users│      │   │
-│   │  │    A    │              │ Failure │             │ Affected│      │   │
-│   │  └─────────┘              └─────────┘             └─────────┘      │   │
+│   │  ┌─────────┐   Overload   ┌─────────┐   Cascade   ┌─────────┐       │   │
+│   │  │ Service │ ──────────▶  │ Database│ ──────────▶ │All Users│       │   │
+│   │  │    A    │              │ Failure │             │ Affected│       │   │
+│   │  └─────────┘              └─────────┘             └─────────┘       │   │
 │   │                                                                     │   │
 │   │  Result: 100% of users impacted by 10% spike                        │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
@@ -1531,9 +1531,9 @@ Staff engineers build systems that surface cost visibility and alert before prob
 │                                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                      APPLICATION LAYER                              │   │
-│   │   ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐            │   │
-│   │   │Service A│   │Service B│   │Service C│   │Service D│            │   │
-│   │   └────┬────┘   └────┬────┘   └────┬────┘   └────┬────┘            │   │
+│   │   ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐             │   │
+│   │   │Service A│   │Service B│   │Service C│   │Service D│             │   │
+│   │   └────┬────┘   └────┬────┘   └────┬────┘   └────┬────┘             │   │
 │   │        │             │             │             │                  │   │
 │   │        └─────────────┼─────────────┼─────────────┘                  │   │
 │   │                      │             │                                │   │
@@ -1957,7 +1957,7 @@ During your interview, ensure you:
 │   │                                                                     │   │
 │   │  ┌────────────┐      ┌────────────┐                                 │   │
 │   │  │ API Restart│ ───▶ │ More Load  │ ← Thundering herd               │   │
-│   │  │   Storm    │      │ on Survivors│                                │   │
+│   │  │   Storm    │      │on Survivors│                                 │   │
 │   │  └────────────┘      └────────────┘                                 │   │
 │   │                                                                     │   │
 │   │  TIME 20min: Full outage                                            │   │
@@ -2468,7 +2468,7 @@ FUNCTION design_dynamodb_autoscaling(table, target_utilization=70):
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    AWS DATA TRANSFER COSTS                                  │
 │                                                                             │
-│   Source              Destination           Cost/GB    Notes               │
+│   Source              Destination           Cost/GB    Notes                │
 │   ──────────────────────────────────────────────────────────────────────    │
 │   EC2                 Same AZ               $0.00      Free                 │
 │   EC2                 Different AZ          $0.01      Each direction       │
@@ -2479,7 +2479,7 @@ FUNCTION design_dynamodb_autoscaling(table, target_utilization=70):
 │   S3                  Different Region      $0.02      Egress               │
 │   S3                  Internet              $0.09      Via CloudFront less  │
 │   S3                  CloudFront            $0.00      Free origin fetch    │
-│   CloudFront          Internet              $0.085     Cheaper than S3 direct│
+│   CloudFront          Internet              $0.085    Cheaper than S3 direct│
 │                                                                             │
 │   NAT Gateway         Internet              $0.045     Per GB processed     │
 │   NAT Gateway         (fixed cost)          $0.045/hr  32.85/month per NAT  │
@@ -2797,7 +2797,7 @@ daily_internet_traffic = 500GB  // API calls, updates
 │   │  • Data processing: EMR Spot fleets                                 │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
-│   PRINCIPLE: Push work to the cheapest tier that can handle it             │
+│   PRINCIPLE: Push work to the cheapest tier that can handle it              │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -4204,7 +4204,7 @@ Container orchestration adds a layer of cost complexity. Staff engineers must un
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                KUBERNETES COST: THE HIDDEN LAYERS                            │
+│                KUBERNETES COST: THE HIDDEN LAYERS                           │
 │                                                                             │
 │   LAYER 1: INFRASTRUCTURE                                                   │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -4496,7 +4496,7 @@ Staff engineers don't just optimize individual systems—they establish patterns
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    FINOPS: CLOUD FINANCIAL OPERATIONS                        │
+│                    FINOPS: CLOUD FINANCIAL OPERATIONS                       │
 │                                                                             │
 │   THREE PHASES:                                                             │
 │                                                                             │
