@@ -12,7 +12,7 @@ A comprehensive, structured guide for experienced backend engineers preparing fo
 | **Audience** | Senior Engineers (8+ years) preparing for Staff-level interviews |
 | **Chapters** | 57 across 6 sections |
 | **Coverage** | Mindset, Framework, Distributed Systems, Data Systems, Senior-level Problems, Staff-level Problems |
-| **Progress** | Sections 1–5 complete, Section 6 in progress (9 of 17 chapters) |
+| **Progress** | Sections 1–5 complete, Section 6 in progress (10 of 17 chapters) |
 
 ---
 
@@ -174,7 +174,7 @@ Each Staff-level chapter elevates a Senior problem to global scale, introducing 
 | 47 | Configuration, Feature Flags & Secrets Management | Done | [Chapter 47](Section6/Chapter_47.md) |
 | 48 | API Gateway / Edge Request Routing System | Done | [Chapter 48](Section6/Chapter_48.md) |
 | 49 | Search / Indexing System (Read-heavy, Latency-sensitive) | Done | [Chapter 49](Section6/Chapter_49.md) |
-| 50 | Recommendation / Ranking System (Simplified) | Planned | — |
+| 50 | Recommendation / Ranking System (Simplified) | Done | [Chapter 50](Section6/Chapter_50.md) |
 | 51 | Notification Delivery System (Fan-out at Scale) | Planned | — |
 | 52 | Authentication & Authorization System | Planned | — |
 | 53 | Distributed Scheduler / Job Orchestration System | Planned | — |
@@ -193,9 +193,9 @@ Section 2  ███████████████████████
 Section 3  ██████████████████████████████  7/7   chapters — Complete
 Section 4  ██████████████████████████████  7/7   chapters — Complete
 Section 5  ██████████████████████████████  13/13 chapters — Complete
-Section 6  █████████████████░░░░░░░░░░░░░  9/17  chapters — In Progress
+Section 6  ██████████████████░░░░░░░░░░░░  10/17 chapters — In Progress
 
-Overall    █████████████████████████░░░░░  49/57 chapters — 86%
+Overall    █████████████████████████░░░░░  50/57 chapters — 88%
 ```
 
 ---
