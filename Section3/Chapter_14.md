@@ -1128,6 +1128,84 @@ This is worse than a clean partition because:
 
 **Staff-Level Implication:** Failure detection must be bidirectional. One-way heartbeats are insufficient. Use mutual health checks with asymmetry detection.
 
+### Consistency-Induced Cascading Failures
+
+Consistency mechanisms themselves can become the source of cascading failures. Staff Engineers understand these patterns and design defenses.
+
+**Retry Amplification from Consistency Timeouts**
+
+When consistency operations timeout, applications retry. At scale, this creates amplification:
+
+```
+NORMAL:     1M QPS writes → 1M QPS consistency checks
+TIMEOUT:    10% timeout rate → 100K failed consistency checks/sec
+RETRY:      Each retried 3× → 300K additional consistency checks/sec
+RESULT:     1.3M QPS total → 30% overload on consistency layer
+```
+
+**Example**: At 1M QPS with 10% timeout rate, 100K retries/sec flood the already struggling leader. The leader, already unable to reach quorum, now faces 30% more load from retries. This pushes it further into failure, causing more timeouts, which trigger more retries—a positive feedback loop.
+
+**Thundering Herd on Partition Recovery**
+
+When a partition heals, all queued writes + retries hit simultaneously:
+
+```
+PARTITION:  Writes queue (10K queued)
+            Retries continue (5K retries queued)
+            Total: 15K operations waiting
+
+PARTITION HEALS:
+T+0ms:      All 15K operations attempt simultaneously
+T+10ms:     Leader overwhelmed → CPU 100%
+T+50ms:     Leader begins dropping requests
+T+100ms:    Secondary failure: leader appears down again
+T+200ms:    Clients see errors → trigger MORE retries
+```
+
+The recovery itself becomes a failure mode. When partition heals, all queued writes + retries hit simultaneously → leader overwhelmed → secondary failure.
+
+**Monitoring Storm**
+
+Consistency probes from all services simultaneously detect the issue:
+
+```
+NORMAL:     Each service probes consistency every 30s
+            → 100 services × 1 probe/30s = 3.3 probes/sec
+
+PARTITION:  All services detect consistency failure simultaneously
+            → 100 services × 10 probes/sec (aggressive checking) = 1000 probes/sec
+            → Probe traffic adds 10% load to already struggling system
+```
+
+Consistency probes from all services simultaneously detect the issue, adding probe traffic to an already overloaded system. This monitoring storm compounds the problem.
+
+**Prevention Strategies**
+
+1. **Jittered Retries**: Add exponential backoff with jitter to prevent synchronized retry waves
+   ```
+   retry_delay = base_delay * (2^attempt) + random(0, jitter_window)
+   ```
+
+2. **Circuit Breaker on Consistency Operations**: Fail fast when consistency layer is degraded
+   ```
+   if consistency_failure_rate > threshold:
+       open_circuit_breaker()
+       return ERROR("Consistency temporarily unavailable")
+   ```
+
+3. **Staggered Health Checks**: Offset health check timing per service to prevent synchronized probes
+   ```
+   check_interval = base_interval + random(0, stagger_window)
+   ```
+
+4. **Recovery Rate Limiting**: Throttle writes during recovery to prevent thundering herd
+   ```
+   recovery_rate_limit = normal_rate * 0.1  // Start at 10% capacity
+   gradually_increase_to_normal()
+   ```
+
+**Staff-Level Insight**: "The consistency layer must be more resilient than the application layer. If consistency operations fail, they fail gracefully—not by amplifying the failure through retries and monitoring storms."
+
 ### Graceful Consistency Degradation
 
 Staff Engineers design explicit degradation ladders — not just "strong or bust."
@@ -1316,6 +1394,123 @@ Staff engineers understand not just what consistency models do, but how they're 
 **Why This Matters**:
 
 "Understanding the implementation helps me reason about failure modes. Raft needs a leader—during leader election (typically 1-10 seconds), the system is unavailable for writes. This is the cost of strong consistency. For my rate limiter, where we need <1ms latency, Raft-based counters are impossible."
+
+### Architecture Diagrams: Consistency in Action
+
+**Diagram 1: Strong Consistency Write Path**
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                   STRONG CONSISTENCY WRITE PATH                          │
+│                                                                          │
+│   Client                                                                 │
+│     │                                                                    │
+│     │  1. Write request                                                  │
+│     ▼                                                                    │
+│   ┌─────────────┐                                                        │
+│   │ Load Balancer│                                                       │
+│   └──────┬──────┘                                                        │
+│          │  2. Route to leader                                           │
+│          ▼                                                               │
+│   ┌─────────────┐     3. Propose    ┌─────────────┐                      │
+│   │   LEADER    │ ───────────────── │ FOLLOWER 1  │                      │
+│   │   (Primary) │     (sync)       │  (Replica)  │                      │
+│   │             │ ──────┐          └──────┬──────┘                      │
+│   └──────┬──────┘       │   3. Propose    │                              │
+│          │              │   (sync)        │  4. ACK                      │
+│          │              ▼                 │                               │
+│          │       ┌─────────────┐          │                              │
+│          │       │ FOLLOWER 2  │──────────┘                              │
+│          │       │  (Replica)  │                                         │
+│          │       └─────────────┘                                         │
+│          │                                                               │
+│          │  5. Quorum achieved (2/3 ACKs)                                │
+│          │  6. Respond to client                                         │
+│          ▼                                                               │
+│   Client receives confirmation                                           │
+│                                                                          │
+│   LATENCY: Same region: 5-15ms │ Cross-region: 200-500ms                │
+│   FAILURE: If 1 follower down → still works (quorum intact)             │
+│            If leader down → election (1-10s unavailable)                 │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Diagram 2: Eventual Consistency Propagation**
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                EVENTUAL CONSISTENCY PROPAGATION                          │
+│                                                                          │
+│   Client                                                                 │
+│     │                                                                    │
+│     │  1. Write request                                                  │
+│     ▼                                                                    │
+│   ┌─────────────┐                                                        │
+│   │   NODE A    │  2. Write locally + ACK immediately                    │
+│   │  (accepts)  │                                                        │
+│   └──────┬──────┘                                                        │
+│          │                                                               │
+│          │  3. Async replication (background)                            │
+│          │                                                               │
+│   ┌──────┼────────────────────┐                                          │
+│   │      ▼                    ▼                                          │
+│   │ ┌──────────┐      ┌──────────┐                                       │
+│   │ │  NODE B  │      │  NODE C  │    Propagation time: 50ms - 5s        │
+│   │ │ (stale)  │      │ (stale)  │                                       │
+│   │ └──────────┘      └──────────┘                                       │
+│   │      │                    │                                          │
+│   │      ▼                    ▼                                          │
+│   │  Eventually              Eventually                                  │
+│   │  consistent              consistent                                  │
+│   └───────────────────────────────┘                                      │
+│                                                                          │
+│   LATENCY: 1-5ms (write to nearest node)                                │
+│   WINDOW: Readers on B/C see stale data for 50ms-5s                     │
+│   FAILURE: Any node down → others continue independently                │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Diagram 3: Failure Propagation — How Consistency Failures Cascade**
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│           CONSISTENCY FAILURE CASCADE (STRONG CONSISTENCY)               │
+│                                                                          │
+│   TRIGGER: Network partition between US-East and US-West                │
+│                                                                          │
+│   T+0s    ┌──────────┐  ╳╳╳╳╳  ┌──────────┐                            │
+│           │ US-East  │  partition│ US-West  │                            │
+│           │ (Leader) │          │(Follower)│                            │
+│           └────┬─────┘          └──────────┘                            │
+│                │                                                         │
+│   T+1s    Leader cannot reach quorum                                    │
+│           → Writes begin failing with timeout errors                    │
+│                │                                                         │
+│   T+2s    ┌────▼─────┐                                                  │
+│           │ App Layer│ receives write errors                            │
+│           │          │ → Begins retrying                                │
+│           └────┬─────┘                                                  │
+│                │                                                         │
+│   T+5s    Retry amplification: 3× normal write load on leader          │
+│           Leader CPU spikes to 90%                                      │
+│                │                                                         │
+│   T+10s   ┌────▼─────┐                                                  │
+│           │ Client   │ sees "Service unavailable" errors                │
+│           │ Layer    │ → Users retry manually                           │
+│           └────┬─────┘                                                  │
+│                │                                                         │
+│   T+15s   Cascading effect: 5× normal load                             │
+│           Some clients cache stale state from last successful read      │
+│           → Stale client state + retries = inconsistent user experience │
+│                │                                                         │
+│   T+60s   Partition heals → quorum restored → writes drain             │
+│           Recovery: 30-120s for retry backlog to clear                  │
+│                                                                         │
+│   BLAST RADIUS: 100% of write operations, ~40% of reads                │
+│   DURATION: Partition length + 30-120s recovery                         │
+│   CONTAINMENT: Circuit breaker on writes, read from local cache        │
+└──────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 

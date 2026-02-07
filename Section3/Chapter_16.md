@@ -2798,6 +2798,26 @@ Coordination systems amplify human errors. Staff engineers must anticipate and p
 
 ---
 
+### Ownership Model for Coordination Infrastructure
+
+| Component | Owner | Responsibility | Escalation Path |
+|---|---|---|---|
+| **ZooKeeper/etcd cluster** | Platform/Infrastructure team | Cluster health, upgrades, capacity planning | Platform on-call → Platform tech lead |
+| **Leader election service** | Platform team builds, product team configures | Platform: framework availability. Product: election parameters (timeout, TTL) | Product on-call → Platform on-call if framework issue |
+| **Distributed lock usage** | Product/service team | Lock granularity, TTL, fencing token enforcement | Product on-call → Platform if lock service degraded |
+| **Lock contention monitoring** | Shared (platform provides tooling, product configures alerts) | Platform: metrics pipeline. Product: alerting thresholds per use case | Product on-call for contention spikes |
+| **Coordination failure runbooks** | Platform team writes template, product team customizes | Platform: generic "ZK down" runbook. Product: service-specific degradation steps | Defined in runbook |
+
+**The Ownership Gap That Causes Outages:**
+
+"Platform team deploys a ZooKeeper upgrade during low-traffic window. Upgrade causes brief session reconnection storm. Product Team A's service has a 5-second lock TTL — all locks expire during the storm. Product Team A doesn't know about the upgrade and pages Platform. Platform says 'ZK is healthy now.' Meanwhile, Team A's job scheduler ran duplicate jobs for 10 seconds during the lock gap."
+
+**Prevention:** Coordination service upgrades must be announced to ALL dependent teams 48h in advance with expected impact window. Dependent teams must verify their TTLs and fencing tokens can survive a 30-second session reconnection.
+
+**Cross-Team SLAs:**
+- Platform guarantees: ZK/etcd availability > 99.95%, session reconnection < 30s during upgrades
+- Product teams guarantee: All lock-dependent operations use fencing tokens, TTLs set > 2× expected session reconnection time
+
 <a name="when-not-to-use-locks"></a>
 ## 11. When NOT to Use Locks
 
@@ -3627,6 +3647,24 @@ Coordination services have hard limits. Staff engineers must recognize early war
 **What Breaks First:**
 
 Session establishment rate (ZK has hard limits on concurrent new sessions). When this limit is hit, new clients cannot connect, causing cascading failures in dependent services.
+
+#### Concrete Scale Progression: From Startup to Hyperscale
+
+| Scale | Services | Users | Coordination Load | Architecture | Monthly Cost |
+|---|---|---|---|---|---|
+| **V1: Startup** | 5-10 | 10K | 50 lock ops/sec | Single etcd cluster (3-node), in-process locks for most cases | $500 (shared etcd on app nodes) |
+| **V2: Growth** | 10-30 | 100K | 500 lock ops/sec | Dedicated etcd cluster (3-node), leader election for 2-3 services | $2K (dedicated coordination nodes) |
+| **V3: Scale** | 30-100 | 1M | 5K lock ops/sec | Dedicated ZK/etcd cluster (5-node), coordination for schedulers + config | $5K + 0.25 FTE ops |
+| **V4: Large** | 100-300 | 10M | 20K lock ops/sec | Partitioned coordination (separate clusters per tier), some coordination avoidance via CRDTs | $15K + 0.5 FTE ops |
+| **V5: Hyperscale** | 300+ | 100M+ | 100K+ lock ops/sec | Coordination-avoidant architecture, CRDTs, partitioned ownership, coordination only for cluster membership | $50K+ + 1 FTE ops |
+
+**What Breaks at Each Transition:**
+- **V1→V2:** Shared coordination on app nodes causes noisy-neighbor issues. Fix: dedicated nodes.
+- **V2→V3:** Single 3-node cluster can't handle leader election + locking + config + service discovery. Fix: 5-node cluster or separate concerns.
+- **V3→V4:** Single cluster becomes a single point of failure for the entire platform. Fix: partition by criticality tier (payments get their own cluster).
+- **V4→V5:** Centralized coordination can't scale to 100K+ ops/sec. Fix: redesign for coordination avoidance — most operations must work without locks.
+
+**Staff Insight:** "The trajectory of every scaling journey is TOWARD less coordination, not more. If you're adding coordination services as you scale, you're going the wrong direction."
 
 ### 16.2 Production Runbooks
 

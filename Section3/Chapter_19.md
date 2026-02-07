@@ -1574,6 +1574,39 @@ Systems don't become resilient by design—they evolve through failure. Here's h
 
 ---
 
+### Infrastructure Reality: Concrete Numbers at Each Scale
+
+| Scale | Users | QPS | Servers | Failure Frequency | Mean Detection Time | Mean Recovery Time |
+|---|---|---|---|---|---|---|
+| **V1** | 10K | 100 | 3-5 | Monthly (1 server crash) | 5 minutes (manual) | 30 minutes (manual restart) |
+| **V2** | 100K | 1K | 10-20 | Weekly (partial failures) | 2 minutes (basic monitoring) | 10 minutes (automated restart) |
+| **V3** | 1M | 10K | 50-100 | Daily (some component degraded) | 30 seconds (alerting) | 5 minutes (circuit breaker + failover) |
+| **V4** | 10M | 100K | 200-500 | Hourly (something is always partially failing) | 10 seconds (real-time monitoring) | 1 minute (automated failover) |
+| **V5** | 100M+ | 1M+ | 1000+ | Constant (partial failure is the default state) | 5 seconds (ML-based anomaly detection) | 30 seconds (cell isolation + auto-recovery) |
+
+**Key Insight: Failure Frequency Scales Faster Than Traffic**
+
+At V1, you might see 1 failure per month. At V5, with 1000+ servers, the probability that SOME component is failing RIGHT NOW approaches 100%. This is why Staff Engineers say "design for partial failure as the default state" — at scale, it literally is.
+
+**What Changes at Each Scale:**
+
+- **V1 → V2:** You go from "failures are surprising" to "failures are expected." Investment: monitoring, automated restarts.
+- **V2 → V3:** You go from "one team handles incidents" to "incidents cross team boundaries." Investment: circuit breakers, incident process.
+- **V3 → V4:** You go from "we recover from failures" to "we operate through failures." Investment: cell architecture, automated failover, chaos engineering.
+- **V4 → V5:** You go from "we manage failure modes" to "failure is the normal state." Investment: self-healing systems, ML-based anomaly detection, automated remediation.
+
+**Bottleneck at Each Scale:**
+
+| Scale | Primary Bottleneck | Secondary Bottleneck |
+|---|---|---|
+| V1 | Single point of failure (one DB, one app server) | No monitoring — failures go undetected |
+| V2 | Manual incident response (humans too slow) | Cross-service dependency failures |
+| V3 | Blast radius too large (one failure takes down everything) | Alert fatigue (too many alerts, wrong priorities) |
+| V4 | Coordination overhead (too many services to coordinate) | Recovery time (automated failover still takes minutes) |
+| V5 | Unknown failure modes (novel interactions at scale) | Cost of redundancy (N+1 at 1000 servers = 333 spare servers) |
+
+---
+
 # Part 8: Observability During Partial Failures
 
 > **Staff Insight**: You can't manage what you can't measure, but during partial failures, your measurements themselves become unreliable. Staff engineers design observability that degrades gracefully alongside the system.

@@ -1746,6 +1746,62 @@ CP systems cost more in infrastructure but less in engineering (no conflict reso
 
 ---
 
+### Part 6C: Conflict Resolution Mechanisms — Pseudo-Code
+
+When AP systems allow concurrent writes during partition, conflicts must be resolved during reconciliation. Staff Engineers understand the implementation, not just the concept.
+
+**Pattern 1: Last-Write-Wins (LWW)**
+
+```
+function resolve_lww(version_a, version_b):
+    // Simple: highest timestamp wins
+    // DANGER: Requires synchronized clocks (NTP drift can cause wrong winner)
+    if version_a.timestamp > version_b.timestamp:
+        return version_a
+    else:
+        return version_b
+    // Use case: User preferences, profile updates
+    // Anti-pattern for: Counters (silently drops increments)
+```
+
+**Pattern 2: Merge (for additive/set data)**
+
+```
+function resolve_merge(cart_a, cart_b):
+    // Set union: keep all items from both versions
+    merged = union(cart_a.items, cart_b.items)
+    // For quantities, take max (user added items, not removed)
+    for item in merged:
+        item.quantity = max(cart_a.get(item, 0), cart_b.get(item, 0))
+    return merged
+    // Use case: Shopping carts (Amazon's Dynamo approach)
+    // Downside: Removed items may reappear (tombstone needed)
+```
+
+**Pattern 3: Application-Level Resolution**
+
+```
+function resolve_custom(order_a, order_b):
+    // For orders: first-write-wins (don't create duplicate orders)
+    if order_a.created_at < order_b.created_at:
+        winner = order_a
+        loser = order_b
+    else:
+        winner = order_b
+        loser = order_a
+    
+    // Compensate: refund the duplicate
+    enqueue_refund(loser)
+    alert_support_team(loser, "Duplicate order during partition")
+    return winner
+    // Use case: Financial transactions where merge is unacceptable
+    // Cost: Engineering time for each resolution type
+```
+
+**Staff Insight:** "The conflict resolution strategy you choose determines your AP system's correctness guarantees. LWW is cheap but lossy. Merge is safe for additive data but complex. Application-level is always correct but expensive to build and maintain. Choose based on the cost of a wrong resolution — for shopping carts, a reappearing item is annoying. For payments, a duplicate charge is a legal problem."
+
+---
+
 # Part 7: CAP and System Evolution
 
 CAP choices aren't permanent. As systems mature and incidents occur, teams re-evaluate their trade-offs.
@@ -2253,6 +2309,73 @@ Concrete numbers demonstrate the business impact difference between CP and AP du
 #### Blast Radius Containment for Hybrid Systems
 
 Route financial operations to CP path, everything else to AP. During partition, only checkout is affected (not browsing, not search, not recommendations). Blast radius: 5% of features instead of 100%.
+
+---
+
+### Failure Propagation: CP vs AP Visual Comparison
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│             CP SYSTEM: FAILURE PROPAGATION DURING PARTITION              │
+│                                                                          │
+│   ┌──────────┐                         ┌──────────┐                     │
+│   │ US-East  │  ╳╳╳ PARTITION ╳╳╳╳╳╳  │ US-West  │                     │
+│   │ (Leader) │                         │(Follower)│                     │
+│   └────┬─────┘                         └──────────┘                     │
+│        │                                                                │
+│   T+0s │ Cannot reach quorum                                            │
+│        ▼                                                                │
+│   ┌──────────┐                                                          │
+│   │  WRITES  │──── REJECTED (no quorum) ────── Users see errors         │
+│   │  BLOCKED │                                                          │
+│   └──────────┘                                                          │
+│        │                                                                │
+│   T+5s ▼  Clients retry                                                 │
+│   ┌──────────┐                                                          │
+│   │  RETRY   │──── 3× load on leader ────────── Leader CPU spikes       │
+│   │  STORM   │                                                          │
+│   └──────────┘                                                          │
+│        │                                                                │
+│   T+15s▼  Reads also affected (leader overloaded)                       │
+│   ┌──────────┐                                                          │
+│   │  TOTAL   │──── Reads + Writes failing ───── "App is down"           │
+│   │ OUTAGE   │                                                          │
+│   └──────────┘                                                          │
+│                                                                          │
+│   BLAST RADIUS: 40-100% of users │ DURATION: Partition + recovery       │
+│   USER EXPERIENCE: Errors, timeouts, "try again later"                  │
+└──────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│             AP SYSTEM: FAILURE PROPAGATION DURING PARTITION              │
+│                                                                          │
+│   ┌──────────┐                         ┌──────────┐                     │
+│   │ US-East  │  ╳╳╳ PARTITION ╳╳╳╳╳╳  │ US-West  │                     │
+│   │ (Active) │                         │ (Active) │                     │
+│   └────┬─────┘                         └────┬─────┘                     │
+│        │                                    │                           │
+│   T+0s │ Writes accepted locally            │ Writes accepted locally   │
+│        ▼                                    ▼                           │
+│   ┌──────────┐                         ┌──────────┐                     │
+│   │  WRITES  │──── ACCEPTED ──────     │  WRITES  │──── ACCEPTED        │
+│   │  LOCAL   │  (queued for sync)      │  LOCAL   │  (queued for sync)  │
+│   └──────────┘                         └──────────┘                     │
+│        │                                    │                           │
+│   T+0s │ Reads served from local            │ Reads served from local   │
+│        ▼                                    ▼                           │
+│   ┌──────────┐                         ┌──────────┐                     │
+│   │  READS   │──── SERVED (may be      │  READS   │──── SERVED          │
+│   │  LOCAL   │     stale for           │  LOCAL   │     (stale)         │
+│   └──────────┘     cross-region data)  └──────────┘                     │
+│                                                                          │
+│   T+∞  Partition heals → Async reconciliation → Conflicts resolved      │
+│                                                                          │
+│   BLAST RADIUS: 0% errors │ ~40% stale reads │ DURATION: Stale window  │
+│   USER EXPERIENCE: Everything works, some data briefly stale            │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Staff Takeaway:** CP fails loudly (errors visible, users complain, easy to detect). AP fails quietly (stale data, users may not notice, harder to detect). Choose based on whether silent inconsistency or loud unavailability is more dangerous for your use case.
 
 ---
 

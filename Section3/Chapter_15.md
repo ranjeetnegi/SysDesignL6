@@ -3548,6 +3548,44 @@ Result: Shard failure affects 6% of users, not 100%
 
 ---
 
+### 4.1B Degradation Ladder: How Replicated and Sharded Systems Degrade Gracefully
+
+Staff Engineers don't design binary systems (working/broken). They design explicit degradation levels.
+
+**Replication Degradation Ladder:**
+
+| Level | Trigger | System Behavior | User Experience | Automatic? |
+|---|---|---|---|---|
+| **L0: Healthy** | All replicas in sync, lag < 100ms | Full read/write, reads distributed across replicas | Normal — fast reads, fast writes | N/A |
+| **L1: Elevated lag** | Replication lag > 1s | Route sensitive reads to primary, non-sensitive to replicas | Slightly slower for profile updates; feeds may be 1-2s stale | Yes — automatic routing |
+| **L2: Replica down** | 1 of N replicas unreachable | Remaining replicas absorb read load; capacity reduced by 1/N | Slightly higher latency (fewer replicas); no errors | Yes — health check removes node |
+| **L3: Quorum risk** | Only majority+1 replicas alive | All reads routed to primary; replicas marked unhealthy | Higher latency; write-heavy periods may queue | Yes — failover routing |
+| **L4: Read-only mode** | Primary unreachable, replicas available | Serve stale reads from replicas; reject all writes | "Read-only mode — changes temporarily unavailable" | Semi-auto (requires operator confirmation for safety) |
+| **L5: Full outage** | All replicas unreachable | Return cached data if available; otherwise error | "Service temporarily unavailable" with cached content | Yes — cache fallback |
+
+**Sharding Degradation Ladder:**
+
+| Level | Trigger | System Behavior | User Experience | Automatic? |
+|---|---|---|---|---|
+| **L0: Healthy** | All shards operational | Full functionality across all users | Normal | N/A |
+| **L1: Hot shard** | One shard at 80%+ capacity | Rate limit requests to hot shard; serve others normally | Users on hot shard see slightly slower responses | Yes — adaptive throttling |
+| **L2: Shard degraded** | One shard's primary slow (> 500ms p99) | Route reads to shard replica; queue writes | Users on degraded shard see stale reads; writes queue | Yes — automatic routing |
+| **L3: Shard down** | One shard completely unreachable | Return cached data for affected users; reject writes for that shard | 1/N of users see cached/stale data + "temporarily read-only" | Yes — cache fallback |
+| **L4: Multiple shards down** | > 1 shard unreachable | Global degraded mode: disable non-critical features, serve cached data | "Limited functionality — some features temporarily unavailable" | Semi-auto (IC decides scope) |
+| **L5: Shard map corrupted** | Routing table inconsistent | Emergency: halt writes, serve from cache, rebuild routing table | "Maintenance mode — please try again later" | No — requires manual intervention |
+
+**Key Design Principles:**
+
+1. **Each level must be automatically detectable** — don't rely on humans to notice degradation at 3 AM
+2. **Each level must be independently recoverable** — L3 should recover to L2 to L1 to L0, not require a jump to L0
+3. **Communication must change per level** — users see different messaging at each level
+4. **Monitoring must track WHICH level you're at** — dashboard should show current degradation level per shard and per replica set
+5. **Blast radius narrows with sharding** — shard failure only affects 1/N of users (this is a key benefit of sharding that's often overlooked)
+
+**Staff Insight:** "The most valuable property of a degradation ladder is that it buys you TIME. Instead of 'everything is on fire,' you have 'we're at L2, we have 30 minutes before L3 if we don't fix the lag.' That changes incident response from panic to procedure."
+
+---
+
 ### 4.2 Sharding Failure Modes
 
 | Failure | Symptoms | Detection | Recovery |
