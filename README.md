@@ -185,21 +185,6 @@ Each Staff-level chapter elevates a Senior problem to global scale, introducing 
 
 ---
 
-## Progress
-
-```
-Section 1  ██████████████████████████████  6/6   chapters — Complete
-Section 2  ██████████████████████████████  7/7   chapters — Complete
-Section 3  ██████████████████████████████  7/7   chapters — Complete
-Section 4  ██████████████████████████████  7/7   chapters — Complete
-Section 5  ██████████████████████████████  13/13 chapters — Complete
-Section 6  ██████████████████████████████  17/17 chapters — Complete
-
-Overall    ██████████████████████████████  57/57 chapters — Complete
-```
-
----
-
 ## How to Read This Material
 
 This is designed to be read in order, but you can adapt the path to your needs.
