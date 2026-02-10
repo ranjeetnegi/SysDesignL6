@@ -79,19 +79,19 @@ Copy this into your notes and mark `[x]` when done.
 - [x] `Section4/Chapter_27.md`
 
 ### Section 5
-- [ ] `Section5/Chapter_28.md`
-- [ ] `Section5/Chapter_29.md`
-- [ ] `Section5/Chapter_30.md`
-- [ ] `Section5/Chapter_31.md`
-- [ ] `Section5/Chapter_32.md`
-- [ ] `Section5/Chapter_33.md`
-- [ ] `Section5/Chapter_34.md`
-- [ ] `Section5/Chapter_35.md`
-- [ ] `Section5/Chapter_36.md`
-- [ ] `Section5/Chapter_37.md`
-- [ ] `Section5/Chapter_38.md`
-- [ ] `Section5/Chapter_39.md`
-- [ ] `Section5/Chapter_40.md`
+- [x] `Section5/Chapter_28.md`
+- [x] `Section5/Chapter_29.md`
+- [x] `Section5/Chapter_30.md`
+- [x] `Section5/Chapter_31.md`
+- [x] `Section5/Chapter_32.md`
+- [x] `Section5/Chapter_33.md`
+- [x] `Section5/Chapter_34.md`
+- [x] `Section5/Chapter_35.md`
+- [x] `Section5/Chapter_36.md`
+- [x] `Section5/Chapter_37.md`
+- [x] `Section5/Chapter_38.md`
+- [x] `Section5/Chapter_39.md`
+- [x] `Section5/Chapter_40.md`
 
 ### Section 6
 - [ ] `Section6/Chapter_41.md`

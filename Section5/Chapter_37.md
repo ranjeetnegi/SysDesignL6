@@ -12,9 +12,35 @@ This chapter covers a payment flow as a Senior Engineer owns it: authorization, 
 
 **The Senior Engineer's First Law of Payments**: Money must never be created or destroyed by a bug. Every cent entering the system must have a corresponding debit, every cent leaving must have a corresponding credit, and the ledger must always balance. If it doesn't, stop everything and figure out why.
 
+**Staff addition**: A Staff Engineer designs for blast radius and cross-team ownership. When the ledger is wrong, who is paged? Payment team or Finance? When the processor fails, which teams need to coordinate? Payment correctness is not just a technical problem—it's an organizational one. Document contracts, define failure boundaries, and accept risks explicitly.
+
 ---
 
 # Part 1: Problem Definition & Motivation
+
+## Mental Model & One-Liners
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PAYMENT FLOW: CORE MENTAL MODEL                           │
+│                                                                             │
+│   A payment flow is a STATE MACHINE + LEDGER + RECONCILIATION:              │
+│   • State machine: Every status transition is explicit and auditable         │
+│   • Ledger: Double-entry; sum(debits) = sum(credits) always                 │
+│   • Reconciliation: Processor is verified against ledger, not vice versa     │
+│                                                                             │
+│   MEMORABLE ONE-LINERS:                                                      │
+│   • "The processor is a dependency, not the source of truth"                 │
+│   • "Timeout = UNKNOWN, not FAILED. Check before retry"                      │
+│   • "Idempotency keys are deterministic—never timestamps or random"         │
+│   • "Infrastructure cost is noise; processor fees are the budget"             │
+│   • "Reconciliation is the safety net for everything else"                    │
+│   • "Double-charge destroys trust; lost payment loses revenue"                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
 
 ## What Is a Payment Flow?
 
@@ -1205,6 +1231,52 @@ CLOCK HANDLING:
 | **Ledger imbalance** | Critical alert; halt captures; investigate before resuming |
 | **Reconciliation discrepancy** | Flag, alert finance team; investigate within 24 hours |
 
+## Blast Radius & Containment (Staff-Level)
+
+```
+STAFF QUESTION: "When this fails, how far does it propagate?"
+
+BLAST RADIUS BY FAILURE TYPE:
+
+| Failure                         | Blast radius              | Containment strategy                        |
+|---------------------------------|---------------------------|--------------------------------------------|
+| Ledger bug (missing entry)      | All payments after deploy | Halt new captures; deploy fix; backfill    |
+| Idempotency bug (double-charge) | All orders during window  | Halt auth; void duplicates; fix key gen    |
+| Processor outage               | All new payments          | Circuit breaker; queue; fail gracefully   |
+| DB failover                    | 10–30s of in-flight txns  | Recovery job: reconcile Stripe vs ledger   |
+| Reconciliation job crash       | Delayed detection         | Hourly partial runs; alert on no report   |
+
+STAFF INSIGHT: Payment failures propagate to Order Service (unfulfilled orders),
+Finance (wrong revenue numbers), Support (ticket volume), and customers (trust).
+Containment means: (1) Stop the bleeding (halt new captures if ledger wrong),
+(2) Isolate scope (which payments affected?), (3) Correct before resuming.
+```
+
+## Cross-Team Ownership & Handoffs (Staff-Level)
+
+```
+STAFF QUESTION: "Who owns what when it breaks?"
+
+| Scenario                          | Primary owner   | Secondary / handoff        |
+|-----------------------------------|-----------------|----------------------------|
+| Ledger imbalance                  | Payment team    | Finance validates correction|
+| Reconciliation discrepancy        | Payment team    | Finance approves adjustments|
+| Processor outage                  | Payment team    | Order Service: hold orders  |
+| Chargeback received               | Payment team   | Support: evidence submission|
+| Refund fraud / abuse              | Support + Payment | Security if systematic  |
+| Compliance audit                  | Payment + Legal | Finance for records        |
+
+HANDOFF PROTOCOL: When Payment team detects a discrepancy requiring Finance
+approval (e.g., manual ledger correction), create ticket with:
+- Affected payment IDs, amount, root cause
+- Proposed correction (new ledger entry)
+- Finance sign-off before applying
+
+STAFF INSIGHT: Payment correctness is not owned by one team. Finance owns
+revenue numbers; Support owns customer experience; Payment owns the flow.
+Document these boundaries so 2 AM incidents don't devolve into "who fixes this?"
+```
+
 ## Detailed Failure Strategies
 
 ```
@@ -1253,7 +1325,24 @@ CONSERVATIVE DEFAULTS:
     → If refund fails permanently: Alert finance for manual processing.
 ```
 
-## Production Failure Scenario: Ambiguous Timeout Causes Double-Charge
+## Structured Real Incident (Staff-Level)
+
+At least one production incident should be documented in this format for Staff-level learning. Below is the double-charge incident in structured form.
+
+| Part | Content |
+|------|---------|
+| **Context** | Payment flow processing 100K orders/day. Single processor. Authorization timeout: 5 seconds. Processor latency spike during morning peak. |
+| **Trigger** | Processor latency P99 rises from 2s to 8s. First authorization request sent at T=0; processor completes at T=3; response lost at T=5 (timeout). Retry sent at T=7 with different idempotency key (bug: key included `datetime.now()`). |
+| **Propagation** | 340 customers double-authorized during 20-minute spike. Each has two holds on card (AUTH_001 and AUTH_002). Second request processed as new authorization. No circuit breaker on retry path. |
+| **User impact** | Customers see $99.98 pending instead of $49.99. Support flooded with "charged twice" tickets. $17K in double-holds (not yet captured). |
+| **Engineer response** | Void all second authorizations via script. Customer communication: "Temporary hold will be released in 3–5 days." Fix: Idempotency key = "order-{order_id}-auth" (deterministic). Deploy within 4 hours. |
+| **Root cause** | Non-deterministic idempotency key generation. Retry produced different key; processor treated it as new transaction. |
+| **Design change** | Idempotency keys derived from business identifiers only. Code review checklist for idempotency. Hourly reconciliation check: "Any order with 2+ auth codes?" Alert: "Duplicate processor refs for same order." |
+| **Lesson** | *"Idempotency keys must be deterministic—derived from order/payment ID, never from timestamps or random values. A retry with a different key is a new charge."* |
+
+---
+
+## Production Failure Scenario: Ambiguous Timeout Causes Double-Charge (Detailed)
 
 ```
 SCENARIO: Stripe authorization API returns 504 after 5 seconds. The
@@ -1601,6 +1690,19 @@ SENIOR ENGINEER'S FOCUS:
     - Reduce chargebacks (idempotency, clear receipts, fraud prevention)
     - Negotiate processor rates (volume discounts, competitive quotes)
     - Don't waste time optimizing $500/month infrastructure
+
+STAFF ADDITION — COST OF FAILURE (beyond infra):
+
+| Failure type          | Cost range              | Example                              |
+|-----------------------|-------------------------|--------------------------------------|
+| Double-charge (trust) | Customer churn, chargebacks | 340 customers × $15 chargeback + lost LTV |
+| Ledger imbalance      | Regulatory penalty, audit failure | Books don't balance = audit fail |
+| Compliance breach     | Fines, merchant account loss | PCI scope creep = $50K–500K/year |
+| Reconciliation lag    | Discrepancy undetected  | $5K missed for 24h before detection  |
+
+STAFF INSIGHT: Cost of trust loss > cost of revenue loss. One double-charge
+incident can drive 10× more support load and permanent customer churn than
+a 1-hour outage. Design for trust first.
 ```
 
 ## Operational Considerations
@@ -1657,6 +1759,20 @@ SENIOR APPROACH:
   complete without manual intervention.
 - Don't trust your own metrics alone. Reconcile against the processor daily.
   The processor is the other source of truth for what actually happened with money.
+
+STAFF ADDITION — TIME-TO-DETECT & TIME-TO-FIX:
+
+| Bug type             | Time to detect              | Time to fix (typical)     |
+|----------------------|-----------------------------|----------------------------|
+| Ledger imbalance     | 30 min (balance check)      | 1–4 hours (investigate + correct) |
+| Double-charge        | Customer complaints or hourly recon | 2–4 hours (void + fix)    |
+| Missed capture       | Daily reconciliation        | Same day (retry or void)   |
+| Idempotency bug      | Duplicate-ref alert or recon| 4–8 hours (void + deploy)  |
+
+STAFF INSIGHT: Detection latency is a design choice. Daily reconciliation =
+up to 24h to detect. Hourly = up to 1h. Ledger balance check every 30 min =
+faster catch for deploy-time bugs. Trade-off: More frequent checks = more
+load and alert fatigue. Staff selects based on risk tolerance.
 ```
 
 ---
@@ -1847,9 +1963,19 @@ WHEN TO RECONSIDER:
 
 ---
 
-# Part 16: Interview Calibration (L5 Focus)
+# Part 16: Interview Calibration (L5 & L6)
 
-## What Interviewers Evaluate
+## Staff vs Senior: Contrast
+
+| Dimension         | Senior (L5) focus                            | Staff (L6) focus                                           |
+|-------------------|----------------------------------------------|------------------------------------------------------------|
+| **Scope**         | Single payment flow; correctness             | Cross-team contracts; Payment + Order + Finance handoffs   |
+| **Blast radius**  | "What fails?"                                | "How far does it propagate? Who else is impacted?"         |
+| **Judgment**      | Idempotency, ledger, reconciliation           | When to halt captures; when to escalate; risk acceptance   |
+| **Cost**          | Processor fees vs infra                      | Cost of compliance failure; cost of trust loss             |
+| **Teaching**     | Debugging payment bugs                       | How to teach others; leadership explanation of trade-offs  |
+
+## What Interviewers Evaluate (L5)
 
 | Signal | How It's Assessed |
 |--------|-------------------|
@@ -1981,6 +2107,64 @@ STRONG L5 SIGNALS:
 6. "The reconciliation job is the safety net for everything else. If
    idempotency has a bug, reconciliation catches it within 24 hours."
    → Shows: Defense in depth, operational maturity
+```
+
+## Staff-Level Probes (L6)
+
+```
+STAFF PROBES (beyond L5 correctness):
+
+1. "Who gets paged when the ledger is imbalanced at 2 AM?"
+   → Tests: Cross-team ownership; handoff protocol
+
+2. "What's the blast radius of a ledger bug that deployed 30 minutes ago?"
+   → Tests: Containment thinking; scope of impact
+
+3. "How do you explain to a non-technical VP why we can't 'just retry faster'
+   when the processor times out?"
+   → Tests: Leadership communication; risk framing
+
+4. "If Finance and Payment disagree on a reconciliation result, who wins?"
+   → Tests: Ownership boundaries; escalation path
+
+5. "How would you teach a new engineer on the team why idempotency keys
+   must be deterministic?"
+   → Tests: Teaching ability; transfer of judgment
+
+6. "What's the cost of a 1-hour payment outage vs 1-hour of double-charges?"
+   → Tests: Business prioritization; trust vs revenue
+```
+
+## Common Senior Mistake (When Staff Expects More)
+
+```
+SENIOR MISTAKE: "I have idempotency, ledger, and reconciliation. Correctness covered."
+
+WHY IT'S INSUFFICIENT FOR STAFF:
+- Correctness is necessary but not sufficient
+- Staff expects: Who owns reconciliation when it fails? What's the handoff?
+- Staff expects: Blast radius of a bug. How do you contain?
+- Staff expects: How do you explain trade-offs to leadership?
+
+STAFF PHRASE: "Correctness is table stakes. I also design for ownership boundaries,
+blast radius containment, and escalation paths so the org can operate when it breaks."
+```
+
+## Staff Phrases: How to Teach & Explain to Leadership
+
+```
+TEACHING (to new engineer):
+"I'll explain why idempotency keys must be deterministic. Imagine a retry
+after a timeout. If the key includes a timestamp, the retry is a new key.
+The processor sees it as a new transaction. Two charges. The fix: key = 
+order_id + operation. Same every time. Retry = same key = same result."
+
+LEADERSHIP EXPLANATION (why we can't "just retry faster"):
+"Retrying faster when the processor times out increases the risk of double-charge.
+The processor may have succeeded—we just didn't get the response. A fast retry
+could send a second request before we know. We check first. That takes 30 seconds.
+It's a trade-off: 30 seconds of delay vs 1% chance of double-charge. We choose
+delay. Trust is harder to recover than a missed sale."
 ```
 
 ---
@@ -2814,6 +2998,27 @@ COST OF CARRYING DEBT:
    user-visible guarantee."
 ```
 
+### Exercise I: Staff-Level — Cross-Team Handoff (L6)
+
+```
+SCENARIO: Reconciliation report shows $2,400 discrepancy. Ledger says we captured
+$2,400 more than the processor's settlement report. Finance and Payment disagree
+on who should investigate.
+
+QUESTIONS:
+1. Who owns the investigation? (Payment: we wrote the ledger. Finance: they own revenue numbers.)
+2. What's the escalation path if the root cause is unclear after 4 hours?
+3. How do you document the handoff so the next shift knows the state?
+4. What's the blast radius if this is a code bug? (All payments since last deploy?)
+
+STAFF ANSWER:
+- Primary: Payment team (we own the code and ledger writes)
+- Finance: Validates corrections before they're applied; signs off on manual adjustments
+- Escalation: If root cause unclear after 4h, involve team lead; if > $10K, involve VP
+- Handoff: Incident ticket with "Investigating: X. Next step: Y. Blocked by: Z."
+- Blast radius: Query first imbalanced payment's created_at; all payments after last deploy before that time are suspect
+```
+
 ### Prompt H3: Pushing Back on Scope Creep
 
 ```
@@ -2834,6 +3039,41 @@ processor adapter—but that's V2, not V1."
 ---
 
 # Final Verification
+
+## Master Review Check (11 Items)
+
+| # | Check | Status |
+|---|-------|--------|
+| 1 | **Scope & clarity** — Payment flow end-to-end; component responsibilities clear | ✓ |
+| 2 | **Trade-offs justified** — Auth+capture vs single charge; PostgreSQL vs event sourcing | ✓ |
+| 3 | **Failure handling** — Ambiguous timeout, processor outage, DB failover, retry storm | ✓ |
+| 4 | **Scale analysis** — Concrete numbers; processor rate limit as first bottleneck | ✓ |
+| 5 | **Real incident** — Structured table (Context\|Trigger\|Propagation\|User-impact\|Engineer-response\|Root-cause\|Design-change\|Lesson) | ✓ |
+| 6 | **Staff vs Senior contrast** — Judgment, blast radius, cross-team, teaching | ✓ |
+| 7 | **Cost drivers** — Processor fees dominant; compliance/trust costs acknowledged | ✓ |
+| 8 | **Mental models / one-liners** — Memorable phrases; how to teach | ✓ |
+| 9 | **Diagrams** — Architecture; state machine | ✓ |
+| 10 | **Interview calibration** — L5 probes, L4 mistakes, Staff probes, Staff phrases | ✓ |
+| 11 | **Exercises & Brainstorming** — Scale, failure, cost, ownership, correctness, evolution | ✓ |
+
+## L6 Dimension Table (A–J)
+
+| Dim | Dimension | Coverage | Notes |
+|-----|-----------|----------|-------|
+| **A** | Judgment | ✓ | State machine, conservative defaults, check-before-retry; Staff: when to halt, escalate |
+| **B** | Failure/blast-radius | ✓ | Failure modes; blast radius table; containment strategy |
+| **C** | Scale/time | ✓ | 100K orders/day; processor rate limit; time-to-detect via reconciliation |
+| **D** | Cost | ✓ | $5.25M processor vs $500 infra; cost of downtime; Staff: trust loss |
+| **E** | Real-world-ops | ✓ | 2 AM scenarios; double-charge; rollout; rushed decision |
+| **F** | Memorability | ✓ | Mental model; one-liners; how to teach |
+| **G** | Data/consistency | ✓ | Double-entry; ledger invariant; reconciliation |
+| **H** | Security/compliance | ✓ | PCI scope avoidance; audit trail; abuse vectors |
+| **I** | Observability | ✓ | Misleading signals; real signals; ledger balance alert |
+| **J** | Cross-team | ✓ | Ownership table; handoff protocol; Finance/Payment boundaries |
+
+---
+
+## Senior-Level Signals (L5)
 
 ```
 ✓ This chapter MEETS Google Senior Software Engineer (L5) expectations.
@@ -2904,4 +3144,5 @@ Brainstorming (Part 18):
 ✓ Evolution: Multi-currency, second processor, schema migration
 ✓ Deployment: Rollout stages, bad code scenario, rushed decision
 ✓ Interview: Clarifying questions, explicit non-goals, scope creep pushback
+✓ Staff exercise: Cross-team handoff (Exercise I)
 ```

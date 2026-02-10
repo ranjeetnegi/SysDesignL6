@@ -765,6 +765,19 @@ WHAT WOULD BE BAD:
 
 **Senior Recommendation:** 95% accuracy with 0.5ms latency beats 100% accuracy with 50ms latency. Rate limiting is about protection, not precision.
 
+## Observability: SLO/SLI for Rate Limiter as Dependency (L6)
+
+When the rate limiter is a shared platform component, downstream services need clear SLOs:
+
+| Metric | Target | Rationale |
+|--------|--------|-----------|
+| **Latency P95** | < 2ms | Rate limiter is in hot path. 2ms keeps API latency acceptable. |
+| **Latency P99** | < 5ms | Variance; alert if exceeded. |
+| **Availability** | 99.9% | Fail-open when down; "availability" here means not incorrectly rejecting. |
+| **Fail-open rate** | < 0.01% | Normal operation should rarely fail open. Spike indicates Redis issues. |
+
+**Error budget:** Downstream services consume rate limiter's error budget. When rate limiter fails open, downstream may see overload. Define handoff: "Rate limiter SLO breach → platform page; downstream overload → app team page."
+
 ---
 
 # Part 5: Scale & Capacity Planning
@@ -838,6 +851,17 @@ Redis can handle the ops/sec. If Redis becomes slow:
 - Rate limit checks add latency to every request
 - System becomes bottleneck instead of protector
 ```
+
+## Scale Over Time: Growth Trajectory (L6)
+
+| Horizon | Traffic | Decision Point | Action |
+|---------|---------|----------------|--------|
+| 0–3 months | 50K req/sec | Baseline | Single Redis, monitor ops/sec |
+| 3–6 months | 80K req/sec | 70% Redis utilization | Plan Redis Cluster; start migration before 90% |
+| 6–12 months | 150K req/sec | Single Redis at limit | Redis Cluster with 3 shards. Document migration runbook. |
+| 12–24 months | 300K+ req/sec | Multi-tenant, cost pressure | Cost allocation by team. Consider per-team Redis pools if isolation needed. |
+
+**Staff insight:** Start migration before pain. At 70% capacity, you have runway. At 95%, you have incidents.
 
 ## Back-of-Envelope: Redis Sizing
 
@@ -1508,6 +1532,21 @@ CLASS CircuitBreaker:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+## Real Incident: Structured Post-Mortem
+
+| Dimension | Details |
+|-----------|---------|
+| **Context** | Production API serving 45K req/sec. Redis primary-replica setup with Sentinel for failover. Rate limiter embedded in API servers. |
+| **Trigger** | Redis master node OOM killed during traffic spike. Memory pressure from large key count (old keys not expiring fast enough during burst). |
+| **Propagation** | Sentinel detected master failure. Application clients waited for failover. During 30s window: circuit breaker opened, all requests failed open. No rate limiting enforced. |
+| **User Impact** | No visible errors (fail-open). ~35 seconds with no rate limiting. Some power users exceeded limits; backend sustained brief overload. No data loss. |
+| **Engineer Response** | T+0: Alert fired (fail-open count). T+2: On-call confirmed Redis failover in progress. T+5: Waited for Sentinel promotion. T+35: Rate limiting resumed. No rollback needed. |
+| **Root Cause** | Redis memory not sized for burst key count. TTL set at 2× window; during traffic spike, key creation outpaced eviction. OOM policy set to noeviction. |
+| **Design Change** | 1) Add maxmemory-policy volatile-lru for Redis. 2) Local in-memory fallback counter during Redis outage. 3) Alert on Redis memory > 80%. 4) Capacity review: 2× headroom for key count. |
+| **Lesson** | Fail-open was correct: blocking all traffic would have been worse. Blast radius was bounded (single region). Capacity planning must include burst key growth, not just steady-state. |
+
+**L6 Relevance:** Staff engineers use this structure to teach post-mortem discipline and to drive design changes that reduce blast radius. The lesson column informs future architecture decisions.
+
 ## Timeout and Retry Behavior
 
 ```
@@ -1915,6 +1954,17 @@ MONITORING:
 
 **Cost scales sub-linearly:** Larger Redis instances are more cost-effective per operation.
 
+## L6 Cost Drivers: Multi-Tenant and Allocation
+
+| Driver | L5 View | L6 View |
+|--------|---------|---------|
+| **Per-request cost** | $0.000003 per check | Adequate for single-tenant. |
+| **Multi-tenant cost** | Not considered | Cost allocation by team or tier. Chargeback: Redis cost × (team traffic / total traffic). |
+| **ROI of rate limiting** | Implicit | Explicit: cost of abuse (downtime, support) vs cost of rate limiter. Document for budget justification. |
+| **Shared vs dedicated Redis** | Single Redis for service | Shared Redis for platform: cheaper but no isolation. Dedicated for high-value tenants if needed. |
+
+**Concrete example:** Platform serves 10 teams. Redis is $400/month. Team A does 20% of traffic. Chargeback: $80/month to Team A. Team A can then decide: is rate limiting worth $80, or should they optimize?
+
 ## On-Call Burden
 
 ```
@@ -2218,6 +2268,8 @@ CONS:
 
 DECISION: Expose headers for authenticated users only
 
+**Compliance and audit (L6):** For regulated environments, rate limit decisions may need audit trails. Log (at DEBUG or audit log): which key was limited, limit value, timestamp. Retain per retention policy. Do not log full request bodies; key + limit + result is sufficient. Bypass list changes should be audited and approved.
+
 // Pseudocode: Conditional header exposure
 FUNCTION add_rate_limit_headers(response, result, request):
     IF request.authenticated:
@@ -2389,7 +2441,54 @@ REASONING:
 
 ---
 
-# Part 16: Interview Calibration (L5 Focus)
+# Part 15.5: Staff vs Senior Contrast (L6 Bar)
+
+## How Staff Engineers Differ on Rate Limiting
+
+| Dimension | Senior (L5) Focus | Staff (L6) Focus |
+|-----------|-------------------|------------------|
+| **Judgment** | Choose algorithm, fail-open vs fail-closed. | Prioritize org-wide standards: one rate limiter design for many teams vs per-team stacks. Accept technical debt when business pressure demands. |
+| **Failure/Blast Radius** | Understand Redis failover, circuit breaker. | Explicit blast radius: "Single-region only; multi-region would require design change." Document blast radius in design docs. |
+| **Scale/Time** | 10× scale analysis, capacity planning. | Growth trajectory over 12–24 months. When to start migration (e.g., Redis Cluster) before pain. |
+| **Cost** | Cost per request, Redis sizing. | Cost per tenant, ROI of rate limiting vs cost of abuse. Cost allocation across teams sharing Redis. |
+| **Cross-Team** | Own rate limiter for own service. | Own shared rate limiter for platform. Negotiate: app team vs platform team ownership. SLO handoff. |
+| **Real-World Ops** | On-call, rollback, misleading signals. | Cross-team runbooks. Who pages whom. Escalation to platform when Redis is shared. |
+| **Data/Consistency** | Approximate vs strong consistency. | When to accept per-region limits vs global; compliance implications of approximate counts. |
+| **Security/Compliance** | Bypass, key manipulation. | Audit logs for rate limit decisions (who was limited and why). Compliance review of bypass lists. |
+| **Observability** | Latency, fail-open metrics. | SLO/SLI definition for rate limiter as a dependency. Error budget for downstream services. |
+| **Memorability** | Bouncer analogy. | One-liner: "Protection, not precision. Fail open. <2ms." |
+
+## Staff One-Liners for Rate Limiting
+
+```
+PROTECTION OVER PRECISION
+±5% accuracy is fine; blocking 50% of legitimate traffic is not.
+
+FAIL OPEN, ALWAYS
+A rate limiter that blocks all traffic when it fails has failed its mission.
+
+LATENCY BUDGET: <2ms
+Every request goes through this path. 50ms here = 50ms for everyone.
+
+SINGLE REGION = APPROXIMATE
+Global rate limiting adds 100ms+ latency. Regional is the default.
+
+BLAST RADIUS: ONE REGION
+Redis down = no rate limiting in this region only. Document and accept.
+```
+
+## Common Senior Mistake vs Staff Mistake
+
+| Level | Mistake | Fix |
+|-------|---------|-----|
+| **Senior** | Optimize for perfect accuracy (distributed lock, strong consistency). | Accept approximate; protect against 1000× abuse, not 1.05× overshoot. |
+| **Senior** | Ignore failure modes (no fail-open discussion). | Fail-open by default; document and monitor. |
+| **Staff** | Build custom rate limiter when platform offers one. | Reuse platform rate limiter; contribute requirements if gaps exist. |
+| **Staff** | Solve rate limiting in isolation without cross-team SLO. | Define SLO with dependent teams; agree on fail-open semantics and escalation. |
+
+---
+
+# Part 16: Interview Calibration (L5 + L6)
 
 ## How Google Interviews Probe Rate Limiting
 
@@ -2476,6 +2575,39 @@ SIGNALS OF SENIOR-LEVEL THINKING:
 6. THINKS ABOUT OPERATIONS
    "For on-call, we'd alert on latency P95 and fail-open rate..."
 ```
+
+---
+
+## L6 / Staff Interview Calibration
+
+### Staff-Level Probes
+
+| Probe | What It Surfaces | Staff Signal |
+|-------|------------------|--------------|
+| "Ten teams need rate limiting. How do you approach it?" | Platform vs per-team design. | "Shared platform rate limiter. Each team has config. Platform owns Redis and SLO." |
+| "Finance wants 30% cost cut. What do you do?" | Cost vs reliability trade-off. | "Quantify risk per option. Reserved instances first. Document blast radius of removing replica." |
+| "How do you explain rate limiting to a non-engineer executive?" | Leadership communication. | "It's a bouncer: lets people in at a safe pace. When the bouncer breaks, we let everyone in instead of locking the door." |
+| "How would you teach this to a new L5?" | Teaching and leveling. | "Start with fail-open. Then algorithm trade-offs. Then cross-team ownership. Exercises on misleading metrics." |
+
+### Staff Signals (What to Listen For)
+
+- **Cross-team ownership**: "Platform owns Redis; app teams consume. We have an SLO handoff."
+- **Blast radius**: "Single region. If Redis is down, this region loses rate limiting only."
+- **Cost allocation**: "We charge back Redis cost by traffic share. Teams see their rate limit costs."
+- **Technical debt awareness**: "Bypass list is debt. We have a ticket to replace with tier system."
+
+### Common Senior Mistake at Staff Bar
+
+**Mistake:** Designing the perfect rate limiter for one service without considering platform reuse or multi-tenant cost allocation.
+
+**Staff phrasing:** "Before building, I'd check if platform already has a rate limiter. We'd contribute requirements rather than maintain a separate stack."
+
+### How to Teach This Chapter
+
+1. **First pass:** Read Problem Definition, Mental Model, and Algorithms. Understand fail-open.
+2. **Second pass:** Read Failure Handling, Real Incident table, and Misleading Signals. Practice 3 AM debugging flow.
+3. **Third pass:** Read Staff vs Senior contrast and Cost. Practice explaining to a non-engineer.
+4. **Exercises:** Complete Part 18. Focus on Scale (A1, A2), Failure (B1–B3), and Cost (C1, C2).
 
 ---
 

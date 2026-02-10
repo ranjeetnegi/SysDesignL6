@@ -12,6 +12,8 @@ This chapter covers a background job queue as a Senior Engineer owns it: enqueue
 
 **The Senior Engineer's First Law of Job Queues**: A job queue must never silently lose work. If a job fails, that failure must be visible, retriable, and debuggable. Invisible failure is the worst kind of failure.
 
+**Staff vs Senior (L6):** A Senior engineer designs and operates the job queue for their team or service. A Staff engineer reasons about *who owns the shared queue*, *how to prevent one team's bad jobs from poisoning others*, and *when to invest in platform vs per-team solutions*. Staff decisions: platform team owns the queue; consuming teams pay via cost allocation; per-job-type isolation and rate limits are non-negotiable guardrails. The Staff lens: "A job queue is a shared dependency—how do we make it resilient to both technical failure and organizational misuse?"
+
 ---
 
 # Part 1: Problem Definition & Motivation
@@ -1168,6 +1170,27 @@ CLOCK HANDLING:
 | **Queue backlog** | Autoscale workers. Alert on queue depth growth rate |
 | **DLQ overflow** | Alert → engineer investigates → fix and replay or discard |
 
+### Blast Radius & Failure Containment (L6)
+
+```
+BLAST RADIUS: One team's poison can affect all teams sharing the queue.
+
+Senior thinking: "How do I handle a poison-pill job?"
+Staff thinking: "How do I prevent Team A's bad job from degrading Team B's work?"
+
+Concrete: Shared pool with 30 job types from 5 teams. One team deploys
+buggy handler that OOMs. All 30 job types share the same workers.
+Result: Email (Team B), invoices (Team C), image resize (Team A) all delayed.
+
+Staff-level mitigation:
+- Separate worker pools by job category (not just by type)
+- Per-team rate limits (Team A cannot flood the queue)
+- Per-job-type circuit breaker (pause one type, others continue)
+- Cost allocation: Teams that enqueue more pay more (creates cost awareness)
+- Platform ownership: "Who owns the queue?" is a Staff decision, not an
+  afterthought. Single team owns the queue; consuming teams are tenants.
+```
+
 ## Detailed Failure Strategies
 
 ```
@@ -1275,6 +1298,19 @@ memory (2GB after decode), causing every worker that touches it to OOM.
      (lightweight email workers vs heavyweight image workers)
    - Process change: New job types require resource profile estimation
 ```
+
+## Real Incident: Structured Table
+
+| Dimension | Description |
+|----------|-------------|
+| **Context** | Shared job queue processing 500 jobs/sec across 10 workers. Job types: email, image resize, CRM sync. Single worker pool. |
+| **Trigger** | User uploads 500MB image. resize_image handler loads full image into memory (2GB after decode). No input validation. |
+| **Propagation** | Worker 1 claims job → OOM kill. Lease expires → Worker 3 claims → OOM. Cycle repeats across all workers. Each OOM kills entire process; other in-flight jobs on that worker interrupted. 5-10 worker crashes over 15 minutes. |
+| **User impact** | Email delivery delayed minutes; image resize never completes; CRM sync backlogged. No data loss (jobs persisted). |
+| **Engineer response** | DLQ alert fires; manual move to DLQ to stop crash cycle; add payload validation (file_size > 50MB → FatalError); per-job memory limits. |
+| **Root cause** | No input validation on image size at enqueue or handler. Single worker pool: poison job affects all job types. |
+| **Design change** | Payload validation in handler; separate worker pools by resource profile (lightweight vs heavyweight); per-job cgroup limits. |
+| **Lesson** | One bad job can take down the entire queue. Input validation and resource isolation are non-negotiable for shared infrastructure. |
 
 ---
 
@@ -1458,6 +1494,15 @@ Database cost sub-linear (bigger instance, not more instances until sharding).
 At 30×, sharding DB adds operational cost, bringing per-job cost up slightly.
 
 BIGGEST COST DRIVER: Worker compute (54% of total at 1×, ~70% at 10×).
+
+COST ALLOCATION (L6): When the queue is shared across teams, who pays?
+- Option A: Central budget (platform team pays). Risk: No cost awareness; teams
+  enqueue freely; queue grows unbounded.
+- Option B: Cost allocation by enqueue volume (team A pays for their jobs).
+  Benefit: Teams optimize; reduces unnecessary jobs. Overhead: Metering, billing.
+- Option C: Reserved capacity per team (Team A gets 100 jobs/sec quota).
+  Benefit: Fair share; predictable. Trade-off: Wasted quota if team underuses.
+Staff decision: At 5+ consuming teams, cost allocation becomes necessary.
     Workers must be sized for peak processing, but idle during off-peak.
     Optimization: Autoscaling based on queue_depth → reduce off-peak workers to 3.
     Savings: ~$350/month at 1× scale (30% reduction).
@@ -1550,6 +1595,32 @@ SENIOR APPROACH:
   often the leading indicator of dependency or poison-pill issues.
 ```
 
+### Observability: Golden Signals for Job Queue (L6)
+
+```
+THE FOUR GOLDEN SIGNALS (adapted for job queues):
+
+1. LATENCY: oldest_pending_job_age_seconds
+   - "How long has the oldest job been waiting?"
+   - Healthy: < 60 seconds. Degraded: > 5 minutes. Critical: > 30 minutes.
+
+2. THROUGHPUT: jobs_completed_total (rate) and jobs_enqueued_total (rate)
+   - "Is processing keeping up with enqueue?"
+   - Healthy: completed_rate ≥ enqueue_rate. Critical: backlog growing.
+
+3. ERRORS: dlq_depth, job_failure_rate by type
+   - "Are jobs failing?"
+   - Healthy: dlq_depth = 0. Degraded: single job in DLQ. Critical: DLQ growing.
+
+4. SATURATION: active_workers / max_workers, queue_depth
+   - "Are we at capacity?"
+   - Healthy: queue_depth < 1000. Degraded: > 10K. Critical: > 100K.
+
+SLO FRAMEWORK: "99% of jobs start processing within 60 seconds of enqueue."
+This is the one metric that combines latency + throughput. If it fails, 
+either workers are saturated or there's a dispatch bug.
+```
+
 ---
 
 # Part 13: Security Basics & Abuse Prevention
@@ -1624,6 +1695,24 @@ V1 SECURITY NON-NEGOTIABLES:
 V1 SECURITY ACCEPTABLE RISKS:
     - No encryption of payload at rest (internal system, trusted network)
     - No per-field PII masking in job payloads (handled by handlers)
+```
+
+### Compliance & Data Retention (L6)
+
+```
+JOB PAYLOADS MAY CONTAIN PII: user_id, email, address in invoice jobs.
+
+Compliance considerations:
+- Retention: DLQ jobs held 30 days. Completed jobs 7 days. If payloads
+  contain PII, retention aligns with data minimization (GDPR, CCPA).
+- Audit: Who replayed/discarded DLQ jobs? Audit log required for
+  sensitive job types (payment, refund, account deletion).
+- Masking: For debugging, avoid logging full payload. Log job_id, type,
+  and sanitized fields only. Full payload in DLQ inspect only.
+
+Staff relevance: At scale, job queue becomes a data store. Compliance
+teams will ask: "How long do you keep job payloads? Who can access them?"
+Having an answer before they ask is Staff-level ownership.
 ```
 
 ---
@@ -1910,6 +1999,23 @@ STRONG L5 SIGNALS:
 6. "I'd separate worker pools for heavy jobs (image resize) and light jobs
    (email send) to prevent head-of-line blocking across job types."
    → Shows: Failure isolation thinking, resource-aware design
+```
+
+## Mental Models & One-Liners (L6)
+
+```
+ONE-LINERS TO REMEMBER:
+
+1. "Enqueue is the durability boundary." Once ACKed, job is safe. Before that, it's at risk.
+2. "Lease expiry is the crash recovery mechanism." No ACK = job re-dispatched. No stuck jobs.
+3. "DLQ is the visibility boundary." If it's not in DLQ, it's either completed or still retrying.
+4. "Idempotency is non-negotiable." At-least-once means duplicates. Handlers must be safe to re-run.
+5. "One poison job can take down the whole queue." Isolate by pool, validate at enqueue.
+
+MENTAL MODEL: Job queue is a durable work log + dispatch mechanism.
+- Durability: PostgreSQL (or equivalent). No in-memory queues for committed work.
+- Dispatch: Poll or push. Lease-based claim. Reclaim on expiry.
+- Visibility: Status per job, DLQ for failures, metrics for health.
 ```
 
 ---
@@ -2881,11 +2987,40 @@ jobs."
 
 # Final Verification
 
+## Master Review Check (11 Items)
+
 ```
-✓ This chapter MEETS Google Senior Software Engineer (L5) expectations.
+□ 1. Audit dimensions A–J covered (see L6 dimension table below)
+□ 2. Staff vs Senior contrast present (Introduction)
+□ 3. Real incident in structured table format (Context|Trigger|Propagation|Impact|Response|Root-cause|Design-change|Lesson)
+□ 4. Scale analysis with concrete numbers and breaking points
+□ 5. Cost drivers and allocation considerations
+□ 6. Mental models / one-liners section
+□ 7. Diagrams present (Part 17)
+□ 8. Interview Calibration: probes, Staff signals, common Senior mistake, phrases, how to teach
+□ 9. Exercises & Brainstorming (Part 18)
+□ 10. Security and compliance considerations (including PII, retention)
+□ 11. Observability: golden signals or SLO framework
+```
 
-SENIOR-LEVEL SIGNALS COVERED:
+## L6 Dimension Table (A–J)
 
+| Dimension | Coverage | Notes |
+|-----------|----------|-------|
+| **A. Judgment** | ✓ | Staff vs Senior intro; trade-off reasoning; platform vs per-team; when to migrate |
+| **B. Failure/blast-radius** | ✓ | Blast radius & containment section; poison-pill; per-team isolation; circuit breaker |
+| **C. Scale/time** | ✓ | 1×–30× scale table; what breaks first; autoscaling; migration triggers |
+| **D. Cost** | ✓ | Cost breakdown; cost allocation (L6); cost drivers; 10× estimate |
+| **E. Real-world-ops** | ✓ | Poison-pill incident; deployment; rollback; misleading signals; on-call runbook |
+| **F. Memorability** | ✓ | First Law; mental models; one-liners; Staff phrases |
+| **G. Data/consistency** | ✓ | At-least-once; idempotency; race conditions; clock handling |
+| **H. Security/compliance** | ✓ | Auth; abuse vectors; compliance & PII retention; audit log |
+| **I. Observability** | ✓ | Golden signals; SLO framework; misleading vs real signals |
+| **J. Cross-team** | ✓ | Staff lens: shared queue; platform ownership; cost allocation; blast radius |
+
+## Senior-Level Signals Covered
+
+```
 A. Design Correctness & Clarity:
 ✓ End-to-end: Enqueue → Persist → Poll → Dispatch → Execute → ACK/Retry → DLQ
 ✓ Component responsibilities clear (Enqueue API, Job Store, Worker, DLQ Manager)
@@ -2900,6 +3035,8 @@ B. Trade-offs & Technical Judgment:
 
 C. Failure Handling & Reliability:
 ✓ Poison-pill scenario (realistic production failure, full post-mortem)
+✓ Structured real incident table
+✓ Blast radius & failure containment (L6)
 ✓ Exponential backoff with jitter (thundering herd prevention)
 ✓ Circuit breaker per job type
 ✓ DLQ with replay/discard operations
@@ -2914,6 +3051,7 @@ D. Scale & Performance:
 E. Cost & Operability:
 ✓ $1,150/month breakdown
 ✓ Cost at 10× scale ($7,450/month)
+✓ Cost allocation (L6)
 ✓ 30% cost reduction options with risk analysis
 ✓ On-call runbook (queue_depth, DLQ, oldest_pending_job alerts)
 
@@ -2934,11 +3072,13 @@ G. Concurrency & Correctness:
 
 H. Interview Calibration:
 ✓ What Interviewers Evaluate table (signal | how assessed)
+✓ Staff probes, signals, common Senior mistake
 ✓ Example Strong L5 Phrases; Common L4 / Borderline L5 templates
 ✓ What Distinguishes Solid L5 (failure, scale, non-goals, trade-offs, ops)
 ✓ L4 vs L5 mistakes with WHY IT'S L4 / L5 FIX
 ✓ Strong L5 signals and phrases; clarifying questions and non-goals
 ✓ Scope creep pushback examples
+✓ Leadership explanation; how to teach
 
 Brainstorming (Part 18):
 ✓ Scale: 10× spike analysis, component failure order, vertical vs horizontal

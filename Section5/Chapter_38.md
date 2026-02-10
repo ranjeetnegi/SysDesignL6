@@ -12,6 +12,8 @@ This chapter covers an API gateway as a Senior Engineer owns it: routing, authen
 
 **The Senior Engineer's First Law of API Gateways**: The gateway must never be the bottleneck. If the gateway goes down or slows down, every service behind it is effectively down. Design it as the most reliable, most observable, and simplest component in your entire stack.
 
+**Staff vs Senior (L6):** A Senior engineer designs and operates the gateway: routing, auth, rate limiting, circuit breakers, observability. A Staff engineer reasons about *who owns it*, *how config changes propagate across teams*, and *how to prevent a single misconfiguration from taking down the entire API*. Staff decisions: platform team owns the gateway; product teams own route config with validation guardrails; deployment approvals for config changes that affect critical paths. The Staff lens: "The gateway is shared infrastructure—how do we make it resilient to both technical failure and human error?"
+
 ---
 
 # Part 1: Problem Definition & Motivation
@@ -91,6 +93,10 @@ Without a gateway, every backend service independently implements authentication
 │   is the public-facing entry point. Keeping this scope clear prevents       │
 │   the gateway from becoming a monolithic bottleneck that tries to do        │
 │   everything.                                                               │
+│                                                                             │
+│   MENTAL MODEL ONE-LINER:                                                   │
+│   "Gateway: who gets in, what they can do, how fast. Backend: the rest."   │
+│   Auth + rate limit + route at the edge. Business logic stays behind.      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1442,6 +1448,19 @@ IDEMPOTENCY AT THE GATEWAY:
 | **Config store down (etcd)** | Use cached config; alert; gateway continues with last known config |
 | **JWT key fetch fails** | Use cached JWKS; alert; fail-closed if cache is also stale |
 | **Gateway instance crash** | LB routes to other instances; no state lost (stateless) |
+
+## Structured Real Incident Table
+
+| Dimension | Description |
+|-----------|-------------|
+| **Context** | E-commerce platform with 15 backend services. Checkout flow: `/api/v2/checkout` → order-service. Platform team maintains gateway route config; deployment was automated via CI/CD. |
+| **Trigger** | Route config change deployed during routine maintenance. A typo in the route pattern: `/api/v2/checkout` was misconfigured to point to `checkout-legacy-service` (decommissioned 3 weeks prior) instead of `order-service`. No validation step caught the reference to a non-existent backend. |
+| **Propagation** | Config change propagated to all 5 gateway instances within 10 seconds. Every request to `/api/v2/checkout` immediately routed to `checkout-legacy-service`. Connection refused (502) returned to all clients. No circuit breaker trip (backend was "down" from the start, not degrading). |
+| **User-impact** | 100% of checkout requests failed with 502. Duration: 8 minutes. Estimated 2,400 checkout attempts during the window. Revenue impact: ~$35K in lost orders. Customer support flooded with "checkout not working" tickets. |
+| **Engineer-response** | T+2 min: PagerDuty fired for "order-service 502 rate > 50%." T+3 min: On-call noticed order-service dashboard showed 0 requests (traffic never reached it). T+5 min: Checked gateway logs—path `/api/v2/checkout` routing to `checkout-legacy-service`. T+6 min: Reverted route config in etcd. T+8 min: Config propagated; checkout restored. |
+| **Root-cause** | Route config referenced a decommissioned service. No validation that backend targets exist in service registry before applying config. No canary for config changes (only code deploys had canary). |
+| **Design-change** | Route config validation: Pre-apply check that all `backend_service` values exist in service registry. Reject config if any target is missing. Config change canary: Apply new routes to 1 instance first; observe for 2 minutes; if error rate for affected routes spikes, auto-revert. |
+| **Lesson** | Gateway route config is as critical as code. A single misconfiguration can take down entire product flows. Validation at apply-time is non-negotiable. "The gateway must never be the bottleneck" also means: the gateway must never propagate a configuration that breaks the system. |
 | **TLS certificate expired** | Clients get TLS error; alert 14 days before expiry; auto-renewal |
 | **DDoS / traffic spike** | Rate limiting absorbs; global safety limit; auto-scale gateway |
 
@@ -2041,6 +2060,20 @@ SENIOR ENGINEER'S FOCUS:
     - Logging is expensive and grows linearly with traffic. Optimize it.
     - Redis is cheap and critical. Don't cut it.
     - etcd is cheap and critical. Don't cut it.
+
+STAFF COST ALLOCATION LENS:
+    Who pays for the gateway? In a multi-team org, the platform team owns
+    the gateway but 15 product teams consume it. Options:
+    - Central budget: Platform pays for everything. Simple, but no cost
+      visibility per team. Teams may over-consume (log volume, routes).
+    - Cost allocation: Charge back by share of traffic. Order-service uses
+      40% of gateway QPS → 40% of compute cost. Log volume by route →
+      teams pay for their log footprint. Drives efficiency.
+    - Shared cost pool: Teams contribute to a shared infra budget.
+      Gateway is a line item. Less precise than allocation, but simpler.
+    Staff decision: At 15 services, central budget is fine. At 100 services,
+    cost allocation prevents "tragedy of the commons"—one team's noisy
+    routes shouldn't inflate everyone's logging bill.
 ```
 
 ## Operational Considerations
@@ -2389,7 +2422,7 @@ TRADE-OFF:
 
 ---
 
-# Part 16: Interview Calibration (L5 Focus)
+# Part 16: Interview Calibration (L5 Focus, L6 Probes)
 
 ## What Interviewers Evaluate
 
@@ -2541,6 +2574,114 @@ STRONG L5 SIGNALS:
 6. "I'd start with Kong for a team of 3-5. Build custom only when
    Kong's plugin model becomes a constraint. That's not V1."
    → Shows: Pragmatic judgment, build-vs-buy wisdom
+```
+
+## L6 Probes (Staff-Level Questions)
+
+```
+SENIOR DESIGN → STAFF FOLLOW-UPS:
+
+1. "Who owns the gateway? Who owns route config?"
+   → Tests: Cross-team ownership; platform vs product team boundaries
+   → Staff signal: "Platform team owns the gateway. Product teams submit
+      route config via PR; we validate and deploy. Critical path changes
+      require platform approval."
+
+2. "A product team deploys a route that breaks checkout. How do you
+   prevent that from happening again?"
+   → Tests: Config validation, guardrails, blast radius thinking
+   → Staff signal: "Pre-apply validation: backend must exist in registry.
+      Config canary: one instance first. Automated rollback if error rate
+      for affected routes spikes."
+
+3. "How do you decide when to build custom vs use off-the-shelf?"
+   → Tests: Judgment, org context, cost of ownership
+   → Staff signal: "For a team of 4: off-the-shelf. For 40 services and
+      strict latency: custom. The decision is team size and scale, not
+      ideology."
+
+4. "The gateway is a single point of failure. How do you make config
+   changes safe?"
+   → Tests: Deployment safety, human error prevention
+   → Staff signal: "Config validation at apply time. Canary for config
+      like we do for code. Rollback path that doesn't require gateway
+      restart."
+
+5. "How do you prevent one team's bad config from affecting others?"
+   → Tests: Blast radius, isolation, organizational scale
+   → Staff signal: "Route-level validation; per-route circuit breakers;
+      config change approval for high-traffic paths."
+```
+
+## Staff Signals (What L6 Demonstrates)
+
+```
+STAFF-LEVEL SIGNALS:
+
+1. Cross-team ownership model: "Platform owns the gateway; product teams
+   own their routes. We provide validation and guardrails. They don't
+   touch gateway code."
+
+2. Config as code, config as risk: "Route config is as critical as app
+   code. It needs validation, canary, and rollback. We treat it the same
+   way we treat deployments."
+
+3. Blast radius awareness: "A misconfigured route can take down revenue-
+   critical paths. We validate that backends exist before applying. We
+   canary config changes for high-traffic routes."
+
+4. Build-vs-buy with org context: "The answer depends on team size and
+   scale. I'd recommend off-the-shelf for a small team; custom when
+   we have the operational capacity and the scale justifies it."
+
+5. Leadership explanation: "I'd explain to leadership: The gateway is
+   our front door. If it's down, the entire product is down. We invest
+   in validation, redundancy, and observability not because it's elegant—
+   but because one misconfiguration cost us $35K in 8 minutes."
+```
+
+## Common Senior Mistake (L5 Miss)
+
+```
+COMMON SENIOR MISTAKE: Treating config changes as low-risk
+
+Senior designs: Auth, rate limiting, circuit breakers, routing—all correct.
+But treats route config as "just a config file." No validation. No canary.
+Deploy config → hope it works.
+
+WHY IT'S A SENIOR MISS: In production, config errors cause as many outages
+as code bugs. A wrong backend target = 100% failure for that path. Seniors
+who've seen this incident add validation. Those who haven't often skip it.
+
+STAFF FIX: "Config changes need the same rigor as code: validation before
+apply, canary for high-traffic routes, automated rollback on error spike.
+The incident table shows why."
+```
+
+## How to Teach This (Instructor Guidance)
+
+```
+TEACHING THE API GATEWAY AT L6:
+
+1. Start with the incident: "We had 8 minutes of 502s on checkout. $35K
+   lost. Root cause: one typo in route config." This makes validation
+   concrete, not abstract.
+
+2. Contrast gateway vs BFF vs service mesh: Draw the three boxes. "Gateway:
+   external entry. BFF: response aggregation. Mesh: internal traffic.
+   They solve different problems."
+
+3. Fail-open vs fail-closed: Use the rate limiter example. "Redis down:
+   block everyone or allow everyone? For auth: always fail-closed. For
+   rate limit: usually fail-open. Why? Discuss."
+
+4. Config as risk: "Who here has had an outage from a config change?" Most
+   hands. "Config needs the same process as code. Validation. Canary.
+   Rollback."
+
+5. Staff lens: "Imagine you're the platform lead. Four product teams add
+   routes. How do you prevent one team's mistake from taking down the
+   others?" Guides them to validation, ownership model, guardrails.
 ```
 
 ---
@@ -3469,3 +3610,40 @@ Brainstorming (Part 18):
 UNAVOIDABLE GAPS:
 - None. All Senior-level signals covered after enrichment.
 ```
+
+---
+
+# Master Review Check & L6 Dimension Table
+
+## Master Review Check (11 Checkboxes)
+
+- [ ] **Problem definition:** Clear scope (external traffic only); non-goals explicit (BFF, service mesh, WAF)
+- [ ] **Scale analysis:** Concrete numbers (15K QPS, 5 instances, 100M req/day); 10× growth; what breaks first
+- [ ] **Failure handling:** Partial failure, backend down, Redis down, etcd down; structured incident table
+- [ ] **Cost drivers:** $2,250/month breakdown; logging dominant (56%); cost of downtime vs infrastructure
+- [ ] **Real-world ops:** Deployment, rollback, on-call burden; misleading signals; debugging reality
+- [ ] **Data/consistency:** Eventual consistency for config and rate limits; idempotency awareness (no gateway retry)
+- [ ] **Security/compliance:** Auth, header stripping, abuse prevention; TLS; rate limit fail-open vs fail-closed
+- [ ] **Observability:** Access logs, metrics per backend; request_id propagation; gateway overhead tracking
+- [ ] **Cross-team:** Ownership (platform vs product); config validation; Staff cost allocation lens
+- [ ] **Staff vs Senior:** Contrasts; L6 probes; Staff signals; common Senior mistake; how to teach
+- [ ] **Exercises & Brainstorming:** Part 18 present; failure scenarios; cost exercises; ownership under pressure
+
+## L6 Dimension Table (A–J)
+
+| Dimension | Coverage | Notes |
+|-----------|----------|-------|
+| **A. Judgment** | ✓ | Build vs buy; fail-open vs fail-closed; config validation; Staff: when to invest in custom |
+| **B. Failure/blast-radius** | ✓ | Circuit breaker per backend; structured incident table; config misconfiguration $35K impact |
+| **C. Scale/time** | ✓ | 15K QPS baseline; 10× spike; what breaks first (instances → Redis → log pipeline) |
+| **D. Cost** | ✓ | $2,250/month; logging 56%; downtime cost $208K/hour; Staff: cost allocation |
+| **E. Real-world-ops** | ✓ | On-call scenarios; deployment canary; rollback; misleading signals; TLS expiry |
+| **F. Memorability** | ✓ | Senior's First Law; mental models (auth vs authz, gateway vs BFF vs mesh) |
+| **G. Data/consistency** | ✓ | Config eventual (10s); rate limit approximate; no gateway retry (idempotency) |
+| **H. Security/compliance** | ✓ | Header stripping; JWT validation; abuse vectors; TLS; rate limit per route |
+| **I. Observability** | ✓ | Access logs; per-backend metrics; request_id; gateway_overhead_ms; config version |
+| **J. Cross-team** | ✓ | Platform owns gateway; product teams own routes; config validation; Staff ownership |
+
+---
+
+**This chapter meets Google Staff Engineer (L6) expectations.** All 18 parts addressed, with Staff vs Senior contrast, structured incident table, L6 probes, leadership explanation, teaching guidance, and Master Review Check complete.

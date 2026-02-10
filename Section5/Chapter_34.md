@@ -12,6 +12,8 @@ This chapter covers search as a Senior Engineer owns it: indexing, query process
 
 **The Senior Engineer's First Law of Search**: A search system that returns results fast but irrelevant is worse than one that's slow. Users tolerate 500ms; they don't tolerate garbage.
 
+**Staff one-liner**: Relevance is not an algorithm—it's an operational concern. You measure it (CTR, zero-result rate), you regress-test it before config changes, and you own it when it breaks.
+
 ---
 
 # Part 1: Problem Definition & Motivation
@@ -1664,6 +1666,8 @@ DEFERRED OPTIMIZATIONS:
 
 **Senior cost discipline:** Intentionally not building ML ranking, personalization, or cross-datacenter search in V1. Premature optimization (e.g. custom compression) wastes time; cost-cutting is safe on replicas (spot) and indexing pipeline (smaller instances), dangerous on primaries or cache size.
 
+**Staff consideration (L6):** At platform scale, cost allocation matters. Charge back by index size and QPS so consuming teams see their search cost. Trade-off: granular allocation adds instrumentation overhead; coarse allocation leads to "free rider" behavior. Document blast radius of cost cuts (e.g., "removing one replica = 33% less headroom during failover") so finance understands risk.
+
 | Decision | Cost Impact | Operability Impact | On-Call Impact |
 |----------|-------------|---------------------|----------------|
 | More replicas | +$X | Better availability | Fewer partial-failure pages |
@@ -2090,7 +2094,16 @@ REASONING:
 
 ---
 
-# Part 16: Interview Calibration (L5 Focus)
+# Part 16: Interview Calibration (L5 + L6)
+
+## Common Senior Mistake vs Staff Mistake
+
+| Level | Mistake | Fix |
+|-------|---------|-----|
+| **Senior** | Optimize for perfect relevance (ML ranking from day one). | BM25 + boosts for V1; collect click data; add ML when signal exists. |
+| **Senior** | Design search without failure-mode discussion. | Proactively discuss slow shard, partial results, rollback, relevance regression. |
+| **Staff** | Build search in isolation without platform reuse. | Check if shared search platform exists; contribute requirements rather than maintain separate stack. |
+| **Staff** | Solve relevance without cross-team SLO. | Define SLO with product (CTR, zero-result rate); agree on relevance regression criteria and escalation. |
 
 ## What Interviewers Evaluate
 
@@ -2187,6 +2200,37 @@ Problem: Interviewer infers candidate wouldn't think about partial failures, rol
 
 L5 FIX: Proactively discuss "what happens when one shard is slow," "how we roll back a bad config," and "how we detect relevance regression."
 ```
+
+## L6 / Staff Interview Calibration
+
+### Staff-Level Probes
+
+| Probe | What It Surfaces | Staff Signal |
+|-------|------------------|--------------|
+| "Ten teams need search. How do you approach it?" | Platform vs per-team design. | "Shared search platform. Each team has own index and config. Platform owns cluster, indexing pipeline, SLO." |
+| "Finance wants 30% cost cut on search. What do you do?" | Cost vs reliability trade-off. | "Quantify risk per option. Spot for replicas first. Document blast radius of removing replica. Never cut primaries or cache." |
+| "How do you explain search relevance to a non-engineer executive?" | Leadership communication. | "Relevance is: does the user find what they need in the first page? We measure it with click-through rate and zero-result rate." |
+| "How would you teach this to a new L5?" | Teaching and leveling. | "Start with inverted index and why it's not a database. Then failure modes and partial results. Then relevance as an operational concern. Exercises on misleading metrics." |
+
+### Staff Signals (What to Listen For)
+
+- **Cross-team ownership**: "Platform owns the cluster; product teams own their index schema and relevance config. We have an SLO handoff."
+- **Blast radius**: "Single shard corruption affects 20% of results. Full rebuild takes 30–40 minutes; we serve from replicas during rebuild."
+- **Cost allocation**: "We charge back by index size and QPS. Teams see their search cost."
+- **Technical debt awareness**: "Synonym file is manual; we have a ticket for ML-based query expansion when we have click data."
+
+### Common Senior Mistake at Staff Bar
+
+**Mistake:** Designing the perfect search system for one product without considering platform reuse or multi-tenant cost allocation.
+
+**Staff phrasing:** "Before building, I'd check if platform already has search. We'd contribute requirements—index schema, relevance SLO—rather than maintain a separate cluster."
+
+### How to Teach This Chapter
+
+1. **First pass:** Read Problem Definition, Mental Model, and Inverted Index. Understand why search is not a database.
+2. **Second pass:** Read Failure Handling, Real Incident table, and Misleading Signals. Practice 3 AM debugging flow.
+3. **Third pass:** Read Staff vs Senior contrast and Cost. Practice explaining relevance to a non-engineer.
+4. **Exercises:** Complete Part 18. Focus on Scale (A1, A2), Failure (B1–B6), and Cost (C1).
 
 ---
 
@@ -2512,6 +2556,10 @@ MITIGATION:
 
 PERMANENT FIX: Limit retries; prefer partial results over retry storm; alert on retry rate and per-shard P99.
 ```
+
+### Staff Consideration: Cross-Team Blast Radius
+
+When multiple product teams share one search cluster, a config change (synonym, boost, analyzer) can affect all teams. **Blast radius**: One bad synonym deploy degrades relevance for every team using that index. **Mitigation**: Per-team indexes when blast radius must be isolated; shared index with canary deploy when cost matters. **Trade-off**: Per-team indexes multiply cost; shared index requires coordination and regression tests across teams.
 
 ---
 
