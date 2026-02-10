@@ -44,12 +44,12 @@ Use this runbook to run the **Google Staff Engineer (L6) Chapter Reviewer** prom
 Copy this into your notes and mark `[x]` when done.
 
 ### Section 1
-- [ ] `Section1/Chapter_1.md`
-- [ ] `Section1/Chapter_2.md`
-- [ ] `Section1/Chapter_3.md`
-- [ ] `Section1/Chapter_4.md`
-- [ ] `Section1/Chapter_5.md`
-- [ ] `Section1/Chapter_6.md`
+- [x] `Section1/Chapter_1.md`
+- [x] `Section1/Chapter_2.md`
+- [x] `Section1/Chapter_3.md`
+- [x] `Section1/Chapter_4.md`
+- [x] `Section1/Chapter_5.md`
+- [x] `Section1/Chapter_6.md`
 
 ### Section 2
 - [ ] `Section2/Chapter_7.md`

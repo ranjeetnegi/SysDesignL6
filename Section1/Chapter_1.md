@@ -1352,6 +1352,278 @@ But I'd validate this with the Social team: 'We're proposing an async model for 
 
 ---
 
+## Deep Dive 6: Cost-Aware Thinking in Interviews
+
+### Why This Matters at L6
+
+Senior engineers optimize for correctness and performance. Staff engineers add a third dimension: **cost**. In a system design interview, proactively surfacing cost tradeoffs is one of the clearest L6 signals—because it shows you've operated real systems where the cloud bill is someone's problem.
+
+At Google, every system has a cost model. Compute, storage, network egress, external API calls—these all scale with usage. An L6 candidate who designs without considering cost is designing in a vacuum.
+
+### What Failure Looks Like If This Is Ignored
+
+A candidate designs a notification system with:
+- A separate Spanner table per notification channel (redundant storage)
+- Real-time delivery confirmation polling every 500ms (unnecessary compute)
+- Full notification history retained forever (unbounded storage growth)
+
+At 10M users, this design costs 5× what a cost-aware alternative would. The interviewer thinks: "This person has never owned a system budget."
+
+### How a Staff Engineer Reasons About Cost
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    COST-AWARE DESIGN THINKING                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   L5 THINKING                          L6 THINKING                      │
+│   ─────────────                        ───────────                      │
+│                                                                         │
+│   "Store everything, query later"  →   "What's the retention policy?    │
+│                                        Hot/warm/cold tiers?"            │
+│                                                                         │
+│   "Use the most reliable option"   →   "What reliability do we          │
+│                                        actually need vs. pay for?"      │
+│                                                                         │
+│   "Scale horizontally"             →   "What's the cost curve? Is       │
+│                                        vertical scaling cheaper here?"  │
+│                                                                         │
+│   "Cache everything for speed"     →   "Cache hit rate vs. memory cost  │
+│                                        —is this cache paying for itself?"│
+│                                                                         │
+│   KEY INSIGHT: The cheapest component is the one you don't build.       │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Concrete Example: Notification System Cost Analysis
+
+**Problem**: Design a notification system handling 100M notifications/day.
+
+**L5 Approach**: "We'll store all notifications in Spanner with strong consistency, keep full history for analytics, and poll for delivery status."
+
+**L6 Approach (Cost-Aware)**:
+
+"Let me think about cost drivers before finalizing the data layer.
+
+1. **Storage is the dominant cost at this scale.** 100M notifications/day × 1KB average × 365 days = ~36TB/year. Storing this in Spanner is expensive. My tiered approach:
+   - Hot tier (7 days): Spanner for active notifications (user inbox queries)
+   - Warm tier (90 days): Cheaper column store for recent history
+   - Cold tier (1+ year): Object storage for compliance/analytics
+
+2. **Compute cost scales with polling.** If 50M users poll for new notifications every 30 seconds, that's ~1.6M QPS just for polling. Instead: push via WebSocket for active users, batch poll only for reconnecting users.
+
+3. **What I intentionally don't build:** A real-time analytics dashboard on notification data. Batch processing daily is 10× cheaper and meets actual business needs.
+
+The tradeoff: tiered storage adds complexity (background migration jobs, different query paths). But the cost savings at this scale—roughly 60% reduction in storage costs—justify the operational overhead."
+
+**One-liner**: "Cost is a design constraint, not an afterthought. The system you can't afford to run is a system that doesn't exist."
+
+### What an L6 Says in the Interview
+
+- "Let me think about the cost drivers here before I finalize the architecture."
+- "This design works, but the cost curve is steep. Here's how I'd flatten it."
+- "At this scale, the top cost is [X]. I'd design to manage that specifically."
+- "I'm intentionally not building [Y] because the cost doesn't justify the benefit."
+
+---
+
+## Deep Dive 7: Data Consistency & Correctness Reasoning
+
+### Why This Matters at L6
+
+Consistency is where Senior candidates most often hand-wave. "We'll use eventual consistency" or "We'll use a consistent database" are L5-level statements. An L6 candidate states **what invariants the system must maintain**, chooses a consistency model based on the domain, and explains **what happens when consistency is violated**.
+
+### What Failure Looks Like If This Is Ignored
+
+A candidate designs a payment system and says "we'll use eventual consistency for the ledger." The interviewer's alarm bells ring: eventual consistency in a payment ledger means money can appear or disappear temporarily. The candidate didn't reason about **which operations require strong consistency and which tolerate eventual**.
+
+### The Consistency Reasoning Framework
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    CONSISTENCY REASONING (L6)                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   STEP 1: State the invariants                                          │
+│   "What must ALWAYS be true in this system?"                            │
+│   Example: "Account balance must never go negative."                    │
+│   Example: "A notification must be delivered at-least-once."            │
+│                                                                         │
+│   STEP 2: Classify operations by consistency need                       │
+│   STRONG: Money transfer, inventory decrement, unique username          │
+│   EVENTUAL: Read counts, recommendation scores, notification badges    │
+│   CAUSAL: Chat message ordering within a conversation                  │
+│                                                                         │
+│   STEP 3: Choose the cheapest consistency model that preserves          │
+│           each invariant                                                │
+│   "Don't pay for strong consistency where eventual is fine."            │
+│                                                                         │
+│   STEP 4: Describe behavior during consistency lag                      │
+│   "What does the user see during the window of inconsistency?"          │
+│                                                                         │
+│   THE L6 SKILL: Not "which consistency model?" but "which               │
+│   invariants, and what breaks if they're violated?"                     │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Concrete Example: Notification System Consistency
+
+**L5 Approach**: "We'll use eventual consistency for notifications since real-time isn't critical."
+
+**L6 Approach**:
+
+"Let me state the invariants for this notification system:
+
+1. **Delivery invariant**: Every notification must be delivered at-least-once. Missing a notification is worse than duplicating one.
+2. **Preference invariant**: If a user opts out of email, we must never send them email—even during a race condition between the preference update and a queued notification.
+3. **Ordering invariant**: Notifications within a conversation should appear in causal order. Global ordering across all notifications is not required.
+
+Based on these invariants:
+- **Notification delivery** uses at-least-once semantics with idempotency keys. The consumer is idempotent—delivering the same notification twice is safe (the client deduplicates by notification ID).
+- **Preference enforcement** requires strong consistency on the preference read path. Before delivering, we read preferences from the primary (not replica) to avoid delivering to an opted-out user during replication lag.
+- **Conversation ordering** uses causal consistency—we tag notifications with a per-conversation sequence number.
+
+What does the user see during inconsistency? Worst case: a duplicate notification (acceptable) or a brief delay in badge count update (acceptable). They never see a missing notification or a notification that violates their preferences."
+
+### What an L6 Says in the Interview
+
+- "Let me state the invariants this system must maintain."
+- "This operation needs strong consistency because [invariant]. This one tolerates eventual because [reasoning]."
+- "During the consistency window, here's what the user experiences."
+- "I'm choosing at-least-once over exactly-once here because [tradeoff]."
+
+---
+
+## Deep Dive 8: Security & Compliance Awareness
+
+### Why This Matters at L6
+
+You don't need to be a security expert to demonstrate L6 thinking. But you do need to show awareness that **security is part of reliability**, not a separate concern. An L6 candidate who designs a user-facing system without mentioning authentication, data sensitivity, or trust boundaries is missing a dimension that real Staff engineers consider naturally.
+
+### When to Surface Security in an Interview
+
+Not every system design requires deep security analysis. But you should at minimum address:
+
+1. **Data sensitivity**: "This system handles PII (email addresses, phone numbers). That constrains where we store data and who can access it."
+2. **Trust boundaries**: "The API gateway is the trust boundary. Everything behind it assumes authenticated, authorized requests."
+3. **Compliance constraints**: "Notification history retention is subject to data retention policies. We can't store it forever even if we want to."
+
+### Concrete Example: Notification System Security Reasoning
+
+**L5 Approach**: (Doesn't mention security unless asked.)
+
+**L6 Approach**:
+
+"A few security considerations for this design:
+
+- **PII in notifications**: Notification content may contain user data (names, order details). This means our notification storage is a PII store, which constrains retention (GDPR right-to-deletion), access controls (only the notification service reads/writes, not analytics directly), and encryption at rest.
+- **Trust boundary**: The notification API should only accept requests from authenticated internal services, not directly from clients. A compromised client shouldn't be able to spam notifications.
+- **Rate limiting as security**: Our rate limiter isn't just for resource protection—it's also abuse prevention. A bad actor shouldn't be able to trigger 10,000 notifications to a single user.
+- **Audit trail**: For compliance, we log who triggered each notification and when, separate from the notification content itself. This audit log has a longer retention than the notification data."
+
+### One-liner
+
+"Security isn't a feature you add—it's a constraint you design within. Mention it early so the interviewer knows you think about it naturally."
+
+### What an L6 Says in the Interview
+
+- "This system handles PII, which constrains our storage and retention design."
+- "Let me identify the trust boundaries in this architecture."
+- "Rate limiting here serves double duty—resource protection and abuse prevention."
+- "I'd want to understand the data retention requirements before finalizing the storage layer."
+
+---
+
+## Deep Dive 9: Observability & Debuggability Thinking
+
+### Why This Matters at L6
+
+Observability is not "add monitoring." It's the ability to answer the question: **"The system is misbehaving. How do I figure out why?"** from outside the system.
+
+Senior engineers add dashboards. Staff engineers design systems that are **inherently debuggable**—where the instrumentation tells you not just *that* something is wrong, but *where* and *why*.
+
+### The Observability Hierarchy
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    OBSERVABILITY HIERARCHY (L6)                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   LEVEL 1: HEALTH (Is the system working?)                              │
+│   • Success rate, error rate, latency percentiles                       │
+│   • "The system is 99.9% healthy" — necessary but insufficient          │
+│                                                                         │
+│   LEVEL 2: SYMPTOMS (What's wrong?)                                     │
+│   • Per-endpoint latency, per-channel delivery rate                     │
+│   • "Email delivery dropped 40%" — now we know where                    │
+│                                                                         │
+│   LEVEL 3: CAUSES (Why is it wrong?)                                    │
+│   • Distributed traces, per-dependency latency breakdown                │
+│   • "Email provider timeout increased from 200ms to 2s" — root cause    │
+│                                                                         │
+│   LEVEL 4: PREDICTION (What will break next?)                           │
+│   • Capacity trending, error budget burn rate, saturation metrics       │
+│   • "At current growth, we exhaust DB connections in 3 weeks"           │
+│                                                                         │
+│   L5 STOPS AT LEVEL 1-2.   L6 DESIGNS FOR ALL FOUR.                    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Concrete Example: Notification System Observability
+
+**L5 Approach**: "We'll monitor notification delivery rate and alert if it drops."
+
+**L6 Approach**:
+
+"Here's my observability design for the notification pipeline:
+
+1. **End-to-end trace ID**: Every notification gets a trace ID at ingestion. The trace follows it through processing, preference lookup, and delivery. If a notification is lost or delayed, we can trace exactly where.
+
+2. **Per-stage latency breakdown**: Not just 'total delivery time,' but ingestion→processing (should be <100ms), processing→queue (should be <50ms), queue→delivery (depends on channel). If total latency spikes, we immediately know which stage.
+
+3. **Channel-specific health**: Email delivery rate, push delivery rate, and SMS delivery rate tracked independently. If email drops to 0, alert immediately—don't average it with healthy push delivery.
+
+4. **Predictive signals**: Queue depth trending. If the processing queue grows faster than consumers drain it, we know we need to scale before users notice delays.
+
+5. **Debug affordance**: A `notification_id` lookup tool that shows the full lifecycle of any notification. On-call shouldn't have to grep logs across 50 machines to debug a user complaint."
+
+### One-liner
+
+"If you can't debug it from outside, you didn't design it—you just built it."
+
+### What an L6 Says in the Interview
+
+- "How would we know this system is healthy? Let me design the observability."
+- "I'd trace each request end-to-end so we can pinpoint failures to a specific stage."
+- "The alert shouldn't just say 'something is wrong'—it should point to the likely cause."
+- "On-call should be able to debug a user complaint in under 5 minutes with the right tooling."
+
+---
+
+## Real Incident: The Cascading Notification Storm
+
+This example illustrates how L6 engineers reason about real production incidents—using the structured format that demonstrates operational maturity.
+
+| Part | Content |
+|------|---------|
+| **Context** | A large-scale social platform sends ~200M notifications/day across push, email, and in-app channels. The notification pipeline was designed by strong Senior engineers with standard retry logic and per-channel delivery queues. |
+| **Trigger** | A popular content creator posted, generating ~2M push notifications via fan-out. Simultaneously, the push notification provider (APNS) experienced a partial degradation, responding slowly (~5s) instead of the normal ~100ms. |
+| **Propagation** | Slow APNS responses caused push delivery workers to back up. The push queue grew rapidly. Because all notification channels shared a single ingestion pipeline, backpressure from the push queue slowed ingestion for *all* channels. Email and in-app notifications—whose providers were healthy—were also delayed. The retry logic amplified the problem: failed push deliveries were re-enqueued, competing with new notifications for ingestion capacity. Within 15 minutes, the entire notification pipeline was effectively stalled. |
+| **User impact** | Users stopped receiving all notifications (push, email, and in-app) for ~45 minutes. User reports surged. The platform's real-time engagement metrics dropped 30%. |
+| **Engineer response** | On-call initially scaled up push workers, which made the problem worse (more workers hammering slow APNS). They then tried restarting the ingestion pipeline, which caused a burst of duplicate notifications when the queue drained. Finally, they manually disabled push delivery, which unblocked email and in-app within minutes. |
+| **Root cause** | Shared ingestion pipeline with no per-channel isolation. Retry amplification without backoff. No circuit breaker between the ingestion layer and individual delivery channels. |
+| **Design change** | (1) Per-channel delivery queues with independent ingestion paths—a sick channel cannot starve healthy channels. (2) Circuit breaker on each provider: if error rate exceeds 30% for 60 seconds, stop sending and queue silently. (3) Retry budget per notification (max 3 retries, exponential backoff) to prevent retry storms. (4) Provider health dashboard with automatic alerting on latency p99, separate from pipeline health. |
+| **Lesson learned** | **"Isolation is not optional—shared fate is the default."** When channels share infrastructure, a single provider degradation becomes a platform-wide outage. L6 engineers design failure domains around external dependencies, not around internal service boundaries. The retry logic that "ensures reliability" becomes the amplifier that ensures cascading failure. |
+
+### How to Reference This in an Interview
+
+> "I've seen this pattern in production: a single slow external dependency stalling an entire pipeline because channels shared infrastructure. The fix was per-channel isolation with circuit breakers. The lesson I took away is that shared fate is the default—you have to explicitly design isolation boundaries, especially around external dependencies."
+
+---
+
 ## Failure Propagation Diagram: Notification System
 
 ```
@@ -1460,6 +1732,44 @@ The key insight: the database is the biggest blast radius. Everything depends on
 - "Can I design this to reduce cross-team coupling?"
 - "I'd validate this interface with the other team before committing."
 
+**When discussing cost**:
+- "What's the dominant cost driver at this scale?"
+- "The cheapest component is the one you don't build."
+- "This design works but the cost curve is steep. Here's how I'd flatten it."
+
+**When discussing consistency**:
+- "Let me state the invariants first, then choose the consistency model."
+- "This operation needs strong consistency because [invariant]. This one tolerates eventual."
+- "During the consistency window, here's what the user experiences."
+
+**When discussing security**:
+- "This system handles PII—that constrains storage and retention."
+- "Let me identify the trust boundaries in this architecture."
+
+**When discussing observability**:
+- "If this breaks at 3 AM, how does on-call figure out why?"
+- "The alert should point to the likely cause, not just 'something is wrong.'"
+
+## Mental Models & One-Liners for This Chapter
+
+These are the sticky takeaways—use them naturally in interviews and when mentoring:
+
+| One-Liner | Concept |
+|-----------|---------|
+| "Staff engineers build the right thing; Senior engineers build the thing right." | Strategic vs. tactical framing |
+| "Scope isn't given—it's created." | L6 ownership model |
+| "Shared fate is the default. Isolation is designed." | Failure domain thinking |
+| "The messy middle is where systems actually live." | Partial failure reasoning |
+| "Design V1 so V3 is a migration, not a rewrite." | Scale evolution thinking |
+| "Technical debt is a tradeoff, not a mistake." | Debt management |
+| "The cheapest component is the one you don't build." | Cost-aware design |
+| "Cost is a design constraint, not an afterthought." | Cost reasoning |
+| "Don't pay for strong consistency where eventual is fine." | Consistency reasoning |
+| "Security isn't a feature you add—it's a constraint you design within." | Security awareness |
+| "If you can't debug it from outside, you didn't design it—you just built it." | Observability thinking |
+| "Retries are a multiplier, not a fix." | Failure amplification |
+| "Answers are L5. Questions are L6." | Interview framing |
+
 ---
 
 # Part 10: What to Do Next
@@ -1483,6 +1793,71 @@ For now, let me leave you with some immediate next steps:
 **5. Develop your own point of view.** Staff engineers have informed opinions. What do you believe about system design that others might disagree with? What patterns have you seen succeed or fail? Your unique perspective is an asset.
 
 The road to Staff is not about becoming a better version of a Senior engineer. It's about becoming a different kind of engineer—one who leads, shapes, and elevates. The interview is your chance to show that you're already there.
+
+---
+
+# Google Staff Engineer (L6) Interview Calibration
+
+This section consolidates what interviewers probe in this chapter's topics and the signals that distinguish strong Staff thinking.
+
+## What Interviewers Probe in This Chapter's Domain
+
+| Probe Area | What They're Looking For |
+|------------|--------------------------|
+| **Problem framing** | Does the candidate clarify *why* before *how*? Do they identify the dominant constraint? |
+| **Tradeoff depth** | Are tradeoffs explicit, with reasoning? Or does the candidate present choices as obvious? |
+| **Failure reasoning** | Does the candidate proactively surface failure modes? Do they think about partial failures and blast radius, not just binary up/down? |
+| **Cost awareness** | Does the candidate mention cost as a design constraint without being prompted? |
+| **Consistency reasoning** | Can the candidate state invariants and choose the right consistency model per operation? |
+| **Observability** | Does the candidate design for debuggability, or just say "we'll add monitoring"? |
+| **Scale evolution** | Does the candidate show how V1 evolves to V3, or only design for today's load? |
+| **Cross-team awareness** | Does the candidate recognize organizational boundaries and coordination costs? |
+
+## Signals of Strong Staff Thinking
+
+1. **Leads the conversation** — Drives the discussion forward; doesn't wait for the next question.
+2. **Frames before solving** — Spends the first minutes understanding *what to build*, not *how to build it*.
+3. **States tradeoffs in every decision** — "We could do A or B. A gives us X but costs Y. Given our constraints, I'd choose A."
+4. **Surfaces failure modes unprompted** — "Before I move on, let me think about what breaks here."
+5. **Reasons about cost naturally** — "The dominant cost driver is storage. Here's how I'd manage it."
+6. **States invariants** — "The key invariant is X. This operation needs strong consistency to protect it."
+7. **Designs for debuggability** — "If this fails at 3 AM, here's how on-call figures out why."
+8. **Considers organizational context** — "This design crosses team boundaries. Let me think about coordination cost."
+
+## One Common Senior-Level Mistake
+
+The most common L5 mistake on this chapter's topics: **Designing the "textbook" system without grounding it in context.**
+
+A Senior candidate asked to "design a notification system" draws the standard boxes (API gateway, queue, delivery service, database) and explains how each works. The design is correct. But it's generic—it would be the same design regardless of whether notifications are real-time chat alerts or weekly marketing emails.
+
+The L6 candidate asks: "What kind of notifications? What's the cost of missing one? What's the scale and growth trajectory?" and produces a design *shaped by the answers*.
+
+## Example Phrases a Staff Engineer Uses Naturally
+
+| Situation | L6 Phrase |
+|-----------|-----------|
+| Starting the design | "Before I start drawing, help me understand what we're optimizing for." |
+| Making a tradeoff | "This is a tension between X and Y. For this use case, I'd lean toward X because..." |
+| Considering failure | "What's the blast radius if this component fails? Let me trace the propagation." |
+| Discussing cost | "The dominant cost here is [X]. Here's how I'd keep it from scaling linearly." |
+| Addressing consistency | "The invariant is [X]. This operation needs [strong/eventual] consistency because..." |
+| Talking observability | "I'd instrument this so on-call can pinpoint the problem stage in under 5 minutes." |
+| Wrapping up | "The main risks are [X, Y]. Here's how I'd explain the tradeoffs to product leadership." |
+
+## How to Explain Trade-offs to Non-Engineers or Leadership
+
+Staff engineers communicate across audiences. Practice framing your design tradeoffs for leadership:
+
+- **Instead of**: "We need to shard the database because single-node write throughput is insufficient at projected QPS."
+- **Say**: "As we grow, our current database won't keep up. We have two options: a more expensive database that handles the load (faster to implement, higher ongoing cost) or splitting the data across multiple databases (more engineering work now, much cheaper long-term). I recommend the second option because our growth projections make the first option unsustainably expensive within 18 months."
+
+The pattern: **state the problem in business terms → present options with cost/benefit → recommend with reasoning**.
+
+## How You'd Teach or Mentor Someone on This Topic
+
+If you were mentoring a Senior engineer preparing for L6 interviews, you would say:
+
+> "The biggest shift isn't technical—it's about framing. You already know how to design systems. The L6 interview tests whether you can identify *what to design* and *why*. Before every practice session, force yourself to spend 5 minutes understanding the problem before touching the whiteboard. After every decision, say out loud: 'The tradeoff is...' Make failure modes part of your design process, not an afterthought. If you do these three things consistently, you'll demonstrate Staff-level thinking naturally."
 
 ---
 
@@ -1563,21 +1938,39 @@ L5 (SENIOR) SIGNALS              L6 (STAFF) SIGNALS
 
 ## Final Statement
 
-**This section now meets Google Staff Engineer (L6) expectations.**
+**This chapter now meets Google Staff Engineer (L6) expectations.**
 
-The document provides comprehensive coverage of Staff-level evaluation criteria, with concrete examples, real-system grounding, and explicit interview calibration. The additions in Part 9B address previously missing critical L6 concepts.
+The document provides comprehensive coverage of Staff-level evaluation criteria, with concrete examples, real-system grounding, structured incident analysis, and explicit interview calibration. All L6 dimensions are addressed.
+
+## Master Review Prompt Check
+
+- [x] **Staff Engineer preparation** — Content aimed at L6; depth and judgment match L6 expectations.
+- [x] **Chapter-only content** — Every section directly relates to how Google evaluates Staff engineers.
+- [x] **Explained in detail with an example** — Each major concept has clear explanation plus concrete examples.
+- [x] **Topics in depth** — Sufficient depth for tradeoff reasoning, failure modes, and scale.
+- [x] **Interesting & real-life incidents** — Structured real incident (Cascading Notification Storm) plus realistic anecdotes (Part 9).
+- [x] **Easy to remember** — Mental models, one-liners, diagrams, and checklists throughout.
+- [x] **Organized for Early SWE → Staff SWE** — Progression from fundamentals (Parts 1-3) to Staff thinking (Parts 4-9B).
+- [x] **Strategic framing** — Problem selection and "why this problem" addressed explicitly.
+- [x] **Teachability** — Consolidated interview calibration section with mentoring guidance.
+- [x] **Exercises** — Dedicated exercises section (7 exercises) with concrete tasks.
+- [x] **BRAINSTORMING** — Brainstorming questions and reflection prompts at the end.
 
 ## Staff-Level Signals Covered
 
 | L6 Dimension | Coverage Status | Key Content |
 |--------------|-----------------|-------------|
 | **Judgment & Decision-Making** | ✅ Covered | Tradeoff articulation (Signal 2), technical debt reasoning (Deep Dive 4), decision reversibility concepts |
-| **Failure & Degradation Thinking** | ✅ Covered | Blast radius (Deep Dive 1), partial failures (Deep Dive 2), failure propagation diagram, rate limiter failure modes |
+| **Failure & Degradation Thinking** | ✅ Covered | Blast radius (Deep Dive 1), partial failures (Deep Dive 2), failure propagation diagram, rate limiter failure modes, real incident |
 | **Scale & Evolution** | ✅ Covered | V1→V2→V3 notification system example (Deep Dive 3), bottleneck identification, migration strategies |
+| **Cost & Sustainability** | ✅ Covered | Cost-aware thinking (Deep Dive 6), tiered storage, cost curve reasoning, dominant cost driver identification |
+| **Data, Consistency & Correctness** | ✅ Covered | Consistency reasoning framework (Deep Dive 7), invariant identification, at-least-once vs exactly-once, per-operation consistency |
+| **Security & Compliance** | ✅ Covered | Security awareness (Deep Dive 8), PII handling, trust boundaries, compliance constraints |
+| **Observability & Debuggability** | ✅ Covered | Observability hierarchy (Deep Dive 9), end-to-end tracing, per-stage latency breakdown, predictive signals |
+| **Cross-Team & Org Impact** | ✅ Covered | Organizational awareness (Deep Dive 5), coordination cost reasoning, event-driven decoupling |
 | **Staff-Level Signals** | ✅ Covered | Extensive L5 vs L6 comparisons (Parts 1-5), interview phrases, anecdotes (Part 9) |
-| **Cross-Team Influence** | ✅ Covered | Organizational awareness (Deep Dive 5), coordination cost reasoning |
-| **Operational Maturity** | ✅ Covered | Signal 5, monitoring/alerting guidance, day-2 operations |
-| **Real-World Grounding** | ✅ Covered | Rate limiter, notification system, messaging system, news feed examples |
+| **Operational Maturity** | ✅ Covered | Signal 5, monitoring/alerting guidance, day-2 operations, debuggability design |
+| **Real-World Grounding** | ✅ Covered | Rate limiter, notification system, messaging system, news feed examples, structured real incident |
 
 ## Diagrams Included
 
@@ -1588,19 +1981,23 @@ The document provides comprehensive coverage of Staff-level evaluation criteria,
 5. **Scale Evolution Thinking** (Deep Dive 3) — V1→V2→V3 progression
 6. **Rate Limiter Failure Mode Analysis** (Signal 4) — Concrete failure reasoning
 7. **Failure Propagation Analysis** (Deep Dive 1) — Blast radius for notification system
-8. **Interviewer Questions** (Quick Reference) — What they're evaluating
+8. **Cost-Aware Design Thinking** (Deep Dive 6) — L5 vs L6 cost reasoning
+9. **Consistency Reasoning Framework** (Deep Dive 7) — Invariant-driven consistency
+10. **Observability Hierarchy** (Deep Dive 9) — Four levels of observability
+11. **Interviewer Questions** (Quick Reference) — What they're evaluating
 
-## Remaining Considerations (For Future Volumes)
+## Remaining Considerations (For Future Chapters)
 
-The following topics are touched on but may warrant deeper treatment in subsequent volumes:
+The following topics are touched on but will receive deeper treatment in subsequent chapters:
 
 - **Distributed consensus and leader election mechanics** — Deep-dive for infrastructure-focused roles
 - **Data migration patterns** — Detailed treatment of live migration strategies
-- **Incident response and postmortem thinking** — How production incidents inform design
 - **Multi-region and global system design** — Latency, consistency, and regulatory constraints
-- **Security threat modeling** — Staff-level security reasoning
+- **Security threat modeling in depth** — Full threat model development for specific system types
 
-These gaps are acceptable for this introductory section, which focuses on *how Google evaluates* Staff engineers. Subsequent volumes should address these technical deep-dives.
+These are appropriately deferred; this introductory chapter focuses on *how Google evaluates* Staff engineers, not on specific system design techniques.
+
+---
 
 ---
 

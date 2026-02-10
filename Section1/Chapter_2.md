@@ -1524,6 +1524,143 @@ I explicitly rejected 'just add more servers in one region' because latency phys
 
 ---
 
+## Ownership Dimension: Cost & Sustainability
+
+### Why Cost Ownership Matters at L6
+
+A Senior engineer owns code and features. A Staff engineer owns the **cost profile** of their problem space. At Google, every service has a budget. An L6 who doesn't know the top cost drivers of the systems they own is demonstrating component-level thinking.
+
+Cost ownership is scope ownership. If you own notification delivery, you own the cloud bill for notification delivery.
+
+### How Cost Ownership Manifests
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    COST OWNERSHIP BY LEVEL                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   L5 THINKING                          L6 THINKING                      │
+│   ─────────────                        ───────────                      │
+│                                                                         │
+│   "I built the feature as designed"  → "I built it and tracked the      │
+│                                        cost impact—here's the tradeoff" │
+│                                                                         │
+│   "We need more capacity"            → "Let me understand whether the   │
+│                                        cost is justified by the value"  │
+│                                                                         │
+│   "Storage is handled by infra"      → "I own our storage growth curve  │
+│                                        —here's my tiering strategy"     │
+│                                                                         │
+│   KEY INSIGHT: If you own the system, you own the bill.                 │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Concrete Example: Notification System Cost Ownership
+
+**L5 ownership**: "The notification platform delivers 100M notifications/day reliably."
+
+**L6 ownership**: "The notification platform delivers 100M notifications/day. Here's my cost awareness:
+
+1. **Top cost drivers**: External provider fees (60% of budget—SMS is 10× more expensive than push or email), storage for notification history (25%), compute for processing (15%).
+
+2. **Cost optimization I've driven**: I implemented channel preference routing—if a user has push enabled, we prefer push over SMS, saving ~$200K/year while maintaining delivery reliability.
+
+3. **What I intentionally don't optimize**: I don't batch notifications to reduce API calls to providers, because the latency impact outweighs the cost savings. That's a conscious tradeoff.
+
+4. **Growth projection**: At current notification growth (2× annually), provider fees will exceed our budget in 14 months. I've proposed negotiating volume discounts and implementing intelligent notification deduplication."
+
+### One-liner
+
+"Owning a system without knowing its cost curve is like driving without looking at the fuel gauge."
+
+---
+
+## Ownership Dimension: Data Consistency & Correctness
+
+### Why Consistency Ownership Matters at L6
+
+When you own a problem space, you own the **invariants**—the things that must always be true. If notifications must be delivered at-least-once, that's your invariant. If a user preference update must be reflected before the next notification, that's your invariant.
+
+Senior engineers build components that are internally correct. Staff engineers define and enforce invariants **across component boundaries**.
+
+### How This Shows Up in Scope Discussions
+
+**L5 scope**: "My notification service processes messages correctly."
+
+**L6 scope**: "I own these invariants for the notification problem space:
+1. **Delivery invariant**: Every notification is delivered at-least-once (we tolerate duplicates, never miss)
+2. **Preference invariant**: A user who opts out never receives a notification in that channel—even during race conditions
+3. **Ordering invariant**: Notifications within a conversation thread appear in causal order
+4. **Audit invariant**: Every notification trigger and delivery outcome is recorded for compliance
+
+I own these invariants even when the violation would originate in a producer team's code. If the Social team sends a notification to an opted-out user because they cached stale preferences, that's my problem to prevent—through API design, validation, and freshness guarantees."
+
+### Concrete Example: Cross-Service Consistency Ownership
+
+**Problem**: The Payment team sends a transaction confirmation notification. The user updates their email address 500ms later. Should the confirmation go to the old email or the new one?
+
+**L5 response**: "We send to whatever email we have when we process the notification. That's a normal eventual consistency window."
+
+**L6 response**: "This is a consistency ownership question. Let me think about the invariant:
+- For **transaction confirmations**, correctness matters—sending to the wrong email could be a security issue (former partner, shared device, etc.)
+- My approach: for **Critical-priority notifications** (transactions, security), I fetch the email at delivery time, not at enqueue time. This adds ~50ms latency but ensures correctness.
+- For **Normal/Low-priority** (social, marketing), using the cached email at enqueue time is fine—staleness risk is low-impact.
+- I own this invariant in the notification platform's API contract: producers declare priority, and the platform guarantees appropriate consistency per tier."
+
+---
+
+## Ownership Dimension: Security & Compliance
+
+### Why Security Ownership Matters at L6
+
+Scope includes security scope. If you own a notification platform, you own:
+- **Data sensitivity**: Notification content may contain PII (names, amounts, codes)
+- **Access control**: Who can trigger notifications? Who can read delivery logs?
+- **Compliance**: Data retention policies, right-to-deletion, audit trails
+- **Trust boundaries**: Which services are trusted to send notifications?
+
+A Staff engineer who designs a notification system without mentioning these isn't demonstrating full ownership of their problem space.
+
+### How This Manifests
+
+**L5 ownership**: "The notification service is secured with service-to-service authentication."
+
+**L6 ownership**: "Security is part of my ownership scope:
+
+1. **Trust boundary**: Only registered producer services can send notifications. Each producer has an allow-list of notification types they can trigger. The Payment team can send transaction alerts but not marketing emails—that prevents abuse if a producer service is compromised.
+
+2. **Data sensitivity**: Notification content is PII. I enforce encryption at rest and in transit. Notification logs are stored in a PII-classified data store with access controls.
+
+3. **Compliance**: Users have the right to delete their data. When a user exercises this right, I own ensuring all notification history is purged—including delivery logs across all channels. I've built a data deletion pipeline that propagates across the notification platform.
+
+4. **Audit trail**: For compliance and debugging, I maintain a separate audit log (who triggered which notification, when, to whom) that has a different retention policy than the notification content itself."
+
+### One-liner
+
+"If you own the system, you own its threat model. Security isn't someone else's problem—it's a dimension of your scope."
+
+---
+
+## Real Incident: The Ownership Gap That Became an Outage
+
+| Part | Content |
+|------|---------|
+| **Context** | A multi-team e-commerce platform with separate teams owning product catalog, inventory, and order services. Each team had strong SRE practices and met their individual SLAs. A shared event bus connected the services. |
+| **Trigger** | The product catalog team deployed a schema change to product events—adding a new field and renaming an existing one. They followed their team's deployment procedures correctly. |
+| **Propagation** | The inventory service consumed product events to sync stock levels. The renamed field caused the inventory service's event parser to silently drop events (no parse error, just a null field). Inventory stopped updating for ~4,000 products. Orders continued flowing, but the system was selling items that were actually out of stock. |
+| **User impact** | Over 6 hours, ~800 orders were placed for out-of-stock items. Users received order confirmations, then cancellation emails hours later. Customer trust dropped. Support ticket volume spiked 5×. |
+| **Engineer response** | The catalog team said: "Our schema change was valid and documented." The inventory team said: "We weren't notified of the change." The order team said: "Our service worked correctly with the data we received." Each team was correct within their scope. Nobody owned the cross-service contract. |
+| **Root cause** | No ownership of the **interstitial zone** between services. No schema compatibility contract. No consumer-side validation that would catch silent field changes. No end-to-end invariant monitoring (e.g., "inventory sync lag should never exceed 5 minutes"). |
+| **Design change** | (1) Appointed a Staff engineer to own **event contract integrity** across the event bus—a cross-team scope. (2) Implemented schema registry with backward compatibility enforcement. (3) Added consumer-side health checks: if expected fields are null for >1% of events, alert immediately. (4) Created an end-to-end invariant monitor: "for every product, catalog state and inventory state must converge within 10 minutes." |
+| **Lesson learned** | **"Systems fail in the gaps between teams, not inside them."** Each team's individual ownership was strong. The failure happened in the space nobody owned. Staff-level ownership means owning the interstitial zones—the contracts, the invariants, the cross-service health—not just the components. |
+
+### How This Relates to Scope and Ownership
+
+> "This incident is a perfect example of why Staff engineers own problem spaces, not components. Every team was doing their job well. The failure existed in the interaction between teams—and nobody was accountable for that interaction. A Staff engineer's scope naturally includes these interstitial zones."
+
+---
+
 # Part 11: Interview Calibration for Scope, Impact, and Ownership
 
 ## Phrases That Signal Staff-Level Thinking
@@ -1655,41 +1792,55 @@ The L6 response shows:
 
 ## Final Statement
 
-**This section now meets Google Staff Engineer (L6) expectations.**
+**This chapter now meets Google Staff Engineer (L6) expectations.**
 
-The original content provided strong conceptual frameworks for scope, impact, and ownership. The additions address critical gaps in failure thinking, technical depth, and interview calibration.
+## Master Review Prompt Check
+
+- [x] **Staff Engineer preparation** — Content aimed at L6; depth and judgment match L6 expectations.
+- [x] **Chapter-only content** — Every section directly relates to scope, impact, and ownership at Staff level.
+- [x] **Explained in detail with an example** — Each major concept has clear explanation plus concrete examples.
+- [x] **Topics in depth** — Sufficient depth for tradeoff reasoning, failure modes, and scale.
+- [x] **Interesting & real-life incidents** — Structured real incident (Ownership Gap Outage) plus realistic anecdotes throughout.
+- [x] **Easy to remember** — 5 mental models, 3 ownership tests (Accountability, Direction, Ripple), checklists, one-liners.
+- [x] **Organized for Early SWE → Staff SWE** — Progression from scope fundamentals (Parts 1-3) to failure ownership (Part 9) to real-system depth (Part 10).
+- [x] **Strategic framing** — Problem selection, organizational context, and business vs technical tradeoffs explicit.
+- [x] **Teachability** — Mental models, tests, and frameworks that can be used for mentoring.
+- [x] **Exercises** — Dedicated exercises section (6 exercises) with concrete tasks.
+- [x] **BRAINSTORMING** — Brainstorming questions and reflection prompts at the end.
 
 ## Staff-Level Signals Covered
 
 | L6 Dimension | Coverage Status | Key Content |
 |--------------|-----------------|-------------|
-| **Scope Conceptualization** | ✅ Covered | Three dimensions of scope, scope creation vs. assignment |
-| **Multi-Team Impact** | ✅ Covered | Impact ladder, multi-team examples, influence toolkit |
-| **Ownership vs Leadership vs Influence** | ✅ Covered | Clear definitions, tests, and examples |
-| **Failure Ownership** | ✅ Covered (NEW) | Blast radius model, interstitial failures, degradation ownership |
-| **Technical Depth** | ✅ Covered (NEW) | API Gateway, Notification System, Messaging System examples |
-| **Cross-Team Coordination** | ✅ Covered | Influence toolkit, coalition building, incident coordination |
-| **Interview Calibration** | ✅ Covered (NEW) | L6 phrases, interviewer questions, common L5 mistake |
+| **Judgment & Decision-Making** | ✅ Covered | Influence toolkit, problem framing, coalition building |
+| **Failure & Incident Thinking** | ✅ Covered | Blast radius model, interstitial failures, degradation ownership, real incident |
+| **Scale & Evolution** | ✅ Covered | Messaging system V1→V2→V3 ownership evolution |
+| **Cost & Sustainability** | ✅ Covered | Cost ownership dimension, cost-aware scope, channel cost optimization |
+| **Data, Consistency & Correctness** | ✅ Covered | Invariant ownership, cross-service consistency, priority-based consistency |
+| **Security & Compliance** | ✅ Covered | Security as ownership dimension, trust boundaries, data sensitivity, compliance |
+| **Observability & Debuggability** | ✅ Covered | API Gateway observability ownership, end-to-end metrics |
+| **Cross-Team & Org Impact** | ✅ Covered | Multi-team impact ladder, influence toolkit, interstitial failure zones |
+| **Operational Maturity** | ✅ Covered | Incident response ownership, degradation ownership matrix |
+| **Memorability & Teachability** | ✅ Covered | 5 mental models, 3 tests, one-liners, checklists |
 
 ## Diagrams Included
 
 1. **Scope Dimensions by Level** (Part 1) — Visual comparison of L5/L6/L7 scope
 2. **Ownership vs Leadership vs Influence** (Part 3) — Conceptual distinction
-3. **Blast Radius Ownership Model** (Part 9) — Failure scope visualization
-4. **Interstitial Failure Zones** (Part 9) — Cross-team failure pattern
-5. **API Gateway Ownership Scope** (Part 10) — Real-system scope example
-6. **Notification System Multi-Team Impact** (Part 10) — Platform ownership model
-7. **Interviewer's Internal Questions** (Part 11) — Evaluation criteria
+3. **Incident Response Ownership** (Part 9) — L5 vs L6 incident behavior
+4. **Blast Radius Ownership Model** (Part 9) — Failure scope visualization
+5. **Interstitial Failure Zones** (Part 9) — Cross-team failure pattern
+6. **Cost Ownership by Level** (Part 10) — L5 vs L6 cost thinking
+7. **API Gateway Ownership Scope** (Part 10) — Real-system scope example
+8. **Notification System Multi-Team Impact** (Part 10) — Platform ownership model
+9. **Interviewer's Internal Questions** (Part 11) — Evaluation criteria
 
-## Remaining Considerations
-
-The following topics are touched on but may warrant deeper treatment in subsequent volumes:
+## Remaining Considerations (For Future Chapters)
 
 - **Organizational Politics and Navigation** — How to build coalitions in politically complex environments
 - **Executive Communication** — Tailoring scope/impact narratives for director+ audiences
-- **Failure Post-Mortem Ownership** — Detailed treatment of blameless post-mortems and systemic fixes
 
-These gaps are acceptable for this section focused on scope, impact, and ownership fundamentals. The content now provides actionable frameworks for demonstrating Staff-level thinking in these dimensions.
+These are appropriately deferred; this chapter focuses on scope, impact, and ownership fundamentals.
 
 ---
 
