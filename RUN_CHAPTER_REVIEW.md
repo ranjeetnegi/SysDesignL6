@@ -61,13 +61,13 @@ Copy this into your notes and mark `[x]` when done.
 - [x] `Section2/Chapter_13.md`
 
 ### Section 3
-- [ ] `Section3/Chapter_14.md`
-- [ ] `Section3/Chapter_15.md`
-- [ ] `Section3/Chapter_16.md`
-- [ ] `Section3/Chapter_17.md`
-- [ ] `Section3/Chapter_18.md`
-- [ ] `Section3/Chapter_19.md`
-- [ ] `Section3/Chapter_20.md`
+- [x] `Section3/Chapter_14.md`
+- [x] `Section3/Chapter_15.md`
+- [x] `Section3/Chapter_16.md`
+- [x] `Section3/Chapter_17.md`
+- [x] `Section3/Chapter_18.md`
+- [x] `Section3/Chapter_19.md`
+- [x] `Section3/Chapter_20.md`
 
 ### Section 4
 - [ ] `Section4/Chapter_21.md`
