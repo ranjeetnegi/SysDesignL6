@@ -1881,6 +1881,19 @@ PREVENTION:
   → Rate limiting per-key: No single key can consume > 10% of shard capacity
 ```
 
+## Real Incident: Structured Post-Mortem
+
+| Dimension | Description |
+|-----------|-------------|
+| **Context** | Recommendation platform serving 100M DAU, 35K peak QPS. Multi-stage funnel: retrieval → feature assembly → GPU scoring → re-ranking. Training pipeline retrained model daily. Feature store had batch (daily) and streaming (5-min) paths. No automated alert if training pipeline failed to produce a new model. |
+| **Trigger** | Training pipeline failed silently due to corrupted event archive partition. Data validation step rejected the day's events. Pipeline exited with success code (bug in error handling). No model artifact was produced. Serving continued with model from 48 hours prior. |
+| **Propagation** | T+0: No new model deployed (expected daily by 6 AM). T+24h: Model 1 day stale — no alert (no "model age" SLO). T+72h: Trending items had no collaborative signal; new users got poor cold-start. T+7d: CTR down 4% — attributed to normal variance. T+14d: CTR down 8% — product team escalated. Root cause discovered: training pipeline had not produced a model in 2 weeks. |
+| **User impact** | 2 weeks of gradually worsening relevance. CTR decline 8%, engagement down 6%. User complaints ("my feed is irrelevant") increased. Revenue impact: mid-six figures from reduced engagement and ad click-through. No hard outage — system appeared healthy throughout. |
+| **Engineer response** | On-call (separate from ML platform) saw no errors. Investigation started when product flagged CTR decline. Found training pipeline had been "succeeding" with no output. Emergency retrain from last known-good event snapshot. New model deployed T+16d. CTR recovered within 72 hours. |
+| **Root cause** | Training pipeline returned exit code 0 when validation failed (should have been non-zero). No "model freshness" SLO or alert. ML platform team and recommendation serving team had no shared on-call; pipeline health was not in recommendation SLO dashboard. Event archive corruption was downstream of upstream schema change. |
+| **Design change** | Model freshness SLO: Alert if no new model deployed in 48 hours. Pipeline exit code: Validation failure must cause non-zero exit and page. Canary: Compare production model vs last-24h-trained model on held-out set; alert if fresh model is significantly better. Cross-team ownership: Recommendation SLO dashboard includes training pipeline health. |
+| **Lesson** | A recommendation system can appear healthy while degrading silently. The feedback loop is the first-class component to monitor. Serve latency and error rate are necessary but insufficient—model freshness and quality trends must be instrumented. The most insidious failures are absences (no new learning), not presences (errors). |
+
 ---
 
 # Part 10: Performance Optimization & Hot Paths
@@ -2155,6 +2168,37 @@ GDPR/CCPA:
   → Right to deletion: Delete user events + features + pre-computed recommendations
   → Right to explanation: "Why was this recommended?" must be answerable
   → Opt-out: Users can disable personalization → receive non-personalized popular items
+```
+
+## Cross-Team Ownership (L6 Relevance)
+
+```
+RECOMMENDATION PLATFORM SPANS MULTIPLE TEAMS:
+
+  Recommendation Serving Team: Owns API, retrieval, scoring, re-ranking, fallback.
+  → SLO: Latency, availability, quality (CTR).
+  → GAP: If training pipeline (owned by ML platform) stops, serving team sees no
+    errors—but quality degrades. The Real Incident: Serving team was not paged
+    when training failed because pipeline health lived in a different dashboard.
+
+  ML Platform Team: Owns training pipeline, model registry, feature computation.
+  → SLO: Pipeline completion, model deployment frequency.
+  → GAP: Pipeline "succeeds" with no output if validation fails incorrectly.
+    ML platform may not own recommendation CTR—so no one connects the dots.
+
+  Data Platform Team: Owns event ingestion, event archive, streaming infrastructure.
+  → Events feed both feature store and training pipeline.
+  → Event schema change → training pipeline breaks → recommendation quality
+    degrades. Data platform owns schema; ML platform owns pipeline; neither
+    owns end-to-end recommendation health.
+
+STAFF RESOLUTION: Recommendation SLO dashboard must include upstream health.
+  → Model freshness (last deployed model age) is a recommendation SLI.
+  → Alert: "No model deployed in 48 hours" → page recommendation on-call, who
+    escalates to ML platform. Serving team cannot be blind to training failures.
+  → Shared runbook: When CTR drops, check (1) model freshness, (2) feature
+    freshness, (3) retrieval coverage, (4) event pipeline lag. Each owned by
+    different team; runbook lists escalation path.
 ```
 
 ---
@@ -2460,6 +2504,58 @@ to a filter bubble and engagement drops long-term."
 "I'd instrument the fallback stack and measure how often each level is used.
 If Level 3 (popular items) triggers more than 0.1% of the time, we have
 an infrastructure reliability problem."
+```
+
+## Leadership Explanation (How to Explain to Directors/VP)
+
+```
+When a senior leader asks "Why is recommendation quality down?" or "What do we need
+to fix?" — the Staff answer is not "the model" or "we need more GPUs."
+
+STAFF FRAMING:
+  "Recommendation quality has four failure modes that look the same to users but
+  have different fixes: (1) Stale model — training pipeline stopped; fix in days.
+  (2) Stale features — event pipeline lag; fix in hours. (3) Retrieval blind spot
+  — good items never reach ranking; fix in weeks (retrieval redesign). (4) Filter
+  bubble — model converged; fix in weeks (diversity rules, exploration). We instrument
+  model freshness, feature freshness, retrieval coverage, and diversity — so we know
+  which of the four we're in. Most teams only measure CTR; that's too late."
+
+  "The funnel architecture exists because we can't score 10 million items per request.
+  Retrieval determines the ceiling — if an item isn't in the candidate set, no
+  ranker can surface it. We invest in multi-source retrieval for the same reason
+  we invest in model quality: both are necessary, neither is sufficient."
+
+  "The feedback loop is our first-class SLO. A broken training pipeline is invisible
+  for days — no errors, fast serving — but quality degrades 5–10% per week. We
+  page on 'no model deployed in 48 hours' the same way we page on 'service down.'"
+```
+
+## How to Teach This to an L5
+
+```
+TEACHING SEQUENCE:
+
+1. START WITH THE INVARIANT: "Users should never see an empty slot."
+   → Forces the degradation stack discussion before optimization.
+
+2. DRAW THE FUNNEL: 10M items → 1,000 candidates → 50 scored → 20 re-ranked.
+   → Explain why each stage exists: cost (can't score all), precision (expensive
+   model on hundreds, not millions), business (diversity, fairness, monetization).
+
+3. INTRODUCE THE FEEDBACK LOOP AS A COMPONENT: "Where do clicks go?"
+   → Events → Feature store (real-time) + Training pipeline (batch).
+   → Emphasize: Broken feedback loop = system degrades slowly, silently.
+
+4. WALK THROUGH THE REAL INCIDENT: "Here's what happened when training stopped."
+   → Use the structured table. Point out: No errors, no latency spike, just
+   gradual CTR decline. "How would you detect this?" → Model freshness SLO.
+
+5. STRESS COLD START AS STAGED: Popular → Content-based → Collaborative.
+   → Not binary "cold or not" — the system blends strategies as signals accumulate.
+
+6. CROSS-CHECK: "What breaks first at 10× scale?" → Feature store hot keys,
+   GPU capacity, event pipeline throughput. "What's the fallback at each layer?"
 ```
 
 ---
@@ -2789,6 +2885,82 @@ DEBATE 3: Exploration in the main feed vs separate "discovery" section
 
 ---
 
+# Part 19: Master Review Check & L6 Dimension Table
+
+## Master Review Check (11 Items)
+
+```
+Before considering this chapter complete for L6 readiness, verify:
+
+[✓]  1. Judgment: Trade-offs documented (relevance vs latency, personalization vs coverage,
+        model complexity vs serving cost, exploration vs exploitation)
+[✓]  2. Failure/blast-radius: Failure modes enumerated (Part 9); Real Incident table
+        present; cascading failure timeline (feature store hot key); feedback loop
+        failure as insidious, silent degradation
+[✓]  3. Scale/time: Load model (Part 4); 35K QPS, 10M items, 100M DAU; bottlenecks
+        (feature I/O, GPU scoring); what breaks first at scale
+[✓]  4. Cost: Part 11 drivers (GPU, feature store, event pipeline, storage);
+        scaling behavior; cost-aware redesign
+[✓]  5. Real-world-ops: Failure injection exercises (Part 18); degradation stack;
+        model freshness SLO; training pipeline health
+[✓]  6. Memorability: Staff First Law; Quick Visual; funnel mental model;
+        "model is 5% of the system"
+[✓]  7. Data/consistency: Part 8 (eventual consistency for features; training data
+        freshness; feature store dual-path)
+[✓]  8. Security/compliance: Part 13 (recommendation manipulation, filter bubbles,
+        fairness, PII in features)
+[✓]  9. Observability: SLIs (Part 3); model freshness; fallback level instrumentation;
+        feedback loop monitoring
+[✓] 10. Interview calibration: Probes, Staff signals, common L5 mistakes, phrases,
+        leadership explanation, how to teach
+[✓] 11. Exercises & brainstorming: Part 18 ("What if" questions, redesigns,
+        failure injection, trade-off debates)
+```
+
+## L6 Dimension Coverage Table (A–J)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                    L6 DIMENSION COVERAGE (Recommendation / Ranking System)                   │
+├───────┬─────────────────────────────┬─────────────────────────────────────────────────────┤
+│ Dim   │ Dimension                    │ Where Covered                                        │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ A     │ Judgment                    │ L5 vs L6 table; relevance vs latency; personalization│
+│       │                             │ vs coverage; funnel vs full ranking; exploration vs   │
+│       │                             │ exploitation; when to fallback vs fail               │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ B     │ Failure/blast-radius        │ Part 9 failure modes; Real Incident table (feedback    │
+│       │                             │ loop); cascading hot key; feedback loop as silent     │
+│       │                             │ degradation; 4-level degradation stack                │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ C     │ Scale/time                  │ Part 4 (35K QPS, 10M items, 100M DAU); Part 9 timeline│
+│       │                             │ Burst behavior; feature I/O and GPU bottlenecks       │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ D     │ Cost                        │ Part 11 (GPU, feature store, event pipeline, storage);│
+│       │                             │ cost scaling; cost-aware redesign; over-engineering    │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ E     │ Real-world-ops              │ Failure injection (Part 18); degradation stack; model    │
+│       │                             │ freshness SLO; training pipeline alerting; evolution  │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ F     │ Memorability                │ Staff First Law; Quick Visual; funnel mental model;   │
+│       │                             │ "model is 5%"; personal shopper analogy               │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ G     │ Data/consistency            │ Part 8; eventual consistency for features; training   │
+│       │                             │ data staleness; dual-path feature store               │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ H     │ Security/compliance         │ Part 13; recommendation manipulation; filter bubbles; │
+│       │                             │ fairness; PII in behavioral features                 │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ I     │ Observability               │ SLIs (latency, availability, quality); model         │
+│       │                             │ freshness; fallback level usage; feedback loop health │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ J     │ Cross-team                  │ ML platform vs recommendation serving; who owns      │
+│       │                             │ training pipeline; model registry; A/B routing       │
+└───────┴─────────────────────────────┴─────────────────────────────────────────────────────┘
+```
+
+---
+
 # Summary
 
 This chapter has covered the design of a Recommendation / Ranking System at Staff Engineer depth, from the foundational funnel architecture through multi-region serving, feedback loops, and system evolution.
@@ -2849,3 +3021,12 @@ DEEP DIVES (30-45 min):
   → When asked about quality: A/B testing, exploration, diversity
   → When asked about cold start: Staged migration strategy
 ```
+
+### Topic Coverage in Exercises & Brainstorming
+
+| Topic | Part 18 Coverage |
+|-------|------------------|
+| **Scale** | What if catalog 10M→1B; sub-10ms edge; real-time social signals |
+| **Failure** | GPU kill 50%; feature store latency injection; training pipeline stop; hot item; random model |
+| **Cost** | Zero GPU (CPU only); privacy-preserving (no tracking); real-time model updates |
+| **Evolution** | Real-time vs pre-computed; global vs per-surface model; exploration placement |

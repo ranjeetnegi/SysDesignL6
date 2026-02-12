@@ -57,6 +57,38 @@ This chapter covers distributed caching as Staff Engineers practice it: understa
 
 **Key Difference**: L6 engineers understand that caching is a trade-off, not a solution. They design for cache failure, cache miss storms, and staleness—not just the happy path.
 
+## Staff vs Senior: The Caching Divide
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    STAFF vs SENIOR: CACHING MINDSET                         │
+│                                                                             │
+│   Senior optimizes for the happy path; Staff optimizes for failure.         │
+│                                                                             │
+├──────────────────────────────┬──────────────────────────────────────────────┤
+│ Senior (L5)                  │ Staff (L6)                                   │
+├──────────────────────────────┼──────────────────────────────────────────────┤
+│ Adds cache to fix latency    │ Asks: hit rate? staleness tolerance?         │
+│                              │ failure mode? before adding cache            │
+├──────────────────────────────┼──────────────────────────────────────────────┤
+│ "Cache down → hit DB"        │ "Cache down → DB overload → full outage.     │
+│                              │  Design degradation explicitly."             │
+├──────────────────────────────┼──────────────────────────────────────────────┤
+│ Invalidates on every write   │ Weighs cost of invalidation vs staleness.    │
+│                              │ TTL for most; explicit for critical only.    │
+├──────────────────────────────┼──────────────────────────────────────────────┤
+│ Sizes cache "as big as we    │ Sizes for working set. Monitors evictions.   │
+│  can get"                    │ "20% of keys serve 80% of traffic."           │
+├──────────────────────────────┼──────────────────────────────────────────────┤
+│ Fixes bugs after they occur  │ Anticipates stampede, race conditions,        │
+│                              │ schema drift. Builds protection in.           │
+└──────────────────────────────┴──────────────────────────────────────────────┘
+
+SCALE INFLECTION: Senior approach works until ~1K QPS, single region.
+Staff approach required when: multi-tenant, peak-to-average > 3x, or
+cache failure would cascade to database overload.
+```
+
 ---
 
 # Part 1: Foundations — What Caching Is and Why It Exists
@@ -2505,6 +2537,20 @@ TRADE-OFF 4: Multi-Region
 ├── Single region: 1x cost, higher latency for remote users
 ├── Multi-region: 3x cost, low latency everywhere
 ├── Decision: Only if user latency justifies 3x cost.
+
+COST OF INCIDENTS (Staff-Level Consideration):
+
+Unavailability cost informs design decisions:
+├── Cache down → DB overload → Full outage
+├── Example: $50K revenue/30min × 4 incidents/year = $200K risk
+├── Mitigation cost: Replicas + circuit breakers ~$2K/month = $24K/year
+├── Staff judgment: $24K < $200K → invest in resilience
+
+Over-provisioning vs under-provisioning:
+├── Over: Extra nodes "just in case" → 2x cost, rarely utilized
+├── Under: Savings until incident → 10x cost in outage + reputation
+├── L6 approach: Right-size with headroom; auto-scale for predictable peaks
+└── Document the trade-off for leadership: "We pay X to avoid Y."
 ```
 
 ## What Over-Engineering Looks Like
@@ -2863,6 +2909,32 @@ Authentication, authorization, encryption, monitoring are others.
 No single layer is perfect."
 ```
 
+## Compliance and Regulatory Considerations
+
+```
+CACHING IMPLICATIONS FOR COMPLIANCE:
+
+GDPR / Data Residency:
+├── Cached PII may reside in regions different from user consent
+├── Mitigation: Don't cache PII, or use region-scoped caches only
+├── Right to erasure: Cache invalidation must follow delete requests
+├── TTL for PII: Short enough that "forgotten" data expires promptly
+
+Audit and Retention:
+├── Cache access patterns may need audit logs for compliance
+├── Mitigation: Log key access (not values) for sensitive namespaces
+├── Retention: Cache is ephemeral; ensure deletion propagates to all replicas
+
+Financial / Healthcare:
+├── Strong consistency requirements may preclude aggressive caching
+├── Mitigation: Cache only non-critical paths; never cache balances, dosage
+├── Staff judgment: If you can't tolerate staleness, don't cache
+
+L6 RELEVANCE:
+Staff Engineers make the call: "We can cache this" vs "compliance says no."
+They document the trade-off and get sign-off from legal/security when uncertain.
+```
+
 ---
 
 # Part 14: Evolution Over Time
@@ -3129,6 +3201,71 @@ INCIDENT 4: Serialization Bug Causes Data Corruption
 ├── Redesign: Versioned cache entries, backward-compatible schemas
 ```
 
+## Structured Incident Post-Mortem (L6 Format)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│           REAL INCIDENT: CACHE STAMPEDE → CASCADING OUTAGE                   │
+│                                                                             │
+│   Use this table format for incident write-ups. Staff-level post-mortems    │
+│   require each column to drive design changes and teaching.                  │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  CONTEXT                                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  E-commerce product catalog. 50K peak QPS, 95% cache hit rate.             │
+│  Single hot key: "product:flagship" (featured product). TTL 5 minutes.     │
+│  No request coalescing. Cache-aside pattern with no stampede protection.    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  TRIGGER                                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  T+0: Featured product cache entry expired exactly at peak traffic.         │
+│  Marketing had scheduled a flash sale; 10K concurrent users on product page.│
+├─────────────────────────────────────────────────────────────────────────────┤
+│  PROPAGATION                                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  T+0s: All 10K requests saw cache miss simultaneously.                     │
+│  T+1s: 10K concurrent DB queries for same product.                         │
+│  T+5s: Database connection pool exhausted (max 500 connections).          │
+│  T+10s: DB timeouts, application errors. Write path blocked.               │
+│  T+30s: Order checkout failing. Revenue impact begins.                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  USER IMPACT                                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  30-minute partial outage. Checkout unavailable. Product pages 503.         │
+│  ~$50K revenue loss. Customer support 5x normal volume.                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  ENGINEER RESPONSE                                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  1. Extended TTL for flagship key to 15 min (immediate relief).             │
+│  2. Manually repopulated cache for hot product.                             │
+│  3. Rate-limited product API to prevent repeat.                             │
+│  4. DB connection pool recovered once load subsided.                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  ROOT CAUSE                                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  No request coalescing. Popular key expiration caused thundering herd.      │
+│  Contributing: No staggered TTL (all keys expired in sync).                 │
+│  Contributing: DB sized for cache-assisted load, not full traffic.          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  DESIGN CHANGE                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  1. Implemented request coalescing (lock per key on miss).                   │
+│  2. Added TTL jitter (±10%) for all cache writes.                           │
+│  3. Background refresh for hot keys at 80% of TTL.                          │
+│  4. Circuit breaker + rate limiter for DB on cache failure path.            │
+│  5. SLO: DB load never exceeds 2x normal on cache miss storm.                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  LESSON (Staff takeaway)                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  "Cache stampede is not theoretical—it happens when popular keys expire     │
+│   at traffic peaks. Staff-level caching always includes: (1) request         │
+│   coalescing for misses, (2) staggered expiration, (3) backend protection  │
+│   for the 100% cache failure case. Design for the stampede before it        │
+│   designs for you."                                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 # Part 14B: Operational Realities
@@ -3227,6 +3364,31 @@ ALERTING THRESHOLDS:
 ├── Memory > 95%: Critical
 ├── Eviction rate > 1000/sec: Warning
 ├── Error rate > 1%: Critical
+
+SLO/SLI DEFINITIONS (Staff-Level Observability):
+
+Cache Availability SLO:
+├── SLI: (Successful cache ops) / (Total cache ops)
+├── Target: 99.9% over 30-day window
+├── Error budget: 43 minutes of degraded cache per month
+└── Exclude: Intentional bypass (circuit breaker)
+
+Cache Latency SLO:
+├── SLI: P99 latency of cache GET operations
+├── Target: < 5ms (same datacenter)
+├── Error budget: 0.1% of requests may exceed
+└── Link to user-facing latency: Cache miss adds 10-50ms; model downstream impact
+
+Hit Rate SLI (informational):
+├── SLI: Cache hits / (Cache hits + Cache misses)
+├── Target: > 90% (varies by use case)
+└── Note: Not an SLO—hit rate drops don't necessarily violate user expectations
+
+DISTRIBUTED TRACING FOR CACHE:
+├── Tag cache operations: cache.hit, cache.miss, cache.error, cache.timeout
+├── Span: cache_client.get(key) with key redacted
+├── Correlation: Link cache span to upstream request and DB fallback
+└── Use: "Why was this request slow?" → Trace shows cache miss → DB 45ms
 ```
 
 ## Cache Ownership Across Teams
@@ -3264,6 +3426,39 @@ STAFF INSIGHT:
 "Cache is infrastructure that application teams consume. Platform
 provides the capability; application teams use it responsibly.
 Neither can succeed without the other."
+```
+
+## Cross-Team Coordination and Cache Migrations
+
+```
+CROSS-TEAM COORDINATION SCENARIOS:
+
+Scenario 1: Cache Schema Change
+├── Platform changes key format or value structure
+├── Coordination: Deprecation window, dual-read during migration
+├── L6 responsibility: Define contract, communicate timeline, verify adoption
+
+Scenario 2: Shared Cache Namespace Conflict
+├── Two app teams use same key prefix, data overwrites
+├── Mitigation: Enforce namespace prefix in platform, review in design docs
+├── L6 responsibility: Establish conventions, reject PRs that violate
+
+Scenario 3: Cache Migration (Platform Upgrade)
+├── Moving to new cache cluster or version
+├── Coordination: App teams must support dual-read or accept brief cold cache
+├── L6 responsibility: Run migration playbook, measure blast radius per team
+
+Scenario 4: Dependency Graph Visibility
+├── "Which services depend on this cache?"
+├── Tooling: Service mesh, dependency registry, cache key prefix ownership
+├── L6 relevance: Staff owns understanding blast radius before changes
+
+API CONTRACT FOR CACHE CONSUMERS:
+├── Key format: {team}:{service}:{entity}:{id}
+├── TTL limits: Max 24h for most; exceptions require approval
+├── Value size: Max 1MB per key (configurable per namespace)
+├── Failure behavior: Documented—fail open vs fail closed per use case
+└── Staff ensures contract is documented and enforced in reviews
 ```
 
 ---
@@ -3457,6 +3652,51 @@ most requests—not the entire dataset."
 ON ARCHITECTURE:
 "I'd consider multi-tier caching: L1 in-process for ultra-hot keys,
 L2 distributed for everything else."
+```
+
+## Leadership Explanation (How to Explain to Non-Engineers)
+
+```
+ONE-LINER FOR EXECUTIVES:
+"Distributed cache is a fast copy of our most-requested data. It lets
+us serve 95% of reads in 1 millisecond instead of hitting the database.
+If it fails, we've designed fallbacks so the system degrades, not dies."
+
+WHEN ASKED "WHY DOES THIS COST SO MUCH?":
+"Cache is memory—the same stuff in your laptop, but at scale. We need
+redundancy so one hardware failure doesn't take down the product.
+The alternative is a slower, less reliable experience."
+
+WHEN ASKED "CAN WE SKIP IT TO SAVE MONEY?":
+"Without cache, every request hits the database. At our traffic, that
+would require 10x more database capacity—costing 5x what we spend
+on cache. Cache is the cost-effective option."
+```
+
+## How to Teach Caching to Senior Engineers
+
+```
+TEACHING SEQUENCE (Staff mentoring Senior):
+
+1. Start with the trade-off (not the mechanism):
+   "What do we give up when we add a cache?" → Consistency.
+   "When is that acceptable?" → When staleness is bounded and acceptable.
+
+2. Make failure tangible:
+   "What happens if Redis goes down at 2am?" Walk through the cascade.
+   Senior often assumes "we hit the DB"—Staff asks "can the DB handle it?"
+
+3. Introduce stampede before they see it:
+   "Popular key expires at peak. 10K requests. What happens?"
+   If they don't know request coalescing, teach it proactively.
+
+4. Anchor on metrics:
+   "Hit rate below 80%? Cache might not be worth it."
+   "P99 cache latency > 5ms? Something's wrong."
+
+5. Decompress the L6 mindset:
+   "I'm not optimizing for the happy path. I'm designing for the
+   stampede, the failover, the schema change. That's the difference."
 ```
 
 ---
@@ -3963,6 +4203,88 @@ DEBATE 5: Buy vs Build
 ├── Build: Full control, no vendor lock-in
 ├── Buy: Managed, reliable, less operational burden
 ├── Staff judgment: Buy unless you have specific requirements
+```
+
+---
+
+# Part 18B: Master Review Check & L6 Dimension Table
+
+## Master Review Check (11 Items)
+
+```
+Before considering this chapter complete for L6 readiness, verify:
+
+[ ] 1. Judgment: Trade-offs documented (consistency vs performance, cost vs resilience)
+[ ] 2. Failure/blast-radius: Failure modes enumerated with propagation and recovery
+[ ] 3. Scale/time: Concrete numbers, working set calculation, scaling limits
+[ ] 4. Cost: Drivers, scaling analysis, cost of incidents, over-engineering traps
+[ ] 5. Real-world-ops: Runbook, dashboards, ownership, cross-team coordination
+[ ] 6. Memorability: Mental models and one-liners that stick
+[ ] 7. Data/consistency: Race conditions, multi-key limits, schema evolution
+[ ] 8. Security/compliance: Abuse vectors, compliance implications, audit
+[ ] 9. Observability: SLO/SLI, tracing, alerting, error budget
+[ ] 10. Interview calibration: Probes, Staff signals, common mistakes, teaching
+[ ] 11. Exercises & brainstorming: "What if" questions, redesigns, failure injection
+```
+
+## L6 Dimension Coverage Table (A–J)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    L6 DIMENSION COVERAGE (Distributed Cache)                 │
+├───────┬─────────────────────────────┬─────────────────────────────────────┤
+│ Dim   │ Dimension                    │ Where Covered                        │
+├───────┼─────────────────────────────┼─────────────────────────────────────┤
+│ A     │ Judgment                     │ L5 vs L6 table, trade-off debates,   │
+│       │                              │ "when not to cache," cost vs value   │
+├───────┼─────────────────────────────┼─────────────────────────────────────┤
+│ B     │ Failure/blast-radius         │ Failure taxonomy, cascading timeline,│
+│       │                              │ structured incident, degradation     │
+├───────┼─────────────────────────────┼─────────────────────────────────────┤
+│ C     │ Scale/time                   │ E-commerce numbers, working set,     │
+│       │                              │ bottlenecks, migration strategies    │
+├───────┼─────────────────────────────┼─────────────────────────────────────┤
+│ D     │ Cost                         │ Cost drivers, scaling, incident cost,│
+│       │                              │ over-engineering, cost-aware redesign│
+├───────┼─────────────────────────────┼─────────────────────────────────────┤
+│ E     │ Real-world-ops              │ Runbook, dashboards, ownership,       │
+│       │                              │ cross-team coordination              │
+├───────┼─────────────────────────────┼─────────────────────────────────────┤
+│ F     │ Memorability                │ Staff Law, one-liners, principles,     │
+│       │                              │ mental models (library analogy)      │
+├───────┼─────────────────────────────┼─────────────────────────────────────┤
+│ G     │ Data/consistency            │ Consistency spectrum, race conditions,│
+│       │                              │ multi-key, schema evolution           │
+├───────┼─────────────────────────────┼─────────────────────────────────────┤
+│ H     │ Security/compliance         │ Abuse vectors, compliance (GDPR),      │
+│       │                              │ privilege boundaries                  │
+├───────┼─────────────────────────────┼─────────────────────────────────────┤
+│ I     │ Observability               │ Dashboards, SLO/SLI, tracing,         │
+│       │                              │ alerting thresholds                   │
+├───────┼─────────────────────────────┼─────────────────────────────────────┤
+│ J     │ Cross-team                  │ Ownership model, API contracts,        │
+│       │                              │ migration coordination               │
+└───────┴─────────────────────────────┴─────────────────────────────────────┘
+```
+
+## Mental Models & One-Liners (Quick Reference)
+
+```
+CACHE AS LIAR: "A cache is a lie you tell the system about what the truth is."
+
+HIT RATE GATE: "Below 80% hit rate, cache might not be worth the complexity."
+
+STAMPEDE LAW: "Thundering herd will happen—design for it before it happens."
+
+FAILURE VULNERABILITY: "Cache failure is when you're most vulnerable."
+
+SLOW CACHE WORSE: "A slow cache is worse than a dead cache."
+
+WORKING SET ONLY: "Cache the working set, not the whole dataset."
+
+INVALIDATION HARD: "Invalidation is harder than caching."
+
+STAFF MINDSET: "I design for stampede, failover, and schema change—not the happy path."
 ```
 
 ---

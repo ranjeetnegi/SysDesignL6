@@ -94,23 +94,23 @@ Copy this into your notes and mark `[x]` when done.
 - [x] `Section5/Chapter_40.md`
 
 ### Section 6
-- [ ] `Section6/Chapter_41.md`
-- [ ] `Section6/Chapter_42.md`
-- [ ] `Section6/Chapter_43.md`
-- [ ] `Section6/Chapter_44.md`
-- [ ] `Section6/Chapter_45.md`
-- [ ] `Section6/Chapter_46.md`
-- [ ] `Section6/Chapter_47.md`
-- [ ] `Section6/Chapter_48.md`
-- [ ] `Section6/Chapter_49.md`
-- [ ] `Section6/Chapter_50.md`
-- [ ] `Section6/Chapter_51.md`
-- [ ] `Section6/Chapter_52.md`
-- [ ] `Section6/Chapter_53.md`
-- [ ] `Section6/Chapter_54.md`
-- [ ] `Section6/Chapter_55.md`
-- [ ] `Section6/Chapter_56.md`
-- [ ] `Section6/Chapter_57.md`
+- [x] `Section6/Chapter_41.md`
+- [x] `Section6/Chapter_42.md`
+- [x] `Section6/Chapter_43.md`
+- [x] `Section6/Chapter_44.md`
+- [x] `Section6/Chapter_45.md`
+- [x] `Section6/Chapter_46.md`
+- [x] `Section6/Chapter_47.md`
+- [x] `Section6/Chapter_48.md`
+- [x] `Section6/Chapter_49.md`
+- [x] `Section6/Chapter_50.md`
+- [x] `Section6/Chapter_51.md`
+- [x] `Section6/Chapter_52.md`
+- [x] `Section6/Chapter_53.md`
+- [x] `Section6/Chapter_54.md`
+- [x] `Section6/Chapter_55.md`
+- [x] `Section6/Chapter_56.md`
+- [x] `Section6/Chapter_57.md`
 
 ---
 
