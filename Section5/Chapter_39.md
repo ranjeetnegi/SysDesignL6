@@ -1765,6 +1765,21 @@ TIMEOUT BUDGET (CRITICAL PATH):
 
 ## Production Failure Scenario: The Silent Message Backlog
 
+### Incident Summary Table
+
+| Dimension | Details |
+|-----------|---------|
+| **Context** | Production chat system at ~500K concurrent connections, 200M messages/day. Fan-out workers consume from Kafka, deliver to connection servers or push notification service. |
+| **Trigger** | Fan-out worker bug: processes messages but fails to commit Kafka offsets. Worker restarts, reprocesses from last committed offset (2 hours ago). New messages produced faster than worker can reprocess. |
+| **Propagation** | Consumer lag grows 100K → 500K → 1M. No cascading failure to other components. Chat service and DB remain healthy. Only delivery path affected. |
+| **User impact** | Senders see ✓ (ACK). Recipients with app open do not receive messages in real time. Sync on app open works (reads from DB). Perception: "Chat broken—messages only appear when I restart the app." |
+| **Engineer response** | Kafka lag alert → lag dashboard → fan-out worker logs → offset commit bug identified. Deploy fix, worker catches up. Recovery: ~200 seconds for 1M backlog at 5K/sec. |
+| **Root cause** | Offset commit logic: commit only on success path; error handling path skipped commit even when processing succeeded. |
+| **Design change** | Alert: Kafka consumer lag > 10K for > 2 min. Metric: End-to-end delivery latency (created_at → delivered_at). Code: All Kafka consumers commit offsets in `finally` block. |
+| **Lesson** | Silent failures are the most dangerous—system appeared "working" (persist, ACK) but not delivering. End-to-end delivery latency catches this class of bug; error rates alone do not. |
+
+### Detailed Incident Narrative
+
 ```
 INCIDENT: SILENT MESSAGE BACKLOG
 
@@ -2041,6 +2056,32 @@ COST TRADE-OFFS:
        Worth it after year 1.
 ```
 
+## SLO/SLI Definition
+
+```
+SERVICE LEVEL OBJECTIVES:
+
+    SLI 1: MESSAGE DELIVERY LATENCY (online recipient)
+    - Measure: created_at to delivered_at (P50, P95, P99)
+    - Target: P95 < 500ms, P99 < 1s
+    - Error budget: 0.05% of messages may exceed P95
+
+    SLI 2: MESSAGE SEND SUCCESS RATE
+    - Measure: (200 OK / total send attempts) over 1-minute windows
+    - Target: ≥ 99.9%
+    - Error budget: 43 minutes/month of 99% success
+
+    SLI 3: MESSAGE DURABILITY
+    - Measure: Messages persisted and ACKed but not in DB (should be 0)
+    - Target: Zero data loss
+    - Error budget: None. One lost message = incident.
+
+    SLO TRADE-OFF:
+    Stricter P95 (e.g., 200ms) requires more capacity (connection servers,
+    fan-out workers). Looser (e.g., 1s) degrades UX. 500ms is the
+    consensus "feels instant" threshold.
+```
+
 ## Operational Alerts
 
 ```
@@ -2172,6 +2213,67 @@ SECURITY:
     → IP-based rate limiting (V1.1)
     → E2E encryption (V2)
     → Device attestation (V2)
+```
+
+## Cross-Team Boundaries & Ownership (L6 Relevance)
+
+```
+OWNERSHIP BOUNDARIES:
+
+    CHAT TEAM OWNS:
+    - WebSocket connection management, message persistence, sequence assignment
+    - Kafka publish (message-deliveries topic)
+    - Fan-out to connection servers (online delivery)
+    - API contracts for: send message, sync, history fetch
+
+    NOTIFICATION TEAM OWNS:
+    - Consuming from push-notifications topic
+    - APNs/FCM delivery, device token management, retry logic
+    - Their SLO: Delivery to device within 5 minutes of publish
+
+    CONTRACT: Chat team publishes to Kafka within 5ms of persist.
+    Notification team's lag is their problem. We don't page their on-call.
+    Escalation: If push lag > 1 hour, we notify their TL.
+
+    DOWNSTREAM CONSUMERS (Analytics, Search):
+    - Read from Kafka (mirror or separate consumer). At-least-once.
+    - Chat team does not guarantee ordering for analytics. Our ordering
+      guarantee is per-conversation for delivery, not for downstream.
+
+    STAKEHOLDER ALIGNMENT:
+    - Product: "Messages must feel instant." → P95 < 500ms delivery.
+    - Trust & Safety: "We need server-side content access." → Blocks E2E.
+    - Legal: "Retain messages 30 days post-deletion." → Soft-delete flow.
+    - Platform: "Chat is a shared service." → API versioning, rate limits
+      per consumer (not just per user).
+
+    WHY L6 CARES:
+    Blurred boundaries cause incident finger-pointing. Clear contracts
+    prevent "whose bug is it?" debates. Cost attribution (who pays for
+    2× connection cost?) requires cross-team visibility.
+```
+
+## Compliance & Data Retention
+
+```
+COMPLIANCE:
+
+    GDPR / CCPA:
+    - Right to deletion: Soft-delete, 30-day retention, then hard-delete.
+    - Data export: User requests → Export conversation history (JSON).
+    - Consent: Message storage is core service; no separate consent for
+      chat. Media/files may have different consent requirements.
+
+    AUDIT LOGGING:
+    - Access logs: who, when, what (conversation_id, msg_id). NOT content.
+    - Admin actions: User ban, conversation export — logged with admin_id.
+    - Retention: 90 days for operational logs; 1 year for compliance.
+
+    DATA RETENTION:
+    - Hot: 30 days (PostgreSQL primary)
+    - Warm: 30 days–1 year (partitioned, read-only)
+    - Cold: > 1 year (object storage archive)
+    - Deleted-user cascade: 30-day soft-delete, then purge.
 ```
 
 ---
@@ -2364,7 +2466,88 @@ ALTERNATIVE: PEER-TO-PEER (P2P) MESSAGING
 
 ---
 
+# Part 15.5: Mental Models & One-Liners
+
+```
+MENTAL MODELS:
+
+    1. PERSIST BEFORE DELIVER
+       "If the message is durable, it will eventually reach the recipient.
+       If it's not durable, it might be lost forever."
+
+    2. PER-CONVERSATION ORDERING
+       "Ordering is per-conversation, not global. Global ordering requires
+       a single sequencer—unnecessary bottleneck since conversations are independent."
+
+    3. FAN-OUT IS THE MULTIPLIER
+       "The system is delivery-bound, not send-bound. Group size directly
+       multiplies delivery load. 100 msg/sec to 200-member groups = 20K deliveries/sec."
+
+    4. RECONNECTION STORM > ORIGINAL FAILURE
+       "One server crash (50K users offline 30s) is recoverable. Fifty
+       thousand simultaneous reconnects without jitter can cascade to
+       total outage. The storm is worse than the crash."
+
+    5. SILENT FAILURES ARE THE DANGEROUS ONES
+       "Error rates miss silent delivery failures. End-to-end delivery
+       latency is the one metric that catches Kafka lag, fan-out bugs,
+       and queue backlogs."
+
+ONE-LINERS (MEMORABLE, INTERVIEW-READY):
+
+    - "Messages: strong consistency. Read receipts: eventual. Typing: best-effort."
+    - "client_msg_id + idempotency = effectively exactly-once without distributed transactions."
+    - "Connection server is a dumb pipe. Chat service is stateless. Fan-out is async."
+    - "Kafka decouples persistence from delivery. Chat service never blocks on slow connection servers."
+    - "Graceful drain: signal clients to reconnect before we're overloaded. One server at a time."
+```
+
+---
+
 # Part 16: Interview Calibration (L5 Focus)
+
+## Staff vs Senior: What L6 Adds
+
+```
+L5 (SENIOR) FOCUS:
+- Correct design: WebSocket, persist-before-deliver, per-conversation ordering
+- Failure handling: Reconnection storm, Kafka fallback, load shedding
+- Scale: Fan-out multiplier, delivery-bound, DB sharding at 10×
+
+L6 (STAFF) ADDITIONS:
+
+1. BLAST RADIUS CONTAINMENT
+   Senior: "If connection server crashes, clients reconnect."
+   Staff: "How do we prevent one crashed server's 50K reconnects from
+   overwhelming the remaining 11? Reconnection backoff with jitter is
+   necessary but not sufficient—we need server-side connection rate
+   limiting and per-server drain signaling so the LB stops routing
+   to a draining instance. The blast radius of one server is 50K users
+   for ~30 seconds; without mitigation it becomes ALL users for 6 minutes."
+
+2. CROSS-TEAM BOUNDARIES
+   Senior: "Notification service sends push for offline users."
+   Staff: "What's the contract? Our team owns delivery up to the
+   notification service boundary. If their service is down, we buffer
+   in Kafka—we don't own their availability. Their SLO is separate.
+   We document: 'We publish to Kafka within 5ms of persist. Delivery
+   to device is notification service's responsibility.' Clear ownership
+   prevents finger-pointing during incidents."
+
+3. COST ATTRIBUTION
+   Senior: "Connection servers cost $3,600/month."
+   Staff: "Who pays for it? At 500K concurrent, that's $0.007/user/month.
+   If Product adds a feature that doubles connection duration (e.g.,
+   always-on presence), cost doubles. We need cost-per-DAU visibility
+   so Product understands the trade-off before shipping."
+
+4. TEACHING THE SYSTEM
+   Senior: Debugs the incident.
+   Staff: "Why did we miss this? We had error-rate alerts but no
+   end-to-end delivery latency. I'll add the metric and document
+   'The one metric that catches silent delivery failure' in our
+   runbook. New engineers joining the team will know to watch it."
+```
 
 ## How Google Interviews Probe This
 
@@ -2506,6 +2689,61 @@ STRONG L5 SIGNALS:
     but adds operational complexity our team doesn't have expertise in.
     At 10× scale, we evaluate sharding PostgreSQL or migrating to Cassandra.
     Not before."
+```
+
+## L6 Interview Calibration: Staff-Level Probes
+
+```
+STAFF PROBES (INTERVIEWER ASKS TO DISTINGUISH L6 FROM L5):
+
+1. "How would you explain this design to a new engineer joining the team?"
+   → L5: Walks through components and flows.
+   → L6: Identifies the ONE mental model ("persist before deliver"),
+   the ONE metric to watch (end-to-end delivery latency), and the
+   ONE failure mode that's hardest to detect (silent delivery backlog).
+
+2. "What happens when the notification service is down for 30 minutes?"
+   → L5: "Messages persist. Sync works. Push notifications fail."
+   → L6: "Our boundary ends at Kafka publish. Notification service
+   is a downstream consumer with its own SLO. We buffer; they drain.
+   We don't page their on-call. We document the contract and escalate
+   if their lag exceeds our acceptable delay (e.g., 1 hour)."
+
+3. "How do you prevent a reconnection storm from taking down the system?"
+   → L5: "Client backoff with jitter."
+   → L6: "Three layers: client jitter (spread reconnects), server-side
+   connection rate limit (reject excess with 503 + Retry-After), and
+   graceful drain (signal clients to reconnect before we're overloaded).
+   Without all three, one server crash can cascade to total outage."
+
+4. "Who owns what when a message is 'lost'?"
+   → L5: Divides by component (chat service, fan-out, push).
+   → L6: "We own persist-to-ACK and persist-to-Kafka. After that,
+   delivery is best-effort with fallbacks. 'Lost' means either we
+   didn't persist (our bug) or all delivery paths failed (push down,
+   sync never requested). We define 'lost' operationally: message
+   not in DB after 24h = investigate. Message in DB, not delivered
+   = delivery pipeline issue, possibly downstream."
+
+COMMON SENIOR MISTAKE (L5 THAT DOESN'T REACH L6):
+- Treats "correct design" as sufficient. Doesn't articulate ownership
+  boundaries, cost attribution, or how to teach the system.
+- Fixes incidents but doesn't institutionalize the lesson (metrics,
+  runbook updates, documentation for future engineers).
+
+STAFF PHRASES:
+- "The blast radius of X is Y users for Z seconds; without mitigation it becomes..."
+- "Our boundary ends at [component]. Downstream owns [responsibility]."
+- "The one metric that catches this class of failure is..."
+- "I'd document this so the next engineer knows to check..."
+
+HOW TO TEACH THIS (L6 EXPLAINS TO TEAM):
+"Real-time chat has three invariants: persist before deliver, order
+within conversation, deliver to all devices. Every design decision
+flows from these. When something breaks, ask: Which invariant was
+violated? Persist: DB or Kafka. Order: Sequence assignment. Deliver:
+Fan-out, push, or sync. The Silent Message Backlog violated deliver
+while preserving persist and order—that's why it was so hard to detect."
 ```
 
 ---

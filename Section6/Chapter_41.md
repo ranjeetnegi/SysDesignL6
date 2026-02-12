@@ -1799,6 +1799,21 @@ T+2:00    Post-incident review scheduled
           Action items: Fix memory leak, improve failover alerting
 ```
 
+## Real Incident: Structured Post-Mortem
+
+| Dimension | Description |
+|-----------|-------------|
+| **Context** | Enterprise API serving 5M req/sec across 3 regions. Centralized rate limiter cluster (16 nodes) in primary region. Protected backend: search service, database, third-party APIs. |
+| **Trigger** | Rate limiter node 3 developed memory leak. GC pauses stretched to 80ms. Concurrently, config store (database) entered planned failover. |
+| **Propagation** | Node 3 latency spike → API servers waiting on rate limit check → thread pool exhaustion → 504 timeouts for all customers. Retry storm amplified load 2x. Other rate limiter nodes began queuing. Within 3 minutes, entire rate limiter cluster saturated. |
+| **User impact** | 100% of API traffic affected. P99 latency: 30s (normal: 50ms). 15-minute sustained outage. ~2M failed requests. Customer SLAs breached. |
+| **Engineer response** | On-call enabled circuit breaker bypass (fail open) at T+12min. Traffic flowed without rate limiting. Backend held. Root-cause: memory leak in counter compaction logic. Node restarted, config store recovered. Rate limiting re-enabled gradually (10%→50%→100%). |
+| **Root cause** | No bounded latency on rate limit check. Hot path blocked on slow dependencies. No circuit breaker around rate limiter client. Protective system became single point of failure. |
+| **Design change** | 5ms strict timeout on rate limit check. On timeout: fail open with cached decision. Circuit breaker: >10% timeouts → bypass rate limiter. Rate limiter treated as optional path, not blocking. |
+| **Lesson** | The rate limiter must be simpler than the system it protects. If rate limiter failure causes outage, the design is wrong. Fail open with degraded limits beats fail closed. |
+
+**Staff relevance**: L6 engineers anticipate that the protective layer can become the bottleneck. They design the caller (API servers) to degrade gracefully when the rate limiter is slow or unavailable—never to block indefinitely.
+
 ---
 
 # Part 10: Performance Optimization & Hot Paths
@@ -2460,6 +2475,82 @@ STAFF APPROACH:
 
 ---
 
+# Part 13b: Observability
+
+Rate limiting runs in the hot path. Without observability, failures are invisible until users complain. Staff engineers instrument for detection, not just post-mortem debugging.
+
+## SLIs and SLOs
+
+| SLI | Target | Measurement | Rationale |
+|-----|--------|-------------|-----------|
+| Rate limit check latency (P50) | <1ms | Time from check request to response | Hot path; must not add noticeable delay |
+| Rate limit check latency (P99) | <5ms | Same | Tail latency affects overall request latency |
+| Rate limit check latency (P99.9) | <10ms | Same | Prevents rate limiter from becoming bottleneck |
+| Rate limiter availability | 99.99% | Successful checks / total checks | Must exceed protected service availability |
+| Configuration propagation delay | <60s | Time from config update to first enforcement | New limits and overrides must take effect promptly |
+| Counter accuracy (when sync enabled) | Within 5% of limit | Sampled audit vs expected | Validates approximate counting assumptions |
+
+## Dashboard Essentials
+
+```
+PRIMARY DASHBOARD (On-call view):
+• Latency histogram (P50, P90, P99, P99.9) for rate limit checks
+• Error rate by error type (timeout, reject, config_missing)
+• Requests per second by shard (detect hot shards)
+• Circuit breaker state (open/closed, when last opened)
+• Config store latency (separate from hot path, but indicative)
+
+SECONDARY (Operational):
+• Rejection rate by customer tier
+• Top customers by rejection count
+• Config cache hit rate
+• Counter store memory usage per node
+```
+
+## Alerting Strategy
+
+| Alert | Condition | Severity | Action |
+|-------|-----------|----------|--------|
+| Rate limiter latency high | P99 > 10ms for 5 min | P1 | Investigate; consider circuit breaker |
+| Rate limiter errors elevated | Error rate > 1% for 2 min | P1 | Check cluster health, config store |
+| Config store unreachable | Connection failures for 1 min | P2 | Cached configs still work; fix store |
+| Circuit breaker open | Breaker open for 5 min | P2 | Rate limiting bypassed; fix underlying cause |
+| Hot key detected | Single key > 10% of shard traffic | P3 | Capacity planning; consider shard split |
+
+**Staff insight**: Alert on rate limiter health independently of protected service. If you only alert when the API is down, you will miss rate limiter-induced latency and retry storms.
+
+## Cross-Team Considerations
+
+| Concern | Staff Approach |
+|---------|----------------|
+| **Ownership** | Infra/platform typically owns rate limiter; product owns limit values and policy. Clear handoff: "We enforce; you decide the numbers." |
+| **Configuration** | Config store is shared. Product/account team needs UI or API to set limits. Audit who changed what. |
+| **Paging** | Rate limiter outage pages infra. Incorrect limits page product/support. Document runbooks per team. |
+| **Customer-facing vs internal** | Customer-facing: stricter SLAs, more visible. Internal: can tolerate looser accuracy, faster iteration. |
+| **Dependencies** | API servers depend on rate limiter. Rate limiter depends on config store. Document and test failure of each. |
+
+---
+
+## Audit Trail and Forensics
+
+```
+WHAT TO LOG (violations only, not every check):
+• Key, limit, count, timestamp, source_ip
+• NOT: Full API keys, request bodies
+
+RETENTION:
+• 7 days hot (fast queries for support)
+• 90 days warm (investigations)
+• 1 year archive (compliance)
+
+USE CASES:
+• Customer claims incorrect limiting → compare audit vs limit
+• Abuse investigation → pattern analysis across keys
+• Post-incident → verify counter consistency
+```
+
+---
+
 # Part 14: Evolution Over Time
 
 ## V1: Naive Design
@@ -2802,6 +2893,30 @@ Global consistency would mean global unavailability during partition."
 1000 isn't catastrophic, we can use approximate counting and
 save significant complexity."
 ```
+
+## Staff Signals vs Senior Mistakes
+
+| Signal | Staff (L6) | Senior (L5) |
+|--------|------------|-------------|
+| **Accuracy** | Asks "What accuracy do we actually need?" before designing. Proposes over-count when uncertain. | Assumes exact limits required. Designs for perfect consistency. |
+| **Failure modes** | Enumerates: node crash, config store down, overload, partition. Designs degradation for each. | Mentions failover. Often ignores "rate limiter as bottleneck." |
+| **Latency** | Puts latency budget on the table first. Rejects designs that add >5ms. | Focuses on correctness. Latency is an afterthought. |
+| **Cross-team** | Considers: Who configures limits? Who gets paged? Product vs infra ownership. | Designs in isolation. Assumes single-team ownership. |
+
+**Common Senior mistake**: Designing a rate limiter that becomes the bottleneck. Senior engineers optimize for accuracy; Staff engineers optimize for the rate limiter remaining invisible and non-blocking.
+
+## How to Teach This Topic
+
+1. **Start with the goal**: Protection, not precision. Every design choice flows from this.
+2. **Introduce the tension**: Accuracy vs latency. Strong consistency adds 50–200ms. That is unacceptable for most APIs.
+3. **Walk through failure modes**: What if the rate limiter is slow? Down? Partitioned? Fail open with degraded limits.
+4. **Use the Real Incident table**: Show how a protective system caused outage. Discuss circuit breaker, timeouts, fail-open.
+5. **Compare algorithms**: Fixed window (simple), sliding counter (recommended), token bucket (bursts). Avoid sliding log at scale.
+6. **Emphasize observability**: Rate limiter must have its own SLIs. Do not infer health from protected service alone.
+
+## Leadership Explanation (Non-Engineers)
+
+> "Rate limiting is like a bouncer at a club: we count how many people (requests) come in and turn people away when we hit capacity. The hard part at scale: we have many doors (servers) and need them to agree on the count. Perfect agreement is slow and expensive. We accept 'close enough' counting so we stay fast. If the bouncer gets sick, we let people in with a soft limit rather than shutting down the club—better some extra traffic than no service at all."
 
 ---
 
@@ -3730,6 +3845,17 @@ CLASS CanaryLimitTester:
 
 # Quick Reference
 
+## Mental Models & One-Liners
+
+| Model | One-Liner |
+|-------|-----------|
+| **Staff First Law** | A rate limiter that is perfectly accurate but adds 50ms of latency has failed. Protection, not precision. |
+| **Bouncer analogy** | Count people entering, turn away at capacity. Multiple doors = coordination. Sick bouncer = fail open, not closed. |
+| **Accuracy asymmetry** | Over-counting (reject extra) is safe. Under-counting (allow abuse) is dangerous. When uncertain, over-count. |
+| **Simplicity** | The rate limiter must be simpler than the system it protects. If it's a complex distributed system, you've moved the problem. |
+| **Hot path** | Rate limit check must never block on any external dependency. All config, all sync: async and cached. |
+| **Failure design** | Rate limiter failure should not cause outage. Fail open with degraded limits. Circuit breaker on the caller. |
+
 ## Algorithm Selection
 
 | Algorithm | Use When | Avoid When |
@@ -3755,6 +3881,39 @@ CLASS CanaryLimitTester:
 | Config store down | Connection error | Use cached config | Config updates only |
 | Cluster overload | Latency spike | Load shedding | All requests delayed |
 | Network partition | Connectivity check | Regional independence | Accuracy degradation |
+
+---
+
+# Master Review Check
+
+Before considering this chapter complete, verify:
+
+- [ ] **Judgment** — Trade-offs (accuracy vs latency, fail open vs closed) are explicitly articulated and defended.
+- [ ] **Failure/blast radius** — Failure modes enumerated with blast radius; Real Incident table present.
+- [ ] **Scale/time** — Load model and QPS analysis; bottlenecks and dangerous assumptions documented.
+- [ ] **Cost** — Major cost drivers, scaling behavior, and over-engineering pitfalls covered.
+- [ ] **Real-world ops** — On-call runbook, degradation levels, and failure injection exercises.
+- [ ] **Memorability** — Mental models and one-liners (e.g., Staff First Law, bouncer analogy) present.
+- [ ] **Data/consistency** — Strong vs eventual consistency; when to choose each.
+- [ ] **Security/compliance** — Abuse vectors, data exposure, privilege boundaries.
+- [ ] **Observability** — SLIs, SLOs, dashboards, alerting strategy.
+- [ ] **Cross-team** — Ownership, dependencies, who configures and who gets paged.
+- [ ] **Interview calibration** — Probes, Staff signals, common Senior mistake, how to teach, leadership explanation.
+
+## L6 Dimension Coverage (A–J)
+
+| Dim | Name | Coverage |
+|-----|------|----------|
+| **A** | Judgment | L5 vs L6 table, Staff-level answers, trade-off debates; when approximate beats exact. |
+| **B** | Failure/blast radius | Part 9 failure modes; Real Incident table; cascading failure timeline; blast radius per failure. |
+| **C** | Scale/time | Part 4 scale & load; QPS, storage, bottlenecks; dangerous assumptions; 10M req/sec target. |
+| **D** | Cost | Part 11 cost breakdown; scaling analysis; reliability tiers; over-engineering examples. |
+| **E** | Real-world ops | On-call runbook; failure injection; evolution timeline; production canary testing. |
+| **F** | Memorability | Staff First Law; bouncer analogy; one-liners; algorithm selection guide. |
+| **G** | Data/consistency | Part 8 strong vs eventual; over-count vs under-count; race conditions; clock assumptions. |
+| **H** | Security/compliance | Part 13 abuse vectors; data exposure; privilege boundaries; audit trail. |
+| **I** | Observability | Part 13b SLIs/SLOs; dashboards; alerting; audit trail for forensics. |
+| **J** | Cross-team | Interview Calibration cross-team signal; who configures limits; product vs infra. |
 
 ---
 

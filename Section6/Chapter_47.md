@@ -2931,6 +2931,21 @@ CONTAINMENT STRATEGIES:
   single service. SDK releases must have MORE rigor than any service deploy.
 ```
 
+## Real Incident: Structured Post-Mortem
+
+| Dimension | Description |
+|-----------|-------------|
+| **Context** | Enterprise config system serving 500,000 instances across 10,000 services. Central config store with propagation servers pushing to sidecars. Config changes averaged 2,500/day. No schema validation on timeout_ms; canary rollout optional. |
+| **Trigger** | Engineer intended to increase timeout from 500ms to 5000ms during a latency incident. Typo: set timeout_ms = 5 (missing zeros). Change pushed directly to 100% of instances. |
+| **Propagation** | Config change reached all 500,000 instances in ~4 seconds. Every request to affected services (payment, checkout, search) timed out at 5ms. Error rate rose from 0.1% to 85% within 30 seconds. Retry storms amplified backend load. Cascading failures in downstream databases. |
+| **User impact** | Payment and checkout flows failed for 12 minutes. ~2.5M failed transactions. Revenue impact: mid-six-figures. Customer support inundated. Partial recovery only after manual rollback. |
+| **Engineer response** | On-call identified config change in audit log at T+2min. Rollback initiated at T+3min. Propagation of rollback took 5 minutes. Services recovered as rollback reached instances. Root-cause review: no schema minimum on timeout_ms; no canary required for production. |
+| **Root cause** | Missing schema validation (min=100 would have rejected 5). No mandatory canary for config changes. Human error (typo) not caught before propagation. Config changes treated as lower risk than code deploys. |
+| **Design change** | Schema validation for all config keys (type, range, allowed values). Mandatory canary: 1% for 15 minutes, automatic rollback on error-rate threshold. Config change approval workflow for production namespaces. |
+| **Lesson** | Config changes are the leading cause of production outages at scale. A single bad value can propagate to the entire fleet in seconds. Schema validation and gradual rollout are non-negotiable. Treat the config system with more rigor than the deployment pipeline. |
+
+---
+
 ## Failure Timeline Walkthrough
 
 ```
@@ -3065,6 +3080,24 @@ ALERTING RULES (STATIC, not config-driven):
   WARNING:  config_sdk_fallback_to_default_rate > 0.1% for 10 minutes
   WARNING:  config_connected_clients < expected * 0.9 for 5 minutes
   INFO:     flag_stale_count > 100
+
+SLI/SLO TABLE (L6 observability signal):
+  SLI                          SLO Target      Measurement
+  ─────────────────────────────────────────────────────────
+  Config propagation latency   P99 < 5s        99% of config changes reach
+                                               all clients within 5 seconds
+  Config read availability     99.999%         Local cache + fallback chain;
+                                              reads never fail
+  Secret fetch availability    99.99%         Lease-based; cached until expiry
+  Propagation server uptime     99.9%          Clients reconnect if down;
+                                              config frozen, not lost
+  Config write availability    99.95%         Writes can tolerate brief outage
+  Audit log completeness       100%           Every change logged;
+                                              at-least-once delivery
+
+  L6 relevance: SLIs for the config system must be INDEPENDENT of the
+  config system. Use external probes. Config change safety (incidents
+  per config change) is a higher-order SLO than raw uptime.
 
 Staff insight: At Google, platform teams that use their own platform
 for monitoring inevitably create circular dependency loops.
@@ -3425,6 +3458,33 @@ TRADE-OFF 4: Secret encryption strength
   AES-256 (software): Fast, standard, free
   HSM-backed: Slower, expensive ($9K/month), required by some compliance
   Decision: AES-256 by default, HSM for Tier 2+ secrets only
+```
+
+## Over-Engineering Pitfalls (L6 cost instinct)
+
+```
+PITFALL 1: Real-time config sync on every request
+  Mistake: Service fetches latest config from API on each request.
+  Cost: 5ms × 100K QPS = 500K network calls/second; config API becomes bottleneck.
+  L6 fix: Local cache with streaming push. Config reads are in-process only.
+
+PITFALL 2: Per-request flag evaluation logging
+  Mistake: Log every flag evaluation for debugging.
+  Cost: 55B evaluations/sec × 50 bytes = 2.75 TB/second of log data. Unsustainable.
+  L6 fix: Log flag CHANGES and targeting rule updates; sample evaluations if needed.
+
+PITFALL 3: Globally consistent flag evaluation
+  Mistake: Ensure every instance sees identical flag state at all times.
+  Cost: Requires consensus or central coordination; adds latency, complexity, cost.
+  L6 fix: Eventual consistency (5-second staleness). 5 seconds of stale flags beats 5ms added latency.
+
+PITFALL 4: Building before buying at small scale
+  Mistake: Custom config platform for 50 engineers, 100 services.
+  Cost: 3 engineers × 18 months = $1.5M+ vs $60K/year SaaS.
+  L6 fix: Use managed/SaaS until ~2,000 engineers or compliance constraints.
+
+  Staff insight: The dominant cost is engineering time, not infrastructure.
+  Over-engineering adds maintenance burden. Start minimal; add rigor only when scale or incidents demand it.
 ```
 
 ## Hidden Cost: Audit Log and Flag Evaluation Logging at Scale
@@ -4338,6 +4398,35 @@ WHERE IT DOES WORK:
 
 ---
 
+# Part 15b: Mental Models & One-Liners
+
+```
+THE STAFF ENGINEER'S FIRST LAW OF CONFIGURATION:
+  Configuration changes are the leading cause of production outages.
+  More incidents are caused by config pushes than by code deploys.
+  Treat your configuration system with MORE rigor than your deployment pipeline.
+
+ONE-LINERS:
+  • "Config reads must be local; config writes go through the control plane."
+  • "Propagation speed is the enemy of safety—always pair fast propagation with gradual rollout."
+  • "The config system's failure mode is 'frozen at last known good,' never 'unavailable.'"
+  • "Feature flags are rental, not purchase. Every flag has a cost; enforce cleanup."
+  • "Secrets are not config. They need separate encryption, rotation, and audit."
+  • "The SDK is the highest-leverage code in the org. A 10-line bug in the SDK affects every service."
+  • "Schema validation rejects bad values before they propagate. Canary catches what schema misses."
+
+MENTAL MODELS:
+  thermostat + safe: Config = building thermostat. Central control, but a bad setting (200°F)
+  propagates to all buildings. Add validation (reject dangerous values) and gradual rollout.
+  
+  control vs data plane: Writes (control plane): API → validate → store → propagate.
+  Reads (data plane): local cache, in-process, zero network. Never mix.
+  
+  flag lifecycle: Create → Target → Roll out → Fully on → Clean up. Stale flags are tech debt.
+```
+
+---
+
 # Part 16: Interview Calibration (Staff Signal)
 
 ## How Interviewers Probe This System
@@ -4482,6 +4571,33 @@ in 2 years, and nobody will know what any of them do."
 config change safety. How many config changes caused an incident
 versus how many were applied safely?"
 ```
+
+## Staff Signals vs Senior Mistakes
+
+| Signal | Staff (L6) | Senior (L5) |
+|--------|------------|-------------|
+| **Safety-first** | Leads with blast radius control before features. "How do we prevent a bad config from reaching production?" | Focuses on features (targeting, rollout %) first. Safety as afterthought. |
+| **Config vs deploy** | Treats config changes as MORE dangerous than code deploys. Proposes schema validation, canary, rollback. | Assumes config changes are safe because "it's just a value." Skips canary for "small" changes. |
+| **Read path** | Config/flag evaluation MUST be local (in-process). Never on network hot path. | Proposes polling or per-request API call. "We need fresh values." |
+| **Failure mode** | Config system failure = "frozen at last known good." Services never fail due to config unavailability. | Config server down = services fail or use brittle defaults. |
+| **Secrets** | Separate engine: encryption, rotation, lease, audit. Never logs plaintext. | "Secrets are just another config key with encryption." |
+
+**Common Senior mistake**: Putting config or flag evaluation on the network path. A 5ms lookup × 100 evaluations per request = 500ms added to every request. At scale, this kills both the config server and user latency. Staff engineers enforce local evaluation with background sync.
+
+## How to Teach This Topic
+
+1. **Start with the danger**: Config changes cause more outages than code deploys. Treat config as the most dangerous mutation surface.
+2. **Introduce the read path constraint**: Config/flag evaluation is on every request. It must be sub-microsecond, local, no network. This drives the entire architecture.
+3. **Walk through failure modes**: Config store down, propagation slow, bad config push, secret leak, SDK bug. For each: blast radius and containment.
+4. **Use the Real Incident table**: Show how a typo (timeout_ms=5) caused a 12-minute outage. Discuss schema validation, canary, automatic rollback.
+5. **Separate the three domains**: Config (behavior), flags (conditional features), secrets (credentials). Different lifecycles, different safety requirements.
+6. **Emphasize deploy vs. release**: Feature flags decouple "code shipped" from "feature live." Config changes bypass CI—that's why they need their own safety rails.
+
+## Leadership Explanation (Non-Engineers)
+
+> "Configuration is like the thermostat for a building: we change settings without rebuilding the building. The hard part: we have 500,000 buildings (servers), and a bad setting (e.g., set temperature to 5 instead of 5000) spreads to all of them in seconds. We need guardrails—validation before the change goes out, gradual rollout so a mistake affects only 1% first, and instant rollback if something goes wrong. Secrets (passwords, keys) get extra protection: never in logs, rotated automatically, audited on every access."
+
+---
 
 ### Additional Interview Probes and Staff Signals
 
@@ -5211,6 +5327,37 @@ An L5 might design a working key-value config store with an API. An L6 designs a
 | **Multi-Environment** | Redesign 1, Exercise 2 |
 | **Full Trade-Off Debates** | Debates 1-8 |
 
+### Master Review Check
+
+Before considering this chapter complete, verify:
+
+- [ ] **Judgment** — Trade-offs (propagation speed vs safety, config vs deploy risk, validation strictness vs flexibility) explicitly articulated and defended.
+- [ ] **Failure/blast radius** — Failure modes enumerated with blast radius; Real Incident table present.
+- [ ] **Scale/time** — Load model and QPS analysis; bottlenecks, dangerous assumptions, 55B evaluations/sec target documented.
+- [ ] **Cost** — Major cost drivers (config store, propagation fleet, KMS, audit log, eng time); scaling behavior; over-engineering pitfalls.
+- [ ] **Real-world ops** — On-call runbook references, failure injection exercises, emergency local override, config freeze.
+- [ ] **Memorability** — Staff First Law; thermostat + safe analogy; mental models; one-liners.
+- [ ] **Data/consistency** — Eventual vs strong consistency; config versioning; dual-secret rotation; propagation atomicity.
+- [ ] **Security/compliance** — Threat model; envelope encryption; audit trail; secrets never in logs; access control.
+- [ ] **Observability** — Meta-monitoring (who watches the config system); propagation latency SLIs; audit log for forensics.
+- [ ] **Cross-team** — Platform team ownership; who configures; who gets paged; product vs infra; emergency bypass.
+- [ ] **Interview calibration** — Probes, Staff signals, common Senior mistake, how to teach, leadership explanation.
+
+### L6 Dimension Coverage (A–J)
+
+| Dim | Name | Coverage |
+|-----|------|----------|
+| **A** | Judgment | L5 vs L6 table; propagation speed vs safety; config vs deploy risk; validation vs flexibility; when to fail frozen vs unavailable. |
+| **B** | Failure/blast radius | Part 9 failure modes; Real Incident table; SDK bug widest blast radius; cascading failure timeline. |
+| **C** | Scale/time | Part 4 scale & load; 55B evaluations/sec; 500K connections; propagation fan-out; what breaks first. |
+| **D** | Cost | Part 11 cost drivers; config store, propagation fleet, KMS, audit log; eng time as dominant; over-engineering avoidance. |
+| **E** | Real-world ops | Failure injection exercises; emergency local override; config freeze; incident timeline walkthrough; config drift detection. |
+| **F** | Memorability | Staff First Law; thermostat + safe analogy; control vs data plane; flag lifecycle; Mental Models & One-Liners section. |
+| **G** | Data/consistency | Consistency needs; eventual for reads; strong for writes; dual-secret rotation; propagation atomicity per version. |
+| **H** | Security/compliance | Threat model; envelope encryption; secrets access control; audit trail; no plaintext in logs or dumps. |
+| **I** | Observability | Meta-monitoring; propagation latency SLIs; audit log for forensics; who watches the config system. |
+| **J** | Cross-team | Platform team ownership; who configures; emergency bypass; product vs infra; Interview Calibration cross-team signal. |
+
 ### L6 Verification Statement
 
 **This chapter now meets Google Staff Engineer (L6) expectations.**
@@ -5260,8 +5407,8 @@ All code examples in this chapter use language-agnostic pseudo-code:
 3. Immediately state that config/flag reads must be local (no network)—this separates L5 from L6
 4. Discuss the deploy vs. release distinction when feature flags come up
 5. For secrets: Explain envelope encryption and why it reduces KMS calls by 5000×
-6. Use the failure timeline to demonstrate operational maturity
+6. Use the Real Incident table and failure timeline to demonstrate operational maturity
 7. Reference the flag lifecycle to show you think about maintenance, not just features
-8. Practice the brainstorming questions to anticipate follow-ups
+8. Practice the brainstorming questions and full design exercises to anticipate follow-ups
 
 ---

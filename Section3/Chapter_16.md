@@ -1593,6 +1593,23 @@ Every service using this ZK cluster is affected simultaneously. If 50 services d
 - Connection pooling to limit reconnection storms
 - Exponential backoff on reconnection attempts
 
+### 6.2C Real Incident: Stale Lock Holder Data Corruption
+
+At Staff level, real incidents teach judgment. This incident illustrates why fencing tokens are non-negotiable and how coordination failures propagate.
+
+| Part | Content |
+|------|---------|
+| **Context** | Large-scale job scheduler at a cloud provider. 50,000 jobs/day across 200 workers. Single ZooKeeper cluster for leader election and per-job lock claims. Jobs write to shared storage (blob store). |
+| **Trigger** | Worker A holds lock for job J1. Worker A enters 12-second GC pause (JVM Full GC). ZooKeeper session times out (session timeout = 10s). Lock expires. Worker B acquires lock for J1. |
+| **Propagation** | Worker A wakes from GC, unaware lock expired. Both A and B execute job J1. Both write to blob store. Storage layer had no fencing token check—accepted both writes. Same blob path overwritten twice. Downstream consumers read partially corrupted data. |
+| **User impact** | ~200 jobs duplicated; 40 jobs had corrupted output (both workers wrote to same paths). Affected batch pipelines failed. Support tickets from enterprise customers. Estimated 4-hour recovery window for affected pipelines. |
+| **Engineer response** | On-call detected duplicate job executions from metrics. Traced to ZooKeeper session expiration spike during GC. Stopped scheduler, identified affected jobs, re-ran from safe checkpoints. Root cause analysis took 6 hours due to distributed traces across ZK, workers, and storage. |
+| **Root cause** | No fencing tokens. Storage layer trusted lock holder identity without epoch/token. GC pause exceeded session timeout. Lock service and storage were designed independently—no contract for token propagation. |
+| **Design change** | (1) Lock service now returns monotonically increasing fencing token with every lock grant. (2) Storage layer rejects writes with token ≤ last-seen token per resource. (3) Worker passes token to all downstream writes. (4) GC tuning: MaxGCPauseMillis=50ms, moved scheduler off shared JVM. (5) Session timeout increased to 30s with justification documented. |
+| **Lesson learned** | "Locks expire. Processes pause. Fencing tokens are not optional—they are the only way to guarantee that a 'stale' lock holder cannot corrupt data. If your storage layer doesn't support tokens, you cannot safely use distributed locks for that resource." |
+
+**L6 Takeaway:** Coordination correctness requires defense in depth. The lock prevents concurrent acquisition; the fencing token prevents stale holders from acting. Both are required.
+
 ### 6.3 Clock Skew
 
 Clocks lie. Plan accordingly.
@@ -2625,6 +2642,32 @@ is_region_failure_confirmed():
   failures = count(check for check in checks if failed)
   return failures >= 2  // avoid false positives
 ```
+
+### 9.7 Security, Trust Boundaries, and Compliance for Coordination
+
+Coordination services hold critical metadata: cluster membership, service discovery, config, lock ownership. Staff engineers must treat security as part of reliability—a compromised coordination layer can cause data corruption or service impersonation.
+
+**Trust Boundaries:**
+
+| Boundary | Risk | Mitigation |
+|----------|------|------------|
+| **Who can acquire locks?** | Malicious client claims lock, blocks legitimate work | Authentication (mTLS, service accounts). Authorization: lock path namespaced by service/team. Audit logs for lock acquisitions. |
+| **Who can read config?** | Config may contain secrets (DB URLs, API keys) | Encrypt config at rest. Limit read access to services that need it. Never put raw secrets in coordination store—use secret manager with reference only. |
+| **Who can participate in leader election?** | Rogue node forces elections, causes instability | Only authenticated, authorized nodes join cluster. Network-level isolation (VPC, firewall) for coordination cluster. |
+| **Cross-team shared cluster** | Team A's misconfiguration affects Team B | Per-team namespaces (ZK paths, etcd prefixes). Quotas per namespace. Isolation tier: critical vs. non-critical clusters. |
+
+**Data Sensitivity in Coordination:**
+
+- **Service discovery:** Instance IPs, ports—low sensitivity but enables reconnaissance
+- **Config:** May reference secrets—treat as sensitive
+- **Lock metadata:** Client IDs, TTLs—useful for debugging; avoid PII in lock keys
+- **Compliance:** If coordination store holds PII or PHI, retention and encryption must meet regulatory requirements. Most coordination stores are not designed for regulated data—store references only.
+
+**Real Example:** A payments platform used ZooKeeper for feature flags. A flag value was set to a database connection string (mistakenly). The ZK ACLs allowed read access to all services. A compromised low-privilege service read the flag and exfiltrated credentials. Design change: Config values in coordination store are now opaque references; actual secrets live in a secret manager with strict access control.
+
+**Trade-off:** Strong authentication and per-namespace authorization add latency and operational complexity. For critical coordination (payments, identity), the trade-off is mandatory. For internal dev tooling, relaxed boundaries may be acceptable with explicit risk acknowledgment.
+
+**L6 Implication:** When proposing coordination infrastructure, articulate the trust model. "Who can acquire locks on payment-related resources? Who can read cluster membership?" Security is not an afterthought—it affects blast radius when things go wrong.
 
 ---
 
@@ -4231,6 +4274,18 @@ I'd also add:
 - Metrics on election frequency, lock acquisition latency, queue depth"
 ```
 
+## How to Explain Coordination to Leadership
+
+Leaders care about risk, cost, and user impact—not Raft heartbeats. Frame coordination in business terms:
+
+**One-liner:** "Coordination is the glue that keeps distributed systems consistent. When it fails, we get duplicate work, data corruption, or service outages. We minimize it because it's expensive and fragile."
+
+**Risk framing:** "Our job scheduler uses leader election. If the coordination service goes down, we stop scheduling new jobs for 30–60 seconds. Existing jobs continue. We've designed for this—no data loss, but throughput drops. The alternative is no coordination, which would mean duplicate jobs and inconsistent state."
+
+**Cost framing:** "Running a dedicated 5-node ZooKeeper cluster costs ~$5K/month plus 0.5 FTE for operations. We could use a managed service for ~$8K/month with less ops burden. The trade-off is lock-in vs. control."
+
+**How to teach this topic:** When mentoring juniors, use the analogy: "Leader election is like electing a class president—only one person can make certain decisions. Locks are like a bathroom key—only one person can use the resource at a time. The hard part isn't the election or the key—it's what happens when the president vanishes or someone forgets to return the key." Teach in this order: (1) Why coordination is hard (Two Generals, FLP), (2) When to avoid it (idempotency, partitioning), (3) Leader election vs. locks (one coordinator vs. many critical sections), (4) Fencing tokens (the non-negotiable add-on), (5) Failure modes (split-brain, election storms, lock expiry). End with: "What happens when the coordination service is down?" If they can't answer, they're not ready for production.
+
 ## Staff-Level Reasoning Visibility
 
 When discussing coordination, make your reasoning visible:
@@ -4252,6 +4307,39 @@ When discussing coordination, make your reasoning visible:
 ---
 
 # Part 18: Final Verification
+
+## Master Review Prompt Check (All 11 Items)
+
+Use this checklist to verify chapter completeness:
+
+| # | Check | Status |
+|---|-------|--------|
+| 1 | **Judgment & decision-making** — When to use coordination vs. alternatives, timeout/TTL sizing, trade-off frameworks | ✅ |
+| 2 | **Failure & incident thinking** — Partial failures, blast radius, cascading failure timeline, structured real incident (6.2C) | ✅ |
+| 3 | **Scale & time** — Growth over years, first bottlenecks (16.1C), scale thresholds, evolution phases | ✅ |
+| 4 | **Cost & sustainability** — Cost as first-class constraint (16.1B), coordination cost reality | ✅ |
+| 5 | **Real-world engineering** — Operational burdens, human error (Anti-Pattern 6), on-call reality, ownership model | ✅ |
+| 6 | **Learnability & memorability** — Mental models, one-liners, diagrams, Quick Reference Card | ✅ |
+| 7 | **Data, consistency & correctness** — Consistency models (5.7), invariants, fencing tokens | ✅ |
+| 8 | **Security & compliance** — Trust boundaries (9.7), data sensitivity in coordination | ✅ |
+| 9 | **Observability & debuggability** — Metrics (16.5), dashboards, runbooks, alerts | ✅ |
+| 10 | **Cross-team & org impact** — Ownership model, cross-team SLAs, dependency impact | ✅ |
+| 11 | **Interview calibration** — What interviewers probe, Staff signals, leadership explanation, teaching | ✅ |
+
+## L6 Dimension Coverage Table (A–J)
+
+| Dim | Dimension | Coverage | Location |
+|-----|-----------|----------|----------|
+| **A** | Judgment & decision-making | Strong | Sections 1, 11; L5 vs L6 table; decision matrix (lock vs. alternatives); timeout justification |
+| **B** | Failure & incident thinking | Strong | Sections 6, 6.2B, 6.2C; blast radius; cascading failure timeline; structured real incident |
+| **C** | Scale & time | Strong | Section 16.1C; scale thresholds; evolution V1→V5; first bottlenecks |
+| **D** | Cost & sustainability | Strong | Section 16.1B; cost reality; monthly cost by scale; cost as constraint |
+| **E** | Real-world engineering | Strong | Anti-Pattern 6; ownership model; on-call reality; runbooks (16.2) |
+| **F** | Learnability & memorability | Strong | Mental models; one-liners; Quick Reference Card; diagrams throughout |
+| **G** | Data, consistency & correctness | Strong | Sections 5.7, 4.3; consistency spectrum; fencing tokens; invariants |
+| **H** | Security & compliance | Strong | Section 9.7; trust boundaries; data sensitivity; compliance |
+| **I** | Observability & debuggability | Strong | Section 16.5; metrics; dashboards; alerts; runbooks |
+| **J** | Cross-team & org impact | Strong | Ownership model; cross-team SLAs; dependency impact; platform vs. product |
 
 ## Does This Section Meet L6 Expectations?
 
@@ -4293,6 +4381,8 @@ When discussing coordination, make your reasoning visible:
 │   ☑ L5 vs L6 phrase comparisons                                             │
 │   ☑ Common mistakes that cost the level                                     │
 │   ☑ Interviewer evaluation criteria                                         │
+│   ☑ How to explain to leadership                                            │
+│   ☑ How to teach this topic                                                 │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

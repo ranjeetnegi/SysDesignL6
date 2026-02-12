@@ -3860,6 +3860,51 @@ INCIDENT 5: "Region-B failure caused global dashboards to time out"
   → Added: Graceful degradation (show partial data with annotation)
 ```
 
+## Real Incident: Structured Analysis
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│  REAL INCIDENT: CASCADING METRICS PLATFORM DEPLOY BLINDS 40% OF ORGANIZATION                  │
+├─────────────────────────────────────────────────────────────────────────────────────────────┤
+│  Context         │ Bad collector config deployed to 100% of fleet, skipping canary.            │
+│                  │ "Just a config change" treated as low-risk. Regex bug in label filter.     │
+├──────────────────┼──────────────────────────────────────────────────────────────────────────┤
+│  Trigger         │ Config change causes collectors to reject all samples matching a specific │
+│                  │ label format. 40% of org metrics silently dropped.                        │
+├──────────────────┼──────────────────────────────────────────────────────────────────────────┤
+│  Propagation     │ T+0: Config pushed to 100% of collectors simultaneously.                   │
+│                  │ T+1min: 40% of metrics dropped. T+3min: Platform metrics still flowing    │
+│                  │ (collectors emit their own metrics—platform dashboards look healthy).     │
+│                  │ T+5min: Alert rules show "evaluation_failure." T+10min: Support tickets  │
+│                  │ from teams: "Our dashboard shows half the traffic."                       │
+├──────────────────┼──────────────────────────────────────────────────────────────────────────┤
+│  User impact     │ 20 minutes of missing metrics for 40% of all services. 2 real incidents   │
+│                  │ missed during the 20-minute window (no alerting for affected teams).       │
+│                  │ Application dashboards showed gaps; platform dashboards looked fine.       │
+├──────────────────┼──────────────────────────────────────────────────────────────────────────┤
+│  Engineer resp.  │ T+10min: Platform on-call investigates. Platform dashboards healthy →    │
+│                  │ initially assumed application issue. T+15min: Realization that collector   │
+│                  │ filtering is the cause. T+18min: Config rollback. T+20min: Metrics       │
+│                  │ resume. T+25min: Partial backfill from agent buffers.                    │
+├──────────────────┼──────────────────────────────────────────────────────────────────────────┤
+│  Root cause      │ 1. Config change skipped canary → 100% blast radius.                       │
+│                  │ 2. Platform metrics vs application metrics on different paths → platform  │
+│                  │ looked healthy while applications were blind.                             │
+│                  │ 3. No end-to-end canary metric to detect filtering bugs.                   │
+├──────────────────┼──────────────────────────────────────────────────────────────────────────┤
+│  Design change   │ 1. NEVER deploy collector config to 100% without canary.                  │
+│                  │ 2. End-to-end canary: inject synthetic metric at app level → verify        │
+│                  │ arrival in TSDB; alert externally if canary missing.                      │
+│                  │ 3. Collector "received" vs "forwarded" divergence alert if > 1%.          │
+├──────────────────┼──────────────────────────────────────────────────────────────────────────┤
+│  Lesson          │ "The metrics platform is self-concealing: its own health hides application│
+│                  │ blindness. The blast radius of a bad platform deploy is the entire org.    │
+│                  │ Canary every change—especially 'just config.'"                            │
+└──────────────────┴──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Staff relevance**: This incident exemplifies the observability paradox—the system that detects outages cannot detect its own failure to detect. L6 judgment: design for self-concealing failure by adding external verification (dead-man's switch, end-to-end canary) and never treating platform deploys as low-risk.
+
 ## Canary Deployment for the Metrics Platform
 
 ```
@@ -4968,6 +5013,68 @@ DEBATE 8: Real-time streaming alerts vs periodic batch evaluation
   Streaming only for the 1% that truly need sub-second detection
   (e.g., "payment processing completely stopped"). The cost of
   streaming everything is 10× for a benefit that matters rarely.
+```
+
+---
+
+# Part 19: Master Review Check & L6 Dimension Table
+
+## Master Review Check (11 Items)
+
+```
+Before considering this chapter complete for L6 readiness, verify:
+
+[✓] 1. Judgment: Trade-offs documented (accuracy vs latency, cost vs retention, cardinality vs flexibility)
+[✓] 2. Failure/blast-radius: Failure modes enumerated with propagation, recovery, Real Incident table
+[✓] 3. Scale/time: Concrete numbers (5B series, 200M samples/sec), bottlenecks, scaling limits
+[✓] 4. Cost: Drivers, scaling analysis, cost-aware redesign, chargeback, over-engineering traps
+[✓] 5. Real-world-ops: Runbooks, canary deployment, meta-monitoring, ownership
+[✓] 6. Memorability: Staff Law, one-liners table, mental models, Quick Visual
+[✓] 7. Data/consistency: Eventual consistency, counter resets, cross-tier stitching
+[✓] 8. Security/compliance: Metric abuse, query abuse, PII in labels, access control
+[✓] 9. Observability: Meta-observability, external heartbeat, self-monitoring
+[✓] 10. Interview calibration: Probes, Staff signals, common L5 mistakes, phrases, leadership explanation
+[✓] 11. Exercises & brainstorming: "What if" questions, redesigns, failure injection, full design exercises
+```
+
+## L6 Dimension Coverage Table (A–J)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                    L6 DIMENSION COVERAGE (Metrics / Observability System)                    │
+├───────┬─────────────────────────────┬─────────────────────────────────────────────────────┤
+│ Dim   │ Dimension                    │ Where Covered                                        │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ A     │ Judgment                    │ L5 vs L6 table; accuracy vs query speed; cardinality│
+│       │                             │ vs flexibility; completeness vs ingestion reliability│
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ B     │ Failure/blast-radius        │ Part 9 (TSDB, collector, cardinality, query overload)│
+│       │                             │ Real Incident table; retry storms; cascading deploy    │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ C     │ Scale/time                  │ Part 4 (5B series, 200M samples/sec); Part 9 timeline│
+│       │                             │ Burst behavior; what breaks first                      │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ D     │ Cost                        │ Part 11 (drivers, scaling, chargeback); cost-aware    │
+│       │                             │ redesign; tiered retention; over-engineering          │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ E     │ Real-world-ops              │ Runbooks (Part 9); canary (Part 14); meta-monitoring │
+│       │                             │ On-call burden; governance for 500 teams               │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ F     │ Memorability                │ Staff Law; Staff One-Liners table; Quick Visual;     │
+│       │                             │ "Metrics detect; logs diagnose"                       │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ G     │ Data/consistency            │ Part 3, Part 8; eventual consistency; counter resets; │
+│       │                             │ cross-tier query stitching; late-arriving data        │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ H     │ Security/compliance         │ Part 13; metric abuse; query abuse; PII in labels;    │
+│       │                             │ GDPR deletion; access control                         │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ I     │ Observability               │ Meta-observability; external heartbeat; self-monitor;│
+│       │                             │ (Metrics system observing itself)                     │
+├───────┼─────────────────────────────┼─────────────────────────────────────────────────────┤
+│ J     │ Cross-team                  │ Cost attribution; per-team quotas; 500-team governance│
+│       │                             │ Ownership model; showback vs chargeback               │
+└───────┴─────────────────────────────┴─────────────────────────────────────────────────────┘
 ```
 
 ---

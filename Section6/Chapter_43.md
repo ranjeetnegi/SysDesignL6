@@ -351,6 +351,18 @@ IMPLICATION:
 • Feed can be stale, but must be consistent with itself
 • Monotonic read: Once you see a post, you always see it (until deleted)
 • No strong consistency required across users (your feed ≠ my feed)
+
+CONSISTENCY MATRIX (L6 Relevance):
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│  DATA TYPE              │  CONSISTENCY MODEL    │  STAFF RATIONALE                         │
+├──────────────────────────┼──────────────────────┼──────────────────────────────────────────┤
+│  Post content            │  Strong (source)     │  Authoritative; edits must propagate      │
+│  Feed structure (IDs)    │  Eventual (< 5 min)  │  Precomputed; staleness acceptable        │
+│  Engagement counts       │  Eventual (< 5 min)   │  Approximate; users don't need exact     │
+│  Own post visibility     │  Read-your-writes    │  Author must see own post immediately      │
+│  Follow/unfollow         │  Eventual (< 1 min)   │  Affects next refresh, not retroactive     │
+│  Deletion propagation    │  Best-effort (< 1h)  │  Soft delete + TTL; hard delete async       │
+└──────────────────────────┴──────────────────────┴──────────────────────────────────────────┘
 ```
 
 ## Durability
@@ -1683,6 +1695,22 @@ LEVEL 4: GENERIC CONTENT
 LEVEL 5: ERROR PAGE
 • Service unavailable
 • Trigger: All systems down, no safe fallback
+
+BLAST RADIUS SUMMARY (L6 Relevance):
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│  COMPONENT FAILURE       │  BLAST RADIUS           │  MITIGATION                            │
+├──────────────────────────┼─────────────────────────┼─────────────────────────────────────────┤
+│  Feed Storage shard      │  1/N users (e.g. 6.25%) │  Replica promotion; cached fallback   │
+│  Content Cache node      │  Affected keys only     │  Request coalescing; Post Store fallback│
+│  Fan-out queue full      │  New posts delayed      │  Priority queue; defer inactive        │
+│  Ranking service down    │  All users (degraded)   │  Chronological fallback                │
+│  Post Store down         │  All users              │  Cached content only; read replica    │
+│  Celebrity index down    │  Celebrity posts missing │  Graceful omission; partial feed      │
+└──────────────────────────┴─────────────────────────┴─────────────────────────────────────────┘
+
+STAFF INSIGHT: "Blast radius is a design choice. Shard Feed Storage so one
+failure affects <7% of users. Isolate celebrity path so celebrity bugs
+don't affect normal-user latency."
 ```
 
 ## Failure Timeline Walkthrough
@@ -2498,6 +2526,23 @@ MITIGATIONS:
 • Aggregate public metrics (don't expose exact counts)
 • Allow users to hide followers/following lists
 • Audit logs for suspicious access patterns
+
+COMPLIANCE CHECKLIST (L6 Relevance):
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│  REGULATION/REQUIREMENT   │  NEWS FEED IMPACT           │  DESIGN IMPLICATION              │
+├───────────────────────────┼────────────────────────────┼──────────────────────────────────┤
+│  GDPR (right to erasure)   │  Delete user's posts from   │  Post IDs in feeds; soft delete  │
+│                            │  all followers' feeds      │  + propagation manifest          │
+├───────────────────────────┼────────────────────────────┼──────────────────────────────────┤
+│  Data minimization         │  Feed stores only IDs      │  No content duplication in feed  │
+│                            │  Content fetched by ref    │  storage; single source of truth  │
+├───────────────────────────┼────────────────────────────┼──────────────────────────────────┤
+│  Cross-border transfer     │  EU users, US creators      │  Regional storage; replication   │
+│                            │  (EU data in EU)            │  paths respect jurisdiction       │
+├───────────────────────────┼────────────────────────────┼──────────────────────────────────┤
+│  Audit trail               │  Moderation, deletion      │  Deletion log; data lineage       │
+│                            │  must be traceable         │  for compliance verification     │
+└───────────────────────────┴────────────────────────────┴──────────────────────────────────┘
 ```
 
 ## Privilege Boundaries
@@ -2815,6 +2860,45 @@ Redesign:
 • Regular audit of data locations
 ```
 
+## Structured Incident Table (L6 Review Format)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                    REAL INCIDENT: THE CELEBRITY CASCADE (Year 2)                             │
+│                    Structured format for post-mortem and design review                        │
+├─────────────────────────────────────────────────────────────────────────────────────────────┤
+│  DIMENSION           │  CONTENT                                                              │
+├───────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│  CONTEXT              │  Platform at 80M DAU. Pure push fan-out. Celebrity accounts (1M+      │
+│                       │  followers) treated like normal users. No threshold logic.           │
+├───────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│  TRIGGER              │  Top celebrity (50M followers) posted breaking news. Single post      │
+│                       │  enqueued 50M fan-out tasks.                                          │
+├───────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│  PROPAGATION          │  Fan-out queue depth grew 0 → 50M in 2 minutes. Workers saturated.   │
+│                       │  Queue processing fell behind. Normal users' posts stalled. All       │
+│                       │  feeds became stale (no new content for 30+ minutes).                │
+├───────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│  USER IMPACT          │  80M users saw no new posts for 30-45 minutes. Engagement dropped     │
+│                       │  40%. Support tickets spiked. Revenue impact: ~$2M (estimated).      │
+├───────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│  ENGINEER RESPONSE    │  T+15m: Scaled workers 4x. Queue still growing.                      │
+│                       │  T+25m: Disabled fan-out for celebrity, served from read-merge.      │
+│                       │  T+45m: Queue began draining. T+2h: Full recovery.                   │
+├───────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│  ROOT CAUSE           │  Design assumed fan-out time bounded. Power-law follower distribution│
+│                       │  not modeled. No tiering by author size.                             │
+├───────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│  DESIGN CHANGE        │  Hybrid push-pull: threshold 10K (push) / 1M (pull). Celebrity       │
+│                       │  Index for pull-at-read. Priority queues (active users first).       │
+│                       │  Celebrity posts never enter fan-out queue.                          │
+├───────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│  LESSON               │  "Design for the tail, not the median." Staff insight: One celebrity │
+│                       │  can saturate a system built for averages. Threshold-based routing   │
+│                       │  is non-negotiable at scale.                                          │
+└───────────────────────┴──────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 # Part 15: Alternatives & Explicit Rejections
@@ -3059,6 +3143,37 @@ EXPERIENCE SIGNALS:
 • "I've seen this fail when..."
 • "In practice, users don't notice..."
 • "The operational burden of this approach is..."
+```
+
+## Leadership Explanation (How to Teach This System)
+
+```
+WHEN EXPLAINING TO STAKEHOLDERS:
+
+ONE-LINER:
+"News feed is a hybrid push-pull system: we precompute feeds for normal users
+so reads are fast, and we fetch celebrity content at read time so writes
+never block. The Staff judgment is where to draw the line."
+
+ELEVATOR PITCH (30 sec):
+"We optimize for the common case—most users follow 150 people, most creators
+have < 10K followers. For that 99%, push works great. The 1% of celebrities
+would break pure push, so we pull their content when you load your feed.
+Trade-off: celebrity posts may be a few seconds behind, but the system stays
+fast for everyone."
+
+HOW TO TEACH A SENIOR:
+• Start with the mailbox analogy (Part 1)
+• Have them compute: 1 post × 100M followers = how long to fan out?
+• Then ask: "What if we didn't fan out for that user?" (pull at read)
+• Walk through degradation hierarchy (Part 9)—what happens when each piece fails
+• End with: "The Staff question is always: what's the blast radius of this
+  decision?"
+
+COMMON SENIOR MISTAKE TO FLAG:
+Optimizing for perfection. Seniors often propose "we need strong consistency"
+or "we need real-time for everyone." The Staff response: "Users don't notice
+5-minute staleness. They absolutely notice 500ms latency."
 ```
 
 ---
@@ -3969,6 +4084,20 @@ OPTIMIZATION PRIORITY:
 1. Reduce feed loads (better caching, longer TTL)
 2. Reduce fan-out (more pull-based for high followers)
 3. Reduce content hydration (better cache hit rate)
+
+COST-SLO TRADE-OFF TABLE (L6 Decision Framework):
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│  SLO RELAXATION          │  COST SAVINGS      │  USER IMPACT         │  WHEN TO ACCEPT      │
+├──────────────────────────┼────────────────────┼──────────────────────┼──────────────────────┤
+│  P99 500ms → 800ms       │  ~15% (less cache) │  Noticeable to few   │  Cost crisis, canary │
+│  Post visibility 5m→15m  │  ~25% (less push)   │  Inactive users only │  Scale event         │
+│  No ML ranking           │  ~20% (no model)   │  Chronological only  │  MVP, cost cut       │
+│  Single region           │  ~30% (no replica) │  +200ms for remote   │  Early stage only    │
+│  Hot tier 7d → 3d        │  ~10% (mem)        │  Cold users slower   │  Capacity pressure   │
+└──────────────────────────┴────────────────────┴──────────────────────┴──────────────────────┘
+
+STAFF INSIGHT: "Every SLO has a cost. The Staff question is: which relaxation
+hurts the fewest users for the most savings? Document the trade-off explicitly."
 ```
 
 ---
@@ -4147,6 +4276,17 @@ FEED SYSTEM MONITORING: KEY METRICS
 │  🟢 Green: Within SLO    🟡 Yellow: Warning    🔴 Red: Breaching SLO         │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
+
+SLO-TO-ALERT MAPPING (Observability Completeness):
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│  SLO                           │  ALERT TRIGGER        │  ACTION                            │
+├────────────────────────────────┼───────────────────────┼──────────────────────────────────┤
+│  Feed load P99 < 500ms         │  P99 > 500ms (1 min)  │  Runbook: Latency High             │
+│  Feed availability > 99.9%    │  Error rate > 0.1%    │  Runbook: Error Rate High          │
+│  Post visibility P95 < 5 min   │  P95 > 10 min         │  Check fan-out queue, worker health │
+│  Content freshness <1% stale   │  >1% feeds >5 min    │  Check replication lag, fan-out    │
+│  Cache hit rate > 95%         │  Hit rate < 90%      │  Runbook: Cache Hit Low            │
+└────────────────────────────────┴───────────────────────┴──────────────────────────────────┘
 ```
 
 ---

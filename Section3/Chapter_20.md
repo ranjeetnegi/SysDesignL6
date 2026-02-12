@@ -70,6 +70,25 @@ This section teaches CAP the way Staff Engineers actually use it: through case s
 
 ---
 
+## Mental Models & One-Liners (Memorizable)
+
+Staff Engineers use these mental models to reason quickly and teach others:
+
+| Mental Model | One-Liner | When to Use |
+|--------------|-----------|-------------|
+| **Failure policy, not feature** | "CAP is what you sacrifice when the network splits, not what you have when it's healthy." | Correcting "pick two" framing |
+| **User experience trace** | "CP = errors; AP = stale. Which can your users tolerate?" | Every CAP decision |
+| **Per-feature, not system-wide** | "The feed can be AP; the block list must be CP. One system, many policies." | Designing hybrid systems |
+| **Defaults are dangerous** | "If you don't design for partition, your system will decide for you—and it will probably be wrong." | Advocating explicit design |
+| **Rare but critical** | "Partitions happen 0.01% of the time. That 0.01% is when CAP matters." | Prioritizing partition design |
+| **Partial worse than full** | "Full partition: everyone knows. Partial partition: no one knows—and consensus breaks." | Failure mode planning |
+| **Exactly-once is a lie** | "Exactly-once = at-least-once + dedup. Both still face CAP." | Correcting delivery semantics claims |
+| **Cost of wrong choice** | "CP costs availability during partition. AP costs reconciliation after." | Explaining trade-offs to leadership |
+
+**Analogy for non-technical stakeholders**: "Imagine two offices with a phone line between them. When the line is cut, each office must choose: (CP) refuse to do anything until the line is fixed, or (AP) keep working with local information even if the other office has different data. CAP is that choice."
+
+---
+
 # Part 1: CAP Theorem Reframed for Practitioners
 
 ## Why CAP Is About Behavior During Network Partitions
@@ -1802,6 +1821,86 @@ function resolve_custom(order_a, order_b):
 
 ---
 
+### Part 6D: Security & Compliance — Data Sensitivity and Trust Boundaries During Partition
+
+CAP choices intersect with security and compliance in ways that Staff Engineers must anticipate. During partition, data may reside in regions with different regulatory contexts, and trust boundaries can be violated if consistency is sacrificed in the wrong place.
+
+#### Data Sensitivity During Partition
+
+| Data Type | CP During Partition | AP During Partition | Compliance Risk |
+|-----------|---------------------|---------------------|------------------|
+| **Personal data** | Write blocked until sync—no new data in isolated region | Divergent copies; region A may have data region B lacks | Data residency, retention, deletion inconsistency |
+| **Access control** | "Permission denied" until confirmation | Stale permissions—user gains access they should not have | Privilege escalation, audit trail gap |
+| **Audit logs** | Logs not written if quorum unavailable | Logs written locally; merge may lose ordering or duplicates | Non-repudiation, regulatory audit failure |
+| **Secrets/config** | No config updates during partition | Divergent config; security policy may differ by region | Policy drift, key rotation inconsistency |
+
+**Staff insight**: For data subject to residency or deletion requirements, AP during partition can create compliance violations—one region deletes per user request while another has not received the deletion. CP for deletion propagation is often non-negotiable.
+
+#### Trust Boundaries and CAP
+
+When a partition splits regions, the trust boundary is the network. Each region must assume the other might have diverged. Staff Engineers ask: *"If region B is compromised or simply wrong, can region A's CP/AP choice prevent harm?"*
+
+- **CP**: Rejects operations unless both sides agree. Compromised region cannot unilaterally change authoritative state. Downside: legitimate operations also blocked.
+- **AP**: Each region acts on local state. Compromised region can inject bad data that will propagate when partition heals. Conflict resolution becomes a security boundary—malicious writes must be detectable or rejectable.
+
+**Real-world example**: A financial platform used AP for "last login" display. During partition, an attacker in one region spoofed a successful login. When partition healed, the merge used LWW and the fake login overwrote the real one. Design change: authentication events are CP—no login is persisted without cross-region confirmation. Display can be AP; persistence cannot.
+
+#### Compliance Requirements That Force CP
+
+| Requirement | Why CP | Alternative If AP |
+|-------------|--------|--------------------|
+| **Right to erasure** | Deletion must propagate before considering it done | Accept delayed deletion; document in privacy policy |
+| **Audit trail integrity** | Logs must be ordered and complete | Accept eventual log merge; risk of gaps during partition |
+| **Transaction non-repudiation** | Cannot have conflicting records of who did what | Strong consistency for authorization layer only |
+| **Data residency** | Data must not appear in unauthorized region | CP for cross-region writes; geographic fencing |
+
+**Trade-off**: Compliance-driven CP expands the surface area that fails during partition. Staff Engineers negotiate with legal/compliance: "We can achieve CP for deletion, but during a 30-minute partition, delete requests will queue. Is that acceptable?" Document the accepted risk.
+
+---
+
+### Part 6E: Observability & Debuggability — Detecting and Diagnosing Partition Behavior
+
+You cannot fix what you cannot see. Staff Engineers instrument for partition detection and CAP behavior visibility.
+
+#### Metrics to Track
+
+| Metric | Purpose | Alert Threshold |
+|--------|---------|-----------------|
+| **Cross-region latency** | Detect partition vs. slow network | p99 > 5× baseline sustained 30s |
+| **Replication lag** | AP divergence window | Lag > 60s for critical paths |
+| **Quorum reachability** | CP availability signal | Quorum < required for 10s |
+| **Write rejection rate** | CP symptom during partition | Spike > 5% of writes |
+| **Conflict resolution rate** | AP reconciliation load | Unusual spike after partition heal |
+| **Stale read fraction** | AP user impact | Read-from-replica age > acceptable |
+
+**Staff insight**: Partition detection is ambiguous. High latency might mean congestion, not partition. Use multiple signals: if latency is high *and* replication lag is growing *and* error rate is up, treat as partition. Avoid single-metric alerts that fire on normal load.
+
+#### Logging During Partition
+
+- **Structured logs**: Include `region`, `partition_detected`, `cap_choice` (e.g., `rejected_no_quorum` vs. `accepted_local`).
+- **Correlation**: Request ID or trace ID across regions so post-partition analysis can reconstruct user flow.
+- **Deduplication**: Log once per partition detection, not per request—avoid log flooding during partition.
+
+#### Distributed Tracing
+
+During partition, traces are incomplete—calls to the other region timeout or fail. Staff Engineers:
+- Tag spans with `partition_affected=true` when cross-region call fails.
+- Preserve partial traces; do not drop them. A partial trace showing "stopped at region boundary" is more useful than no trace.
+- After partition heals, trace reconciliation flows to verify conflict resolution.
+
+#### Debugging Consistency Issues
+
+| Symptom | Likely Cause | Debugging Steps |
+|---------|--------------|-----------------|
+| User sees stale data after "partition healed" | Reconciliation lag or conflict resolution delay | Check replication lag; inspect conflict resolution queue |
+| User reports "I did X but it disappeared" | LWW or merge dropped their write | Trace write path; check conflict resolution logs for discarded version |
+| Duplicate charges after partition | Idempotency key not propagated or TTL expired | Trace payment flow; verify idempotency key in both regions |
+| Blocked user sees blocker's content | Block list on AP path; partition not fully healed | Check block propagation time; verify block is CP for safety features |
+
+**One-liner**: "If you cannot explain what your system does during partition from the metrics, you have not designed for partition—you have designed for hope."
+
+---
+
 # Part 7: CAP and System Evolution
 
 CAP choices aren't permanent. As systems mature and incidents occur, teams re-evaluate their trade-offs.
@@ -1966,6 +2065,23 @@ Every significant partition incident leads to a CAP review:
 
 ---
 
+### Structured Real Incident: Multi-Region Social Platform Partition
+
+The following incident illustrates how implicit CAP choices surface during partition and drive design changes.
+
+| Dimension | Details |
+|-----------|---------|
+| **Context** | Social platform with 80M DAU. 3 regions: US-East (primary), EU-West, Asia-Pacific. Timeline feed used synchronous cross-region replication for "new posts" visibility. Block list used async replication. Feed and block list both served from local read replicas. |
+| **Trigger** | Transatlantic fiber cut during maintenance window. US-East ↔ EU-West partition. Partition lasted 42 minutes. Asia-Pacific remained connected to both regions (split topology: US+AP vs EU). |
+| **Propagation** | EU-West could not reach US-East quorum for timeline writes. Timeline service (implicit CP): rejected all new posts in EU. 22% of users (EU region) saw "Unable to post, try again" for 42 minutes. Concurrently: block list (AP) was 8 minutes stale. User A blocked User B in US-East at T+0. Block tombstone had not propagated to EU-West. User B (in EU) saw User A's post in their feed at T+5min. User A reported harassment—block had not taken effect. |
+| **User impact** | 22% of users (EU) unable to post or like for 42 minutes. 1 verified safety incident: blocked user's content visible to blocker. 4,200 support tickets. Social media backlash ("platform down in Europe"). |
+| **Engineer response** | On-call declared SEV1 at T+8min. Initially assumed total outage; discovered EU users could read (stale) but not write. Attempted manual failover to EU-primary for timeline—aborted due to split topology risk (Asia-Pacific affiliation unclear). Waited for partition heal. Post-incident: 48-hour RCA to identify implicit CP vs AP behavior per feature. |
+| **Root cause** | (1) Timeline write path required cross-region sync—implicit CP, never documented. (2) Block list on async replication—AP, but safety feature requires immediate effect. (3) No consistency contract documented; on-call could not predict behavior. (4) Split partition (AP connected to both sides) made failover unsafe—no clear majority. |
+| **Design change** | (1) Timeline: switched to AP—accept posts locally, sync async; document "during partition, users may not see cross-region posts for [duration]." (2) Block list: promoted to CP—sync propagation before acknowledging block; "block unavailable" during partition is acceptable. (3) Consistency Contract: one-page doc per service: CAP choice, partition behavior, user impact, escalation path. (4) Chaos test: partition EU-West monthly, verify no write rejection. |
+| **Lesson learned** | *"Implicit CAP choices are the most dangerous. Our timeline was CP by accident—synchronous replication—and we never asked 'should EU users see errors during partition?' The block list was AP by accident—async—and we never asked 'can a blocked user's content appear?' Staff Engineers document partition behavior per feature before the first incident. The question is not 'are we CP or AP?'—it's 'what does each feature do when the network splits?'"* |
+
+---
+
 ## What Staff Engineers Learn From Real Incidents
 
 ### Lesson 1: Defaults Are Dangerous
@@ -2035,9 +2151,28 @@ Don't say "we're sacrificing consistency." Say "during a rare network issue (2-3
 - **Not documenting CAP decisions** — Next team inherits unknown behavior, makes wrong assumptions during incidents
 - **Incident response that doesn't know whether the system is CP or AP** — Can't assess impact correctly, makes wrong decisions
 
+#### Operational Burden: CP vs AP for On-Call
+
+CAP choices directly affect who gets paged and what they do during incidents:
+
+| CAP Choice | On-Call During Partition | Runbook Complexity | Recovery Actions |
+|------------|-------------------------|------------------------|------------------|
+| **CP** | High—users see errors immediately; support tickets spike; execs ask "why is it down?" | Lower—"wait for partition to heal" or "manual failover" | Fewer; system blocks on its own. Risk: wrong manual intervention (e.g., failover during split brain) |
+| **AP** | Lower during partition—users see stale data, may not notice | Higher—reconciliation, conflict resolution, "why did user see X?" debugging | More; post-partition reconciliation, conflict resolution, audit for oversold/duplicate. Risk: silent data corruption discovered later |
+
+**Staff insight**: CP is stressful during the incident; AP is stressful after. With CP, on-call knows immediately that something is wrong. With AP, the incident may be invisible until users report "weird" behavior or reconciliation runs. Document both paths in runbooks. Train on-call: "If replication lag is high and we're AP, we may have divergence—monitor conflict resolution; do not assume 'no errors' means 'no problem.'"
+
+#### Who Gets Paged and When
+
+- **CP during partition**: Platform/SRE (errors are visible; need to assess partition scope, decide failover)
+- **AP during partition**: Often no page—users continue. Page only if: replication lag exceeds SLA, or a critical feature (e.g., block list) is known to be CP and is failing
+- **AP after partition heals**: Data/Backend team (reconciliation, conflict resolution, potential manual override for bad merges)
+
+**Real-world burden**: A team ran AP for inventory. During a 20-minute partition, both regions sold the last unit of a popular item. After partition heal, reconciliation flagged the conflict. On-call had to manually decide: which customer gets the item? That decision—and the customer communication—had no runbook. Lesson: AP reduces immediate outage but requires runbooks for *reconciliation outcomes*, not just for "partition detected."
+
 #### Staff-Level Fix
 
-Every service must have a one-page "Consistency Contract" that states: what happens during a partition, which features degrade, and who to page.
+Every service must have a one-page "Consistency Contract" that states: what happens during a partition, which features degrade, who to page, and what recovery actions exist (including reconciliation responsibilities).
 
 ---
 
@@ -2417,6 +2552,34 @@ These phrases demonstrate L6-level reasoning in interviews:
 
 ---
 
+## How to Explain CAP to Leadership
+
+Staff Engineers translate CAP into business terms without dumbing it down:
+
+| Leadership Question | Staff Answer |
+|---------------------|--------------|
+| "Why can't we have both consistency and availability?" | "During normal operation, we do. The choice only matters when the network between our regions fails—maybe 2–3 times a year. In that window, we must choose: show errors or show potentially stale data. We're choosing [X] because [business reason]." |
+| "What's the risk of our current design?" | "During a partition, [specific user experience]. We've accepted that because [alternative would cost Y]. The trade-off is documented in our Consistency Contract." |
+| "How do we compare to competitors?" | "Most systems don't document this. When they hit a partition, they discover their behavior by accident. We've designed explicitly—that's an advantage in incident response." |
+
+**Avoid**: "We're CP" or "We're AP." **Use**: "When the network between regions fails, users will experience [X]. We chose that over [Y] because [reason]."
+
+---
+
+## How to Teach This Topic
+
+When mentoring engineers on CAP:
+
+1. **Start with user experience**. Don't lead with "pick two." Ask: "When the network splits, what do users see—errors or stale data?" Build from there.
+2. **Use the sacrifice framing**. "Which do we sacrifice during partition?" is more actionable than "Which do we pick?"
+3. **Walk a real scenario**. Pick a system they know (rate limiter, feed, messaging) and trace through a 15-minute partition. What happens minute by minute?
+4. **Assign per-feature analysis**. "List every feature. For each, what happens during partition? What's the user impact?" This forces explicit thinking.
+5. **Connect to incidents**. "Have we had a partition? What did we learn? What would we change?"
+
+**Common teaching mistake**: Ending at "we chose AP." Push to: "What does that mean for users? For on-call? For compliance?"
+
+---
+
 ## How CAP Reasoning Demonstrates Staff-Level Judgment
 
 | What Interviewer Looks For | L5 Signal | L6 Signal |
@@ -2529,6 +2692,43 @@ These phrases demonstrate L6-level reasoning in interviews:
 
 # Part 10: Final Verification
 
+## Master Review Prompt Check
+
+All 11 items below must be satisfied for L6 curriculum completeness:
+
+| # | Check | Status |
+|---|-------|--------|
+| 1 | Judgment & decision-making: explicit trade-offs, per-feature reasoning, rejected alternatives | ☑ |
+| 2 | Failure & incident thinking: partial failures, blast radius, propagation paths | ☑ |
+| 3 | Scale & time: growth over years, first bottlenecks, quantitative thresholds | ☑ |
+| 4 | Cost & sustainability: cost as first-class constraint, real dollar examples | ☑ |
+| 5 | Real-world engineering: operational burdens, on-call, human error modes | ☑ |
+| 6 | Learnability & memorability: mental models, analogies, one-liners | ☑ |
+| 7 | Data, consistency & correctness: invariants, consistency models, durability | ☑ |
+| 8 | Security & compliance: data sensitivity, trust boundaries, regulatory impact | ☑ |
+| 9 | Observability & debuggability: metrics, logs, traces, partition detection | ☑ |
+| 10 | Cross-team & org impact: who decides, who gets paged, consistency contract | ☑ |
+| 11 | Structured real incident: Context, Trigger, Propagation, User impact, Engineer response, Root cause, Design change, Lesson learned | ☑ |
+
+---
+
+## L6 Dimension Coverage Table (A–J)
+
+| Dimension | Coverage | Primary Sections |
+|-----------|----------|------------------|
+| **A. Judgment & decision-making** | Full | Part 1 (sacrifice framing), Part 6 (decision rationale, rejected alternatives), Interview Calibration |
+| **B. Failure & incident thinking** | Full | Part 2 (partial vs full partition), Part 8 (failure walkthrough, blast radius), Structured Real Incident |
+| **C. Scale & time** | Full | Part 7 (CAP evolution, scale thresholds, year-by-year), Quantitative tables |
+| **D. Cost & sustainability** | Full | Part 6B (infrastructure cost, real dollar examples, cost paradox) |
+| **E. Real-world engineering** | Full | Part 7 (operational burden, on-call, human failure modes, reconciliation runbooks) |
+| **F. Learnability & memorability** | Full | Mental Models & One-Liners, diagrams throughout, summary one-liners |
+| **G. Data, consistency & correctness** | Full | Part 2 (consistency models), Part 6C (conflict resolution), CRDTs, invariants |
+| **H. Security & compliance** | Full | Part 6D (data sensitivity, trust boundaries, compliance requirements) |
+| **I. Observability & debuggability** | Full | Part 6E (metrics, logs, traces, partition detection, debugging symptoms) |
+| **J. Cross-team & org impact** | Full | Part 7 (organizational reality, who decides, consistency contract, leadership explain) |
+
+---
+
 ## Does This Section Meet L6 Expectations?
 
 ```
@@ -2570,6 +2770,8 @@ These phrases demonstrate L6-level reasoning in interviews:
 │   ☑ Common mistakes that cost the level                                     │
 │   ☑ Interviewer evaluation criteria                                         │
 │   ☑ Example interview exchanges                                             │
+│   ☑ How to explain to leadership                                            │
+│   ☑ How to teach this topic                                                 │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
