@@ -266,7 +266,7 @@ Not all assumptions are equal. Safe assumptions are:
 │   ─────────────────────────────────                                         │
 │   • Consistency requirements (strong vs eventual changes everything)        │
 │   • Latency SLAs (10ms vs 100ms vs 1s are different designs)                │
-│   • Compliance/regulatory constraints (PCI, HIPAA, GDPR)—see §12.9         │
+│   • Compliance/regulatory constraints (PCI, HIPAA, GDPR)—see §12.9          │
 │   • Read vs write ratio extremes (99% reads is different from 50/50)        │
 │                                                                             │
 │   DON'T ASSUME (let interviewer guide):                                     │
@@ -1869,12 +1869,12 @@ When navigating ambiguity, Staff Engineers treat these as first-class constraint
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    STAFF: FIRST-CLASS CONSTRAINTS UNDER AMBIGUITY           │
 │                                                                             │
-│   L5 APPROACH                          L6 APPROACH                           │
-│   ───────────                         ───────────                            │
-│   "We'll add monitoring later"   →   "Metrics/logs/traces in from day 1"   │
+│   L5 APPROACH                          L6 APPROACH                          │
+│   ───────────                         ───────────                           │
+│   "We'll add monitoring later"   →   "Metrics/logs/traces in from day 1"    │
 │   "Assume we need scale"          →   "Assume X cost ceiling; design to it" │
-│   "Security can be retrofitted"   →   "Clarify data sensitivity first"     │
-│   "Eventually consistent is fine"  →   "Which invariants must never break?"  │
+│   "Security can be retrofitted"   →   "Clarify data sensitivity first"      │
+│   "Eventually consistent is fine"  →   "Which invariants must never break?" │
 │                                                                             │
 │   KEY: Don't defer; clarify or assume explicitly, then design.              │
 └─────────────────────────────────────────────────────────────────────────────┘

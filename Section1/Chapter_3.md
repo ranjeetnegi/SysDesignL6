@@ -140,10 +140,10 @@ Let's start with the simplest case to build intuition.
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   This is the simplest organizational model. It works well because:         │
-│   • Clear ownership: One team, one service, one decision-maker             │
-│   • Aligned incentives: Team that builds it also operates it               │
-│   • Fast iteration: No cross-team coordination needed                      │
-│   • Clear accountability: When it breaks, everyone knows who to ask        │
+│   • Clear ownership: One team, one service, one decision-maker              │
+│   • Aligned incentives: Team that builds it also operates it                │
+│   • Fast iteration: No cross-team coordination needed                       │
+│   • Clear accountability: When it breaks, everyone knows who to ask         │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -158,10 +158,10 @@ Now let's add complexity:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    COMPLEX CASE: MULTIPLE TEAMS, SHARED SERVICE             │
 │                                                                             │
-│   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐             │
-│   │  TEAM A  │    │  TEAM B  │    │  TEAM C  │    │  TEAM D  │             │
-│   │ (Owner)  │    │ (Client) │    │ (Client) │    │ (Client) │             │
-│   └────┬─────┘    └────┬─────┘    └────┬─────┘    └────┬─────┘             │
+│   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐              │
+│   │  TEAM A  │    │  TEAM B  │    │  TEAM C  │    │  TEAM D  │              │
+│   │ (Owner)  │    │ (Client) │    │ (Client) │    │ (Client) │              │
+│   └────┬─────┘    └────┬─────┘    └────┬─────┘    └────┬─────┘              │
 │        │               │               │               │                    │
 │        ▼               ▼               ▼               ▼                    │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -171,10 +171,10 @@ Now let's add complexity:
 │                                                                             │
 │   NEW PROBLEMS:                                                             │
 │   • Team A on-call now handles incidents affecting B, C, D                  │
-│   • Feature requests from B, C, D compete with A's priorities              │
+│   • Feature requests from B, C, D compete with A's priorities               │
 │   • Breaking changes require coordinating with all clients                  │
-│   • Team A becomes bottleneck for everyone's roadmap                       │
-│   • Conflicting requirements: B wants low latency, C wants batch access    │
+│   • Team A becomes bottleneck for everyone's roadmap                        │
+│   • Conflicting requirements: B wants low latency, C wants batch access     │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
