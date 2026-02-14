@@ -1388,8 +1388,8 @@ At 10M users, this design costs 5× what a cost-aware alternative would. The int
 │   "Scale horizontally"             →   "What's the cost curve? Is       │
 │                                        vertical scaling cheaper here?"  │
 │                                                                         │
-│   "Cache everything for speed"     →   "Cache hit rate vs. memory cost  │
-│                                        —is this cache paying for itself?"│
+│   "Cache everything for speed"     →   Cache hit rate vs. memory cost   │
+│                                        —is this cache paying for itself?│
 │                                                                         │
 │   KEY INSIGHT: The cheapest component is the one you don't build.       │
 │                                                                         │
@@ -1442,7 +1442,7 @@ A candidate designs a payment system and says "we'll use eventual consistency fo
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    CONSISTENCY REASONING (L6)                            │
+│                    CONSISTENCY REASONING (L6)                           │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │   STEP 1: State the invariants                                          │
@@ -1452,8 +1452,8 @@ A candidate designs a payment system and says "we'll use eventual consistency fo
 │                                                                         │
 │   STEP 2: Classify operations by consistency need                       │
 │   STRONG: Money transfer, inventory decrement, unique username          │
-│   EVENTUAL: Read counts, recommendation scores, notification badges    │
-│   CAUSAL: Chat message ordering within a conversation                  │
+│   EVENTUAL: Read counts, recommendation scores, notification badges     │
+│   CAUSAL: Chat message ordering within a conversation                   │
 │                                                                         │
 │   STEP 3: Choose the cheapest consistency model that preserves          │
 │           each invariant                                                │
