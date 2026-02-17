@@ -25,46 +25,46 @@ These aren't "beginner" topics you outgrow. Staff Engineers who truly understand
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    SECTION 0: LEARNING PATH                                  │
+│                    SECTION 0: LEARNING PATH                                 │
 │                                                                             │
 │   Chapter 1                                                                 │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  SYSTEMS, SERVERS, AND CLIENTS                                       │   │
+│   │  SYSTEMS, SERVERS, AND CLIENTS                                      │   │
 │   │  What is a system? Request/response. What happens when you type URL │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                              │                                              │
 │                              ▼                                              │
 │   Chapter 2                                                                 │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  APIs, FRONTEND, BACKEND, AND DATABASES                              │   │
-│   │  API contracts, BFF, rendering, data persistence, scaling data       │   │
+│   │  APIs, FRONTEND, BACKEND, AND DATABASES                             │   │
+│   │  API contracts, BFF, rendering, data persistence, scaling data      │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                              │                                              │
 │                              ▼                                              │
 │   Chapter 3                                                                 │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  MICROSERVICES AND REQUEST FLOW                                       │   │
-│   │  From monolith to services; tracing requests across the system       │   │
+│   │  MICROSERVICES AND REQUEST FLOW                                     │   │
+│   │  From monolith to services; tracing requests across the system      │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                              │                                              │
 │                              ▼                                              │
 │   Chapter 4                                                                 │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  DATABASES, SCALE, AND WHAT BREAKS                                    │   │
+│   │  DATABASES, SCALE, AND WHAT BREAKS                                  │   │
 │   │  Single DB → replicas → sharding; inflection points at scale        │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                              │                                              │
 │                              ▼                                              │
 │   Chapter 5                                                                 │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  NUMBERS EVERY ENGINEER MUST KNOW                                     │   │
+│   │  NUMBERS EVERY ENGINEER MUST KNOW                                   │   │
 │   │  Orders of magnitude, scale, latency, QPS, availability, capacity   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                              │                                              │
 │                              ▼                                              │
 │   Chapter 6                                                                 │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  CORE BUILDING BLOCKS                                                │   │
+│   │  CORE BUILDING BLOCKS                                               │   │
 │   │  Hash, cache, state vs stateless, idempotency, queues, sync/async   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │

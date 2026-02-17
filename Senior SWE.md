@@ -18,12 +18,12 @@ Systems, servers, clients, APIs, frontend/backend/DB, OS (process/memory/CPU/dis
 
 | Ch | Link |
 |----|------|
-| 1 | [Ch 1: Systems, Servers, Clients](Section0/Basics_1_Systems_Servers_Clients.md) |
-| 2 | [Ch 2: APIs, Frontend, Backend, DB](Section0/Basics_2_APIs_Frontend_Backend_DB.md) |
-| 3 | [Ch 3: OS Fundamentals](Section0/Basics_3_OS_Fundamentals.md) |
-| 4 | [Ch 4: Networking Foundations](Section0/Basics_4_Networking_Foundations.md) |
-| 5 | [Ch 5: Numbers & Estimation](Section0/Basics_5_Numbers_Estimation.md) |
-| 6 | [Ch 6: Core Building Blocks](Section0/Basics_6_Core_Building_Blocks.md) |
+| 1 | [Ch 1: Systems, Servers, Clients](Section0/Chapter_1_Systems_Servers_Clients.md) |
+| 2 | [Ch 2: APIs, Frontend, Backend, DB](Section0/Chapter_2_APIs_Frontend_Backend_DB.md) |
+| 3 | [Ch 3: OS Fundamentals](Section0/Chapter_3_OS_Fundamentals.md) |
+| 4 | [Ch 4: Networking Foundations](Section0/Chapter_4_Networking_Foundations.md) |
+| 5 | [Ch 5: Numbers & Estimation](Section0/Chapter_5_Numbers_Estimation.md) |
+| 6 | [Ch 6: Core Building Blocks](Section0/Chapter_6_Core_Building_Blocks.md) |
 
 *When to use:* Before or alongside Section 2. Use for quick reference on request paths, capacity math, API/DB trade-offs, and building-block choices during design.
 
