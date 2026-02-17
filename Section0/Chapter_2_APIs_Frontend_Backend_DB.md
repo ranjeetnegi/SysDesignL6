@@ -274,9 +274,9 @@ Staff engineers design for this: **horizontal scaling** of API gateways, **cachi
            │  (auth, rate limit checked here)
            ▼
     ┌─────────────────────────────────────┐
-    │           API GATEWAY                │  ◄── Contract boundary
-    │  • Routing    • Auth    • Rate limit  │
-    │  • Logging    • Throttling           │
+    │           API GATEWAY               │  ◄── Contract boundary
+    │  • Routing    • Auth • Rate limit   │
+    │  • Logging    • Throttling          │
     └──────┬──────────────────────────────┘
            │
      ┌─────┴─────┬─────────────┐
@@ -339,7 +339,7 @@ A **BFF** is a backend service tailored to a specific frontend. Instead of one g
     ┌─────────┐     ┌─────────────┐
     │ Web App │────►│  Web BFF    │
     └─────────┘     └──────┬──────┘
-                          │
+                           │
     ┌─────────┐     ┌──────┴──────┐
     │ Mobile  │────►│ Mobile BFF  │
     │  App    │     └──────┬──────┘
@@ -409,7 +409,7 @@ Rendering strategy directly impacts **Time to First Contentful Paint (FCP)** and
          │           │          ▼              │  JS fetches data
          │           │     User sees page      │  JS renders
          │           │     (fast first paint)  │  User sees page
-         │           │                        │  (slower first paint)
+         │           │                         │  (slower first paint)
          
     SSG (Static Site Generation)         HYBRID (e.g., Next.js)
     
@@ -447,40 +447,40 @@ Rendering strategy directly impacts **Time to First Contentful Paint (FCP)** and
 ## ASCII Diagram: Frontend → BFF → Backend Services → Databases
 
 ```
-    ┌────────────────────────────────────────────────────────────┐
-    │                      FRONTEND LAYER                         │
+    ┌───────────────────────────────────────────────────────────┐
+    │                      FRONTEND LAYER                       │
     │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-    │  │   Web App    │  │ Mobile App  │  │ Desktop App │        │
-    │  │ (React/Vue)  │  │ (iOS/Android)│  │ (Electron)  │        │
-    │  └──────┬───────┘  └──────┬──────┘  └──────┬──────┘        │
-    └─────────┼─────────────────┼────────────────┼──────────────┘
-              │                 │                 │
-              │   API calls      │                 │
-              ▼                 ▼                 ▼
-    ┌────────────────────────────────────────────────────────────┐
-    │                     BFF LAYER (optional)                     │
+    │  │   Web App   │  │ Mobile App  │  │ Desktop App │        │
+    │  │ (React/Vue) │  │(iOS/Android)│  │ (Electron)  │        │
+    │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘        │
+    └─────────┼────────────────┼────────────────┼───────────────┘
+              │                │                │
+              │   API calls    │                │
+              ▼                ▼                ▼
+    ┌───────────────────────────────────────────────────────────┐
+    │                     BFF LAYER (optional)                  │
     │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
     │  │   Web BFF   │  │ Mobile BFF  │  │  Shared API │        │
-    │  └──────┬───────┘  └──────┬──────┘  └──────┬──────┘        │
-    └─────────┼─────────────────┼────────────────┼──────────────┘
-              │                 │                 │
-              └─────────────────┼─────────────────┘
-                                │
-                                ▼
-    ┌────────────────────────────────────────────────────────────┐
-    │                   BACKEND SERVICES                           │
-    │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐        │
-    │  │  Auth   │ │  User   │ │  Feed   │ │ Payment │ ...      │
-    │  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘        │
+    │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘        │
+    └─────────┼────────────────┼────────────────┼──────────────┘
+              │                │                │
+              └────────────────┼────────────────┘
+                               │
+                               ▼
+    ┌───────────────────────────────────────────────────────────┐
+    │                   BACKEND SERVICES                        │
+    │  ┌─────────┐ ┌───────┐ ┌─────────┐ ┌────────┐             │
+    │  │  Auth   │ │  User │ │  Feed   │ │ Payment│ ...         │
+    │  └────┬────┘ └───┬───┘ └────┬────┘ └───┬────┘             │
     └───────┼──────────┼──────────┼──────────┼──────────────────┘
             │          │          │          │
             ▼          ▼          ▼          ▼
     ┌────────────────────────────────────────────────────────────┐
-    │                    DATABASE LAYER                            │
-    │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐        │
-    │  │ Users   │ │ Posts   │ │ Orders  │ │ Payments│        │
-    │  │   DB    │ │   DB    │ │   DB    │ │   DB    │        │
-    │  └─────────┘ └─────────┘ └─────────┘ └─────────┘        │
+    │                    DATABASE LAYER                          │
+    │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
+    │  │ Users   │ │ Posts   │ │ Orders  │ │ Payments│           │
+    │  │   DB    │ │   DB    │ │   DB    │ │   DB    │           │
+    │  └─────────┘ └─────────┘ └─────────┘ └─────────┘           │
     └────────────────────────────────────────────────────────────┘
 ```
 
@@ -598,25 +598,25 @@ Choosing a database is one of the most consequential decisions in system design.
     Range scans?                 joins, aggregations?        (social, recs)
             │                           │                           │
             ▼                           ▼                           ▼
-    ┌───────────────┐           ┌───────────────┐           ┌───────────────┐
-    │ Key-Value or  │           │  Relational   │           │     Graph     │
-    │ Document      │           │  (PostgreSQL, │           │ (Neo4j, etc.)│
-    │ (Redis,       │           │   MySQL)      │           └───────────────┘
-    │ DynamoDB,     │           └───────┬───────┘
+    ┌──────────────┐           ┌───────────────┐           ┌───────────────┐
+    │ Key-Value or │           │  Relational   │           │     Graph     │
+    │ Document     │           │  (PostgreSQL, │           │ (Neo4j, etc.) │
+    │ (Redis,      │           │   MySQL)      │           └───────────────┘
+    │ DynamoDB,    │           └───────┬───────┘
     │ MongoDB)     │                   │
-    └──────┬──────┘           Scale limits?
-            │                           │
-    Scale?  │                   ┌───────┴───────┐
-            │                   │               │
-            │                   ▼               ▼
-            │           Single node OK    Need sharding,
-            │           → Stay SQL        distributed?
-            │                                   │
-            ▼                                   ▼
+    └──────┬─────-─┘           Scale limits?
+           │                           │
+    Scale? │                   ┌───────┴───────┐
+           │                   │               │
+           │                   ▼               ▼
+           │           Single node OK    Need sharding,
+           │           → Stay SQL        distributed?
+           │                                   │
+           ▼                                   ▼
     Read-heavy? Write-heavy?            ┌───────────────┐
-            │                           │ Cassandra,    │
-            ▼                           │ DynamoDB,     │
-    ┌───────────────┐                   │ Spanner      │
+           │                            │ Cassandra,    │
+           ▼                            │ DynamoDB,     │
+    ┌───────────────┐                   │ Spanner       │
     │ Time-series?  │                   └───────────────┘
     │ → InfluxDB,   │
     │   TimescaleDB │
@@ -732,20 +732,20 @@ Every scaling stage solves a problem—and introduces new ones. Understanding th
 ### Scaling Timeline: ASCII Diagram
 
 ```
-    USERS (approx)    100      10K      100K     1M       10M      100M
-    QPS (approx)      100      1K       10K      100K     1M       10M
+    USERS (approx)    100        10K      100K     1M       10M      100M
+    QPS (approx)      100        1K       10K      100K     1M       10M
                          │        │        │         │        │        │
                          ▼        ▼        ▼         ▼        ▼        ▼
     ┌─────────────────────────────────────────────────────────────────────┐
-    │ STAGE 1: Single DB                                                 │
-    │ ●────────●                                                         │
-    │ One primary. All traffic.                                          │
+    │ STAGE 1: Single DB                                                  │
+    │ ●────────●                                                          │
+    │ One primary. All traffic.                                           │
     └─────────────────────────────────────────────────────────────────────┘
                               │
                               │ Read load grows
                               ▼
     ┌─────────────────────────────────────────────────────────────────────┐
-    │ STAGE 2: Read Replicas                                             │
+    │ STAGE 2: Read Replicas                                              │
     │         ● (primary)                                                 │
     │        /|\                                                          │
     │       ● ● ● (replicas)                                              │
@@ -755,7 +755,7 @@ Every scaling stage solves a problem—and introduces new ones. Understanding th
                                     │ Connection exhaustion
                                     ▼
     ┌─────────────────────────────────────────────────────────────────────┐
-    │ STAGE 3: Connection Pooling                                        │
+    │ STAGE 3: Connection Pooling                                         │
     │ App ──► [PgBouncer] ──► DB                                          │
     │ Hundreds of logical conns → dozens of physical                      │
     └─────────────────────────────────────────────────────────────────────┘
@@ -765,7 +765,7 @@ Every scaling stage solves a problem—and introduces new ones. Understanding th
     ┌─────────────────────────────────────────────────────────────────────┐
     │ STAGE 4: Caching                                                    │
     │ App ──► [Redis] ──► DB (on miss)                                    │
-    │ Cache invalidation, consistency trade-offs                           │
+    │ Cache invalidation, consistency trade-offs                          │
     └─────────────────────────────────────────────────────────────────────┘
                                                     │
                                                     │ Write limit, storage limit
@@ -773,8 +773,8 @@ Every scaling stage solves a problem—and introduces new ones. Understanding th
     ┌─────────────────────────────────────────────────────────────────────┐
     │ STAGE 5: Sharding                                                   │
     │ Shard 1 │ Shard 2 │ Shard 3 │ ... │ Shard N                         │
-    │ (user 0-1M) (1M-2M) (2M-3M)        (N-1 to N)                      │
-    │ Cross-shard queries hard; rebalancing complex                        │
+    │ (user 0-1M) (1M-2M) (2M-3M)        (N-1 to N)                       │
+    │ Cross-shard queries hard; rebalancing complex                       │
     └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -901,10 +901,10 @@ At 10K QPS, creating 10K connections per second to the database would be catastr
 
 ```
     ┌─────────────────────────────────────────────────┐
-    │              APPLICATION SERVERS               │
-    │  ┌─────────┐ ┌─────────┐ ┌─────────┐          │
-    │  │  App 1  │ │  App 2  │ │  App 3  │  ...     │
-    │  └────┬────┘ └────┬────┘ └────┬────┘          │
+    │              APPLICATION SERVERS                │
+    │  ┌─────────┐  ┌─────────┐  ┌─────────┐          │
+    │  │  App 1  │  │  App 2  │  │  App 3  │  ...     │
+    │  └────┬────┘  └────┬────┘  └────┬────┘          │
     │       │            │            │               │
     │       └────────────┼────────────┘               │
     │                    │                            │
@@ -920,11 +920,11 @@ At 10K QPS, creating 10K connections per second to the database would be catastr
                          │  don't create per-request
                          ▼
     ┌─────────────────────────────────────────────────┐
-    │                   DATABASE                       │
-    │  ┌─────────────────┐  ┌─────────────────┐      │
-    │  │    Primary      │  │   Replicas       │      │
-    │  │  (read + write)  │──│  (read-only)    │      │
-    │  └─────────────────┘  └─────────────────┘      │
+    │                   DATABASE                      │
+    │  ┌─────────────────┐  ┌─────────────────┐       │
+    │  │    Primary      │  │   Replicas      │       │
+    │  │  (read + write) │──│  (read-only)    │       │
+    │  └─────────────────┘  └─────────────────┘       │
     └─────────────────────────────────────────────────┘
 ```
 

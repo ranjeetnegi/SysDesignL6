@@ -75,15 +75,15 @@ L5 engineers often think in components: "I'll build the rate limiter. I'll make 
 │                                                                         │
 │   L5: "I built the cache layer"                                         │
 │   L6: "The cache layer reduces DB load by 60%, but if it fails we       │
-│        have thundering herd—here's our stampede protection"            │
+│        have thundering herd—here's our stampede protection"             │
 │                                                                         │
-│   L5: "Our service handles 10K QPS"                                      │
-│   L6: "Our service handles 10K QPS, but each request fans out to       │
-│        3 downstream services—we're responsible for 30K downstream QPS"│
+│   L5: "Our service handles 10K QPS"                                     │
+│   L6: "Our service handles 10K QPS, but each request fans out to        │
+│        3 downstream services—we're responsible for 30K downstream QPS"  │
 │                                                                         │
 │   L5: "The database is the bottleneck"                                  │
-│   L6: "The database is the bottleneck; here's the read/write ratio,    │
-│        why replication lag matters, and the migration path to shard"   │
+│   L6: "The database is the bottleneck; here's the read/write ratio,     │
+│        why replication lag matters, and the migration path to shard"    │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -105,8 +105,8 @@ At 10 services, you can maybe keep the full picture in your head. At 100 service
     │          │ ◄────── │          │ ◄────── │ Postgres)│
     └──────────┘         └──────────┘         └──────────┘
          │                     │                     │
-         │   HTTP Request      │   SQL Query          │
-         │   HTTP Response     │   Query Result       │
+         │   HTTP Request      │   SQL Query         │
+         │   HTTP Response     │   Query Result      │
          └─────────────────────┴─────────────────────┘
          
     One request path. One hop to server. One hop to DB.
@@ -116,19 +116,19 @@ At 10 services, you can maybe keep the full picture in your head. At 100 service
 **Complex system** (multiple services, caches, queues, load balancer):
 
 ```
-    ┌──────────┐     ┌─────────────┐     ┌──────────────┐
-    │  CLIENT  │────►│ Load Balancer│────►│ API Gateway   │
-    └──────────┘     └──────┬───────┘     └──────┬───────┘
+    ┌──────────┐     ┌─────────────┐      ┌──────────────┐
+    │  CLIENT  │────►│Load Balancer│─────►│ API Gateway  │
+    └──────────┘     └─────┬───────┘      └──────┬───────┘
                            │                     │
               ┌────────────┼────────────┐        │
               │            │            │        │
               ▼            ▼            ▼        ▼
-         ┌─────────┐  ┌─────────┐  ┌─────────┐ ┌─────────────┐
+         ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────────┐
          │Service A│  │Service B│  │Service C│  │   Cache     │
          │ (Auth)  │  │(Profile)│  │ (Feed)  │  │  (Redis)    │
          └────┬────┘  └────┬────┘  └────┬────┘  └──────┬──────┘
-              │            │            │               │
-              └────────────┼────────────┘               │
+              │            │            │              │
+              └────────────┼────────────┘              │
                            │                           │
                            ▼                           │
                     ┌─────────────┐                    │
@@ -139,8 +139,8 @@ At 10 services, you can maybe keep the full picture in your head. At 100 service
               ┌────────────┼────────────┐
               ▼            ▼            ▼
          ┌─────────┐  ┌─────────┐  ┌─────────┐
-         │   DB    │  │   DB    │  │ Worker   │
-         │Primary  │  │ Replica │  │ Service  │
+         │   DB    │  │   DB    │  │ Worker  │
+         │Primary  │  │ Replica │  │ Service │
          └─────────┘  └─────────┘  └─────────┘
          
     One user request → many service calls, cache lookups, queue publishes.
@@ -248,8 +248,8 @@ This is crucial. Service A might be a **server** to the mobile app (it receives 
      ┌─────┴─────┐
      ▼           ▼
 ┌─────────┐  ┌─────────┐
-│Database │  │Service B │
-│(Server) │  │(Server)  │
+│Database │  │Service B│
+│(Server) │  │(Server) │
 └─────────┘  └─────────┘
 ```
 
@@ -386,9 +386,9 @@ Capacity planning starts at the single-server level. You can't scale out effecti
     │ Client 3│     └────┬────┘
     └────┬────┘          │
          │               │      ┌─────────────────┐
-         │          ┌────┴───────│     SERVER      │
-         └──────────│           │  (one process,   │
-                    │           │   many clients)  │
+         │          ┌────┴──────│     SERVER      │
+         └──────────│           │  (one process,  │
+                    │           │   many clients) │
     ┌─────────┐     │           └────────┬────────┘
     │ Client 4│─────┘                    │
     └─────────┘                          │
@@ -521,7 +521,7 @@ Browser receives response, parses HTML, discovers additional resources (CSS, JS,
          │
          ▼
     ┌─────────────────┐
-    │ Reverse Proxy  │  → Terminates TLS, routing, maybe static files
+    │ Reverse Proxy   │  → Terminates TLS, routing, maybe static files
     │  (e.g. nginx)   │
     └────┬────────────┘
          │
@@ -546,28 +546,28 @@ The following diagram shows the *complete* path for a cache miss (CDN miss, requ
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                    FULL URL REQUEST PATH — EVERY HOP                                 │
-│                    (Latency estimates: typical, not worst-case)                      │
+│                    FULL URL REQUEST PATH — EVERY HOP                                │
+│                    (Latency estimates: typical, not worst-case)                     │
 └─────────────────────────────────────────────────────────────────────────────────────┘
 
     USER TYPES URL
          │
          │  HOP 1: Browser DNS Cache
-         ▼  ┌─────────────────────┐
-    ┌──────┴──┐  Check: Do we have  │  HIT: 0 ms | MISS: continue
-    │ Browser │  example.com IP?   │
-    │  Cache  │└─────────────────────┘
+         ▼ ┌────────────────-─────┐
+    ┌──────┴──┐  Check: Do we have│  HIT: 0 ms | MISS: continue
+    │ Browser │  example.com IP?  │
+    │  Cache  │───────────────────┘
     └────┬────┘
          │  HOP 2: OS DNS Cache (e.g., systemd-resolved, /etc/hosts)
-         ▼  ┌─────────────────────┐
-    ┌──────┴──┐  OS-level cache    │  HIT: 0–1 ms | MISS: continue
-    │   OS    │└─────────────────────┘
+         ▼ ┌─────────────────────┐
+    ┌──────┴──┐  OS-level cache  │  HIT: 0–1 ms | MISS: continue
+    │   OS    │──────────────────┘
     │  Cache  │
     └────┬────┘
          │  HOP 3: Recursive Resolver (e.g., 8.8.8.8, ISP DNS)
-         ▼  ┌─────────────────────┐
-    ┌──────┴──┐  Resolver cache?   │  HIT: 1–5 ms | MISS: recursive resolution
-    │Resolver │└─────────────────────┘
+         ▼ ┌─────────────────────┐
+    ┌──────┴──┐  Resolver cache? │  HIT: 1–5 ms | MISS: recursive resolution
+    │Resolver │──────────────────┘
     └────┬────┘
          │  HOP 4: Root Nameserver (.)
          │  "Who knows .com?"  →  ~1–5 ms (cached heavily)
@@ -590,38 +590,38 @@ The following diagram shows the *complete* path for a cache miss (CDN miss, requ
           ▼
     ┌─────────────────────────────────────────────────────────────────────────┐
     │  HOP 9: CDN Check (if using CloudFront, Cloudflare, etc.)               │
-    │  DNS may return CDN IP. Request hits edge PoP.                           │
+    │  DNS may return CDN IP. Request hits edge PoP.                          │
     │  Cache lookup: 1–5 ms.  HIT → return (skip origin). MISS → continue.    │
     └─────────────────────────────────┬───────────────────────────────────────┘
                                       │  MISS: request forwarded to origin
           │                           ▼
-          │                  ┌─────────────────┐
-          │                  │ HOP 10: Load Balancer  │  ~1–3 ms
-          │                  │ Health check, pick backend                      │
-          │                  └────────┬────────┘
+          │                  ┌──────────────────────────────┐
+          │                  │ HOP 10: Load Balancer        │  ~1–3 ms
+          │                  │ Health check, pick backend   │
+          │                  └────────┬─────────────────────┘
+          │                           │
+          │                           ▼
+          │                  ┌───────────────────────────────────────┐
+          │                  │ HOP 11: Reverse Proxy (nginx, etc.)   │  ~1–2 ms
+          │                  │ TLS term, routing, maybe static       │
+          │                  └────────┬──────────────────────────────┘
+          │                           │
+          │                           ▼
+          │                  ┌────────────────────────────────────────┐
+          │                  │ HOP 12: Application Server             │  ~10–500 ms
+          │                  │ Business logic, cache lookups, etc.    │
+          │                  └────────┬───────────────────────────────┘
+          │                           │
+          │                           ▼
+          │                  ┌────────────────────────────┐
+          │                  │ HOP 13: Connection Pool    │  Wait for conn: 0–5 ms
+          │                  │ Checkout DB connection     │
+          │                  └────────┬───────────────────┘
           │                           │
           │                           ▼
           │                  ┌─────────────────┐
-          │                  │ HOP 11: Reverse Proxy (nginx, etc.)  │  ~1–2 ms
-          │                  │ TLS term, routing, maybe static     │
-          │                  └────────┬────────┘
-          │                           │
-          │                           ▼
-          │                  ┌─────────────────┐
-          │                  │ HOP 12: Application Server  │  ~10–500 ms
-          │                  │ Business logic, cache lookups, etc. │
-          │                  └────────┬────────┘
-          │                           │
-          │                           ▼
-          │                  ┌─────────────────┐
-          │                  │ HOP 13: Connection Pool  │  Wait for conn: 0–5 ms
-          │                  │ Checkout DB connection   │
-          │                  └────────┬────────┘
-          │                           │
-          │                           ▼
-          │                  ┌─────────────────┐
-          │                  │ HOP 14: Database  │  ~1–100 ms per query
-          │                  │ Query execution  │
+          │                  │ HOP 14: Database│  ~1–100 ms per query
+          │                  │ Query execution │
           │                  └─────────────────┘
           │
           │  Response traverses back: DB → App → Reverse Proxy → LB → CDN → TLS → User
@@ -702,37 +702,37 @@ Staff engineers instrument each hop, measure p50/p95/p99, and optimize the slowe
     ┌────────────┐
     │    DNS     │─────────────────────────────────────┐
     └─────┬──────┘                                     │
-          │ Returns IP                                  │
-          │                                             │
-          │  TCP+TLS: 50-150ms (1-2 RTT)                │
-          ▼                                             │
-    ┌────────────┐     ┌────────────┐                   │
-    │  TCP/TLS   │────►│   HTTP     │  Request sent     │
-    │ Handshake  │     │  Request   │  ~few ms          │
-    └────────────┘     └─────┬──────┘                   │
-                            │                            │
-                            │  Server processing:         │
-                            │  10-500ms (or more)        │
-                            ▼                            │
-                     ┌────────────┐                      │
-                     │  SERVER    │  DB, cache,          │
-                     │ (LB→App)   │  external APIs       │
-                     └─────┬──────┘                      │
-                            │                             │
-                            │  HTTP Response              │
-                            │  ~few ms                    │
-                            ▼                             │
-                     ┌────────────┐                      │
-                     │  BROWSER   │  Parse, render       │
-                     │  Renders   │  ~50-200ms            │
-                     └─────┬──────┘                      │
-                            │                             │
-                            ▼                             │
-                     [User sees page]                     │
-                     Total: ~100-1000ms typical           │
-                                                         │
-    CDN HIT: User ──► DNS ──► CDN Edge ──► Response      │
-              (skips origin, 20-50ms total possible) ◄───┘
+          │ Returns IP                                 │
+          │                                            │
+          │  TCP+TLS: 50-150ms (1-2 RTT)               │
+          ▼                                            │
+    ┌────────────┐     ┌────────────┐                  │
+    │  TCP/TLS   │────►│   HTTP     │  Request sent    │
+    │ Handshake  │     │  Request   │  ~few ms         │
+    └────────────┘     └─────┬──────┘                  │
+                             │                         │
+                             │  Server processing:     │
+                             │  10-500ms (or more)     │
+                             ▼                         │
+                     ┌────────────┐                    │
+                     │  SERVER    │  DB, cache,        │
+                     │ (LB→App)   │  external APIs     │
+                     └─────┬──────┘                    │
+                           │                           │
+                           │  HTTP Response            │
+                           │  ~few ms                  │
+                           ▼                           │
+                     ┌────────────┐                    │
+                     │  BROWSER   │  Parse, render     │
+                     │  Renders   │  ~50-200ms         │
+                     └─────┬──────┘                    │
+                           │                           │
+                           ▼                           │
+                     [User sees page]                  │
+                     Total: ~100-1000ms typical        │
+                                                       │
+    CDN HIT: User ──► DNS ──► CDN Edge ──► Response    │
+              (skips origin, 20-50ms total possible) ◄─┘
 ```
 
 ---
@@ -962,18 +962,18 @@ If each downstream service has its own fan-out, the numbers grow further. Staff 
     │Feed Service │
     └────┬────────┘
          │
-         │ 3a    3b    3c    3d    3e
-         ▼      ▼     ▼     ▼     ▼
-    ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐
-    │Auth │ │User │ │Post │ │Engage│ │Rank │
-    │Svc  │ │Graph│ │Svc  │ │Svc   │ │Svc  │
-    └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘
-       │       │       │       │       │
-       │       │       │       │       │
-       ▼       ▼       ▼       ▼       ▼
-    ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐
-    │ DB  │ │ DB  │ │ DB  │ │ DB  │ │ ML   │
-    └─────┘ └─────┘ └─────┘ └─────┘ └─────┘
+         │ 3a    3b     3c     3d      3e
+         ▼       ▼      ▼      ▼       ▼
+    ┌─────┐  ┌─────┐ ┌─────┐ ┌────-─┐ ┌─────┐
+    │Auth │  │User │ │Post │ │Engage│ │Rank │
+    │Svc  │  │Graph│ │Svc  │ │Svc   │ │Svc  │
+    └──┬──┘  └──┬──┘ └──┬──┘ └──┬──-┘ └──┬──┘
+       │        │       │       │        │
+       │        │       │       │        │
+       ▼        ▼       ▼       ▼        ▼
+    ┌─────┐ ┌─────┐ ┌─────┐  ┌─────┐  ┌─────┐
+    │ DB  │ │ DB  │ │ DB  │  │ DB  │  │ ML  │
+    └─────┘ └─────┘ └─────┘  └─────┘  └─────┘
     
     1 user request → 5+ service calls → potentially 5+ DB/ML calls
     Latency = critical path (often the slowest of 3a–3e)
